@@ -41,6 +41,10 @@ Dir.chdir(ROOT) do
   FileUtils.rm_rf(bundle)
   FileUtils.mkdir_p([binary_dir, File.join(resources, "ruby")])
   run("tar", "-xzf", archive, "-C", File.join(resources, "ruby"))
+  # The pinned Windows runtime already includes this upstream fix.
+  unless WINDOWS
+    run("git", "apply", "--directory", File.join(resources, "ruby").delete_prefix("#{ROOT}/"), "packaging/openssl-crl.patch")
+  end
   %w[app.rb lib assets].each { |path| copy(path, File.join(resources, "app", path)) }
   %w[pdfium tokenizer].each { |name| copy("vendor/#{name}", File.join(resources, "app/vendor", name)) }
   %w[lib lacci/lib scarpe-components/lib CHANGELOG.md LICENSE.txt docs/static/manual.md].each do |path|

@@ -103,6 +103,8 @@ mise exec -- ruby bin/archive-package
 
 The Windows package uses a small native launcher and a source patch for Scarpe's Windows process handling and native clipboard. The macOS bundle uses an ad-hoc code signature. Public distribution with a verified publisher would additionally need platform signing credentials and macOS notarization.
 
+Packaging also applies [Ruby OpenSSL's upstream CRL fix](https://github.com/ruby/openssl/pull/950) to the pinned portable runtime. Certificate and hostname verification remain enabled.
+
 ## Local data
 
 Linux: `${XDG_DATA_HOME:-~/.local/share}/aljam3`.

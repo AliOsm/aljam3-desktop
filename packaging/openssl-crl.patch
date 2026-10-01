@@ -1,0 +1,16 @@
+Backport ruby/openssl#950 to Traveling Ruby's bundled openssl 3.3.0.
+https://github.com/ruby/openssl/commit/06592e4df378ab70eccf18c3b87e101c419cff52
+OpenSSL 3.6 changed CRL_CHECK_ALL; the upstream fix preserves certificate
+and hostname verification without requiring an unavailable CRL store.
+
+diff --git a/lib/ruby/3.4.0/openssl/ssl.rb b/lib/ruby/3.4.0/openssl/ssl.rb
+--- a/lib/ruby/3.4.0/openssl/ssl.rb
++++ b/lib/ruby/3.4.0/openssl/ssl.rb
+@@ -92,7 +92,6 @@
+ 
+       DEFAULT_CERT_STORE = OpenSSL::X509::Store.new # :nodoc:
+       DEFAULT_CERT_STORE.set_default_paths
+-      DEFAULT_CERT_STORE.flags = OpenSSL::X509::V_FLAG_CRL_CHECK_ALL
+ 
+       # A callback invoked when DH parameters are required for ephemeral DH key
+       # exchange.
