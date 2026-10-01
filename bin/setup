@@ -94,7 +94,12 @@ Dir.chdir(ROOT) do
         fetch("https://github.com/yshalsager/sqlite-tokenizer-ar/archive/#{TOKENIZER_REVISION}.tar.gz", archive,
           checksum: TOKENIZER_SOURCE_CHECKSUM)
         run("tar", "-xzf", File.basename(archive), "--strip-components=1", "-C", temporary, chdir: temporary)
-        run("cc", "-O2", "-fPIC", "-dynamiclib", "-undefined", "dynamic_lookup", "-mmacosx-version-min=13.0",
+        # Match the bundled sqlite3 gem; Apple's SDK headers bind directly to system SQLite.
+        fetch("https://sqlite.org/2026/sqlite-autoconf-3530200.tar.gz", File.join(temporary, "sqlite.tar.gz"),
+          checksum: "588ad51949419a56ebe81fe56193d510c559eb94c9a57748387860b5d3069316")
+        run("tar", "-xzf", "sqlite.tar.gz", "--strip-components=1", "-C", temporary,
+          "sqlite-autoconf-3530200/sqlite3.h", "sqlite-autoconf-3530200/sqlite3ext.h", chdir: temporary)
+        run("cc", "-O2", "-fPIC", "-dynamiclib", "-I#{temporary}", "-mmacosx-version-min=13.0",
           File.join(temporary, "tokenizer/src/sqlite_tokenizer_ar.c"), "-o", "vendor/tokenizer/sqlite_tokenizer_ar.so")
         %w[LICENSE THIRD_PARTY_NOTICES.md].each { |name| FileUtils.cp(File.join(temporary, name), "vendor/tokenizer") }
       else
