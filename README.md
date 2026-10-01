@@ -16,9 +16,9 @@ mise run setup
 mise run start
 ```
 
-Setup fetches the pinned Scarpe source, applies the included native input and button patches, installs the Ruby bundle, compiles the native renderer, and installs a checksum-verified PDFium binary. The first build takes a few minutes. Mise manages Ruby 3.4.7, Rust 1.98.1, and `sqlite-tokenizer-ar` 0.1.13.
+Setup fetches the pinned Scarpe source, applies the included native input, button, and Windows/clipboard patches, installs the Ruby bundle, compiles the native renderer, and installs checksum-verified PDFium and Arabic tokenizer binaries. The first build takes a few minutes. Mise manages Ruby 3.4.7, Rust 1.98.1, and `sqlite-tokenizer-ar` 0.1.13.
 
-The dependency releases cover Linux x64/arm64 with glibc and macOS Apple silicon. This app has been checked on Linux x64 using headless native rendering. macOS execution and installers are not yet verified. Windows is not supported by this launcher. Use a window of at least 800 × 700 for the current layout.
+The dependency releases cover Linux x64/arm64 with glibc, macOS Apple silicon, and Windows x64. Standalone test packages target Apple silicon Macs and Windows x64. Use a window of at least 800 × 700 for the current layout.
 
 ## Using the library
 
@@ -82,11 +82,26 @@ The Gemfile uses Lacci and Scarpe components directly from that checkout. No web
 
 [The button patch](patches/scarpe-button-variants.patch) adds flat solid, outline, and ghost variants to the native button renderer, preserving keyboard, hover, focus, and disabled behavior. Icon buttons use their tooltip as an accessible name. Both source patches include native regression checks and apply idempotently during setup; there are no runtime monkey patches or simulated controls.
 
-## Distribution status
+## Desktop test packages
 
-Scarpe's native packager supports a self-contained macOS `.app` and optional `.dmg`, built on macOS with a bundled Ruby runtime. Aljam3 still needs packaging work to include its `sqlite3`, `ffi`, and `chunky_png` gems, PDFium, and Arabic tokenizer, and to locate them within the bundle. The stock packager does not automatically collect this app's gem dependencies. A downloadable release also needs Developer ID signing and notarization; the upstream packager currently uses ad-hoc signing. See [Scarpe's packaging guide](https://github.com/scarpe-team/scarpe/blob/47256367a4d3cefbb39756d8c3287814db72e927/docs/native_packaging.md).
+Download the ZIP for your machine from [Releases](https://github.com/AliOsm/aljam3-desktop/releases). These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
-A Windows `.exe` distribution is possible in principle, but is not supported by the current Scarpe native launcher/packager. The Rust renderer compiles on Windows; the Ruby process launcher still uses Unix process groups, and there is no native Windows packaging path. That integration needs an upstream port, followed by bundling Ruby and Windows builds of the native libraries. Compiling the renderer alone does not produce a working Aljam3 executable.
+- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.0-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
+- **Windows x64:** extract the entire `Aljam3-0.1.0-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. The test executable is unsigned; SmartScreen may require **More info → Run anyway**.
+
+The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
+
+To build on either target platform after setup:
+
+```sh
+mise run test
+mise run smoke
+mise run package
+mise exec -- ruby bin/verify-package
+mise exec -- ruby bin/archive-package
+```
+
+The Windows package uses a small native launcher and a source patch for Scarpe's Windows process handling and native clipboard. The macOS bundle uses an ad-hoc code signature. Public distribution with a verified publisher would additionally need platform signing credentials and macOS notarization.
 
 ## Local data
 
@@ -94,7 +109,11 @@ Linux: `${XDG_DATA_HOME:-~/.local/share}/aljam3`.
 
 macOS: `~/Library/Application Support/Aljam3`.
 
-Each directory contains `library.sqlite3`, `books/<book-id>/<file-id>.pdf`, and a bounded `renders/` cache. `ALJAM3_DATA_DIR` overrides the location. `ALJAM3_API_URL` overrides the API host for development. Mise provides `SQLITE_TOKENIZER_AR_EXTENSION`; launch through mise so that SQLite can load it.
+Windows: `%LOCALAPPDATA%/Aljam3`.
+
+Each directory contains `library.sqlite3`, `books/<book-id>/<file-id>.pdf`, and a bounded `renders/` cache. `ALJAM3_DATA_DIR` overrides the location. `ALJAM3_API_URL` overrides the API host for development. Setup and standalone packages include the Arabic tokenizer; development runs can override its path with `SQLITE_TOKENIZER_AR_EXTENSION`.
+
+Startup logs are at `~/Library/Logs/Aljam3/launcher.log` on macOS and `%LOCALAPPDATA%/Aljam3/launcher.log` on Windows.
 
 The initial Unicode-only database schema migrates transactionally to the Arabic tokenizer and rebuilds the index from saved text. Books and reading positions are preserved.
 

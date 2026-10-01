@@ -35,6 +35,12 @@ jobs:
         if: runner.os == 'Windows'
         shell: pwsh
         run: '"RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV'
+      - name: Prepare pinned native source
+        run: ruby bin/setup --prepare
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vendor/scarpe/native
+          cache-on-failure: true
       - name: Set up pinned runtime and native libraries
         run: ruby bin/setup
       - name: Application tests

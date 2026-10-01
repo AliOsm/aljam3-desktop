@@ -48,7 +48,7 @@ Dir.chdir(ROOT) do
   end
   copy("vendor/scarpe/native/assets/fonts", File.join(resources, "licenses/scarpe-fonts"))
   copy("packaging/boot.rb", File.join(resources, "boot.rb"))
-  copy("README.md", File.join(bundle, "README.md"))
+  copy("README.md", File.join(WINDOWS ? bundle : resources, "README.md"))
   gems = %w[base64 logger ffi sqlite3 chunky_png].map { |name| Gem::Specification.find_by_name(name) }
   gems.each do |spec|
     abort "Use precompiled native gems when packaging: #{spec.full_name}" unless spec.extensions.empty?

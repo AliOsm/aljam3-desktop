@@ -50,6 +50,7 @@ Dir.chdir(ROOT) do
       run("git", "-C", "vendor/scarpe", "apply", patch)
     end
   end
+  exit if ARGV.include?("--prepare")
 
   run("bundle", "install")
   run("cargo", "build", "--release", "--locked", "--manifest-path", "vendor/scarpe/native/Cargo.toml")
