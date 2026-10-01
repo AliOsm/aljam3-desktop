@@ -105,6 +105,8 @@ The Windows package uses a small native launcher and a source patch for Scarpe's
 
 Packaging also applies [Ruby OpenSSL's upstream CRL fix](https://github.com/ruby/openssl/pull/950) to the pinned portable runtime. Certificate and hostname verification remain enabled.
 
+On macOS, setup compiles the pinned tokenizer release for macOS 13 because its upstream binary declares macOS 26 as its minimum. The extension uses the SQLite instance supplied by the app's bundled gem.
+
 ## Local data
 
 Linux: `${XDG_DATA_HOME:-~/.local/share}/aljam3`.
