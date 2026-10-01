@@ -1,0 +1,21 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+require "fileutils"
+require "rbconfig"
+
+root = File.expand_path("..", __dir__)
+scratch = File.join(root, ".cache/preview")
+FileUtils.mkdir_p(scratch)
+environment = {
+  "HOME" => scratch,
+  "BUNDLE_GEMFILE" => File.join(root, "Gemfile"),
+  "ALJAM3_DATA_DIR" => ENV.fetch("ALJAM3_DATA_DIR", File.join(scratch, "data")),
+  "PATH" => "#{root}/vendor/scarpe/spec/support/fakebin:#{ENV.fetch('PATH')}",
+  "SPEC_TRAP_FILE" => File.join(scratch, "trapped.txt"),
+  "SPEC_CLIPBOARD_FILE" => File.join(scratch, "clipboard.txt"),
+  "SCARPE_NATIVE_BIN" => File.join(root, "vendor/scarpe/native/target/release/scarpe-native")
+}
+arguments = ARGV.empty? ? ["--wait", "5", "--scale", "2", "--shot", File.join(scratch, "app.png"), "--layout"] : ARGV
+exec(environment, RbConfig.ruby, "-I#{root}/vendor/scarpe/lib", File.join(root, "vendor/scarpe/exe/scarpe"), "peek", File.join(root, "app.rb"), *arguments)

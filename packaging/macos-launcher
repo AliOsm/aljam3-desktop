@@ -1,0 +1,12 @@
+#!/bin/bash
+set -e
+ALJAM3_MACOS="$(cd "$(dirname "$0")" && pwd -P)"
+ALJAM3_RESOURCES="$(cd "$ALJAM3_MACOS/../Resources" && pwd -P)"
+export SCARPE_NATIVE_BIN="$ALJAM3_MACOS/scarpe-native"
+unset BUNDLE_GEMFILE BUNDLE_PATH BUNDLE_BIN_PATH RUBYOPT RUBYLIB GEM_HOME GEM_PATH
+if [ "${SCARPE_NATIVE_HEADLESS:-}" != 1 ]; then
+  ALJAM3_LOG_DIR="$HOME/Library/Logs/Aljam3"
+  mkdir -p "$ALJAM3_LOG_DIR"
+  exec >>"$ALJAM3_LOG_DIR/launcher.log" 2>&1
+fi
+exec "$ALJAM3_RESOURCES/ruby/bin/ruby" "$ALJAM3_RESOURCES/boot.rb" "$@"

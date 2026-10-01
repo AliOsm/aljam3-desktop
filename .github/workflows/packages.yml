@@ -1,0 +1,61 @@
+name: Desktop test packages
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: macos-arm64
+          - runner: windows-2022
+            target: windows-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+          bundler: '4.0.16'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+      - name: Use a static Windows C runtime
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: '"RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV'
+      - name: Set up pinned runtime and native libraries
+        run: ruby bin/setup
+      - name: Application tests
+        run: bundle exec rake test
+      - name: Native clipboard and Arabic input tests
+        run: cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --test clipboard --test text_input
+      - name: Download and verify a real sample book
+        run: bundle exec ruby bin/smoke
+      - name: Assemble standalone application
+        run: bundle exec ruby bin/package
+      - name: Verify relocated app with its bundled Ruby
+        run: ruby bin/verify-package
+      - name: Archive verified app
+        run: ruby bin/archive-package
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aljam3-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.sha256
+            dist/verification/
+          if-no-files-found: warn
+          retention-days: 30

@@ -1,0 +1,9 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+
+root = File.expand_path("..", __dir__)
+$LOAD_PATH.unshift(File.join(root, "vendor/scarpe/lib"))
+ARGV.replace(["--native", File.join(root, "app.rb")])
+load File.join(root, "vendor/scarpe/exe/scarpe")

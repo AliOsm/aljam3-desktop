@@ -1,0 +1,29 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+require_relative "../lib/aljam3"
+require_relative "../lib/aljam3/pdf"
+
+directory = File.join(Aljam3::ROOT, ".cache/smoke")
+store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
+api = Aljam3::API.new
+downloader = Aljam3::Downloader.new(api:, store:, directory: File.join(directory, "books"))
+
+begin
+  catalog = Aljam3::Library.new(api:, store:).browse
+  raise "Expected online catalog." unless catalog.source == :online
+  book = downloader.call(1)
+  raise "Incomplete download." unless store.downloaded?(book.fetch("id"))
+  offline = Aljam3::Library.new(api: Aljam3::API.new(base_url: "http://127.0.0.1:1", interval: 0), store:)
+  result = offline.search("العلم")
+  raise "Offline search failed." unless result.source == :offline && result.data.fetch("pages").any?
+  file = store.files(1).first
+  image = Aljam3::PDF.new(cache: File.join(directory, "renders")).render(downloader.pdf_path(1, file.fetch("id")), page: 10, width: 1000)
+  puts "PASS: live catalog, complete book download, connection failure → SQLite search, and PDF rendering."
+  puts "Book: #{book.fetch('title')}"
+  puts "Offline results: #{result.data.fetch('pagination').fetch('count')}"
+  puts "PDF image: #{image.path} (#{image.width} × #{image.height})"
+ensure
+  store.close
+end

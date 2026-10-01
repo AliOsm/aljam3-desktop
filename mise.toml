@@ -1,0 +1,38 @@
+[tools]
+ruby = "3.4.7"
+rust = "1.98.1"
+
+[tools."github:yshalsager/sqlite-tokenizer-ar"]
+version = "0.1.13"
+asset_pattern = "sqlite-tokenizer-ar-{{ os() }}-{{ arch() }}.tar.gz"
+
+[env]
+SQLITE_TOKENIZER_AR_EXTENSION = { value = "{{ tools['github:yshalsager/sqlite-tokenizer-ar'].path }}/sqlite_tokenizer_ar.so", tools = true }
+
+[tasks.setup]
+description = "Install the pinned desktop runtime and Ruby dependencies"
+run = "ruby bin/setup"
+
+[tasks.start]
+description = "Open Aljam3 Desktop"
+run = "bundle exec ruby bin/aljam3"
+
+[tasks.test]
+description = "Run the application tests"
+run = "bundle exec rake test"
+
+[tasks.test-native]
+description = "Check native input, button styles, keyboard controls, and accessibility"
+run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --test text_input --test protocol --test a11y --test golden --test clipboard"
+
+[tasks.package]
+description = "Build a standalone app on macOS arm64 or Windows x64"
+run = "bundle exec ruby bin/package"
+
+[tasks.peek]
+description = "Render and interact with the app without opening a window"
+run = "bundle exec ruby bin/peek"
+
+[tasks.smoke]
+description = "Verify a real book download, offline search, and PDF rendering"
+run = "bundle exec ruby bin/smoke"

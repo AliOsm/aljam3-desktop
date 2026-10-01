@@ -1,0 +1,97 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "rbconfig"
+require "tmpdir"
+require "digest"
+
+ROOT = File.expand_path("..", __dir__)
+SCARPE_REVISION = "47256367a4d3cefbb39756d8c3287814db72e927"
+PDFIUM_VERSION = "8076"
+PDFIUM_CHECKSUMS = {
+  "linux-x64" => "d9d67bc40af03aef4fe28a60b19b1086f28ace019c8c9caf19cb7fe3d14ceca3",
+  "linux-arm64" => "d7247b33ae5545615a5e877235dd97afc879e3a8805689684f528cae3339d352",
+  "mac-x64" => "40865f34642c34d82cc336132df9e0347133f4692cd46776647af160f9a5cca9",
+  "mac-arm64" => "0d6781fe08906baff3d82c90953e519fbc4eb253fe76431e5ed53b157763b97c",
+  "win-x64" => "808d36da9bc5a3104315fb307c80998121f565ee53953633bf33e80d7429e5ac"
+}.freeze
+TOKENIZER_CHECKSUMS = {
+  "linux-x64" => "521ff550863b8a8d4636a9c96b68a4445d497b897edc6b9d4fba679acf396705",
+  "linux-arm64" => "5896a9cd536c27430527782d9ac95eb1c6e69bba50410eaf900d51b4244f312d",
+  "macos-arm64" => "1ac3acae45001f1a21139c189bf36770b3c307fb8eea5b8a8a55d50ba05fef58",
+  "windows-x64" => "9167b689232b1bee91a7b7949401d55a56b76c0423088e536217d966fdbcb840"
+}.freeze
+
+def run(*command, **options)
+  system(*command, **options) || abort("Failed: #{command.join(' ')}")
+end
+
+def fetch(url, destination, checksum:)
+  FileUtils.mkdir_p(File.dirname(destination))
+  run("curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2", url, "--output", "#{destination}.part")
+  abort "Checksum mismatch for #{url}" unless Digest::SHA256.file("#{destination}.part").hexdigest == checksum
+  File.rename("#{destination}.part", destination)
+end
+
+Dir.chdir(ROOT) do
+  FileUtils.mkdir_p("vendor")
+  unless File.directory?("vendor/scarpe/.git")
+    run("git", "clone", "--no-checkout", "--depth", "1", "https://github.com/scarpe-team/scarpe.git", "vendor/scarpe")
+    run("git", "-C", "vendor/scarpe", "fetch", "--depth", "1", "origin", SCARPE_REVISION)
+    run("git", "-C", "vendor/scarpe", "checkout", "--detach", SCARPE_REVISION)
+  end
+  revision = IO.popen(["git", "-C", "vendor/scarpe", "rev-parse", "HEAD"], &:read).strip
+  abort "Expected Scarpe #{SCARPE_REVISION}, found #{revision}." unless revision == SCARPE_REVISION
+
+  Dir.glob(File.join(ROOT, "patches/*.patch")).sort.each do |patch|
+    unless system("git", "-C", "vendor/scarpe", "apply", "--reverse", "--check", patch, out: File::NULL, err: File::NULL)
+      run("git", "-C", "vendor/scarpe", "apply", "--check", patch)
+      run("git", "-C", "vendor/scarpe", "apply", patch)
+    end
+  end
+
+  run("bundle", "install")
+  run("cargo", "build", "--release", "--locked", "--manifest-path", "vendor/scarpe/native/Cargo.toml")
+
+  os = case RbConfig::CONFIG["host_os"]
+       when /darwin/ then "mac"
+       when /linux/ then "linux"
+       when /mingw|mswin/ then "win"
+       else abort "Unsupported operating system."
+       end
+  cpu = RbConfig::CONFIG["host_cpu"]
+  arch = case cpu
+         when /x86_64|amd64/ then "x64"
+         when /aarch64|arm64/ then "arm64"
+         else abort "Unsupported architecture: #{cpu}"
+         end
+
+  version = "#{PDFIUM_VERSION}-#{os}-#{arch}"
+  library = os == "win" ? "vendor/pdfium/bin/pdfium.dll" : "vendor/pdfium/lib/libpdfium.#{os == 'mac' ? 'dylib' : 'so'}"
+  unless File.file?(library) && File.exist?("vendor/pdfium/VERSION") && File.read("vendor/pdfium/VERSION").strip == version
+    Dir.mktmpdir("aljam3-pdfium") do |temporary|
+      archive = File.join(temporary, "pdfium.tgz")
+      fetch("https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/#{PDFIUM_VERSION}/pdfium-#{os}-#{arch}.tgz", archive,
+        checksum: PDFIUM_CHECKSUMS.fetch("#{os}-#{arch}"))
+      FileUtils.mkdir_p("vendor/pdfium")
+      run("tar", "-xzf", archive, "-C", "vendor/pdfium")
+      File.write("vendor/pdfium/VERSION", version)
+    end
+  end
+
+  tokenizer_platform = "#{{ 'mac' => 'macos', 'win' => 'windows' }.fetch(os, os)}-#{arch}"
+  tokenizer_version = "0.1.13-#{tokenizer_platform}"
+  unless File.file?("vendor/tokenizer/VERSION") && File.read("vendor/tokenizer/VERSION").strip == tokenizer_version
+    Dir.mktmpdir("aljam3-tokenizer") do |temporary|
+      archive = File.join(temporary, "tokenizer.tar.gz")
+      fetch("https://github.com/yshalsager/sqlite-tokenizer-ar/releases/download/v0.1.13/sqlite-tokenizer-ar-#{tokenizer_platform}.tar.gz",
+        archive, checksum: TOKENIZER_CHECKSUMS.fetch(tokenizer_platform))
+      FileUtils.mkdir_p("vendor/tokenizer")
+      run("tar", "-xzf", archive, "-C", "vendor/tokenizer")
+      File.write("vendor/tokenizer/VERSION", tokenizer_version)
+    end
+  end
+
+  puts "Ready. Run mise run start to open the app, or mise run test to check it."
+end

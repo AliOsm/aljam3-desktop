@@ -1,0 +1,43 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "open3"
+require "json"
+require "timeout"
+
+root = File.expand_path("..", __dir__)
+windows = Gem.win_platform?
+# Move the finished app to a path with spaces to catch build-machine path dependencies.
+verification = File.join(root, ".cache", "Packaged App Test")
+FileUtils.rm_rf(verification)
+FileUtils.mkdir_p(verification)
+source = File.join(root, "dist", windows ? "Aljam3" : "Aljam3.app")
+bundle = File.join(verification, File.basename(source))
+if windows
+  FileUtils.cp_r(source, bundle)
+else
+  system("ditto", source, bundle) || abort("Unable to copy app for verification")
+end
+scratch = File.join(verification, "home")
+output = File.join(root, "dist/verification")
+FileUtils.mkdir_p([scratch, output])
+FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(scratch, "data"))
+FileUtils.rm_f(File.join(output, "passed.json"))
+launcher = windows ? File.join(bundle, "Aljam3.exe") : File.join(bundle, "Contents/MacOS/aljam3")
+env = {
+  "HOME" => scratch, "USERPROFILE" => scratch, "LOCALAPPDATA" => scratch,
+  "ALJAM3_DATA_DIR" => File.join(scratch, "data"), "ALJAM3_API_URL" => "http://127.0.0.1:1",
+  "ALJAM3_VERIFY_OUTPUT" => output, "SCARPE_RUN_FILE" => File.join(root, "packaging/probe.rb"),
+  "SCARPE_NATIVE_HEADLESS" => "1", "SCARPE_NATIVE_GHOST" => nil,
+  "PATH" => "#{root}/vendor/scarpe/spec/support/fakebin#{File::PATH_SEPARATOR}#{ENV.fetch('PATH')}",
+  "SPEC_CLIPBOARD_FILE" => File.join(scratch, "clipboard.txt"), "SPEC_TRAP_FILE" => File.join(scratch, "trapped.txt")
+}
+stdout, status = Timeout.timeout(120) { Open3.capture2e(env, launcher) }
+puts stdout
+report = File.join(output, "passed.json")
+unless status.success? && File.file?(report) && JSON.parse(File.read(report)).fetch("passed")
+  [File.join(output, "failed.txt"), File.join(scratch, "data/launcher.log")].each { |path| warn File.read(path) if File.file?(path) }
+  abort "Packaged application verification failed"
+end
+puts File.read(report)

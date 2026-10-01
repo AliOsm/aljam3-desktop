@@ -1,0 +1,161 @@
+diff --git a/lacci/lib/shoes/app.rb b/lacci/lib/shoes/app.rb
+index 279d1db..62cefbd 100644
+--- a/lacci/lib/shoes/app.rb
++++ b/lacci/lib/shoes/app.rb
+@@ -545,6 +545,10 @@ class Shoes::App < Shoes::Drawable
+   # Read the system clipboard contents.
+   # Returns the clipboard text as a string, or "" if empty/unavailable.
+   def clipboard
++    Shoes::DisplayService.clear_builtin_response
++    Shoes::DisplayService.dispatch_event("builtin", nil, "clipboard", [])
++    return Shoes::DisplayService.consume_builtin_response.to_s if Shoes::DisplayService.builtin_response?
++
+     if RUBY_PLATFORM =~ /darwin/
+       `pbpaste 2>/dev/null`.to_s
+     elsif RUBY_PLATFORM =~ /linux/
+@@ -558,6 +562,10 @@ class Shoes::App < Shoes::Drawable
+ 
+   # Write text to the system clipboard.
+   def clipboard=(text)
++    Shoes::DisplayService.clear_builtin_response
++    Shoes::DisplayService.dispatch_event("builtin", nil, "clipboard", [text.to_s])
++    return text if Shoes::DisplayService.builtin_response?
++
+     if RUBY_PLATFORM =~ /darwin/
+       IO.popen("pbcopy", "w") { |p| p.write(text.to_s) }
+     elsif RUBY_PLATFORM =~ /linux/
+diff --git a/lib/scarpe/native/builtins.rb b/lib/scarpe/native/builtins.rb
+index 094e681..5a6fdf6 100644
+--- a/lib/scarpe/native/builtins.rb
++++ b/lib/scarpe/native/builtins.rb
+@@ -44,6 +44,10 @@ module Scarpe::Native
+ 
+     def answer(cmd_name, args)
+       return dialog(cmd_name, args[0], args[1]) if DIALOGS.include?(cmd_name)
++      if cmd_name == "clipboard"
++        fields = args.empty? ? {} : { text: args.first.to_s }
++        return @service.child.request(:clipboard, **fields)["value"]
++      end
+ 
+       if cmd_name == "font"
+         @service.register_font(args.first)
+diff --git a/lib/scarpe/native/child.rb b/lib/scarpe/native/child.rb
+index c2e1581..2fda410 100644
+--- a/lib/scarpe/native/child.rb
++++ b/lib/scarpe/native/child.rb
+@@ -95,13 +95,14 @@ module Scarpe::Native
+     extend self
+ 
+     CRATE = File.join(ROOT, "native")
+-    DEV_BINARY = File.join(CRATE, "target", "release", "scarpe-native")
++    NAME = RUBY_PLATFORM.match?(/mingw|mswin/) ? "scarpe-native.exe" : "scarpe-native"
++    DEV_BINARY = File.join(CRATE, "target", "release", NAME)
+ 
+     def path
+       explicit = ENV["SCARPE_NATIVE_BIN"].to_s
+       return explicit unless explicit.empty?
+ 
+-      packaged_binary || which("scarpe-native") || (dev_binary if checkout?) ||
++      packaged_binary || which(NAME) || (dev_binary if checkout?) ||
+         raise(ChildNotFound, "Can't find the scarpe-native binary. Set SCARPE_NATIVE_BIN to its path.")
+     end
+ 
+@@ -143,7 +144,7 @@ module Scarpe::Native
+ 
+     def packaged_binary
+       beside_script = File.dirname(File.expand_path($PROGRAM_NAME))
+-      candidates = [beside_script, File.expand_path("../MacOS", beside_script)].map { |dir| File.join(dir, "scarpe-native") }
++      candidates = [beside_script, File.expand_path("../MacOS", beside_script)].map { |dir| File.join(dir, NAME) }
+       candidates.find { |candidate| File.executable?(candidate) }
+     end
+ 
+@@ -346,7 +347,8 @@ module Scarpe::Native
+     # and a double-click passes no flags, so "ZARKING (Rust).app" died there. An env hash may lead.
+     def spawn(command)
+       env, (program, *args) = command.partition { |part| part.is_a?(Hash) }
+-      Open3.popen3(*env, [program, program], *args, pgroup: true)
++      group = RUBY_PLATFORM.match?(/mingw|mswin/) ? { new_pgroup: true } : { pgroup: true }
++      Open3.popen3(*env, [program, program], *args, **group)
+     rescue SystemCallError => e
+       raise ChildNotFound, "Can't start #{program}: #{e.message}"
+     end
+@@ -460,7 +462,7 @@ module Scarpe::Native
+ 
+     # To the child's whole process group (it leads one), so what it started goes with it.
+     def signal(name)
+-      Process.kill(name, -@pid)
++      Process.kill(name, RUBY_PLATFORM.match?(/mingw|mswin/) ? @pid : -@pid)
+     rescue SystemCallError
+       nil
+     end
+diff --git a/native/src/automation.rs b/native/src/automation.rs
+index f6fcf69..ef7aa21 100644
+--- a/native/src/automation.rs
++++ b/native/src/automation.rs
+@@ -29,6 +29,12 @@ impl Runtime {
+         let no_app = || ("no app to act on".to_string(), Value::Null);
+         match op {
+             Op::Ping => Ok(Some(json!("pong"))),
++            Op::Clipboard { text } => {
++                if let Some(text) = text {
++                    self.clipboard.set(text);
++                }
++                Ok(Some(json!(self.clipboard.get())))
++            }
+             Op::Invalid(e) => Err((e, Value::Null)),
+             Op::Dialog(dialog) => {
+                 if self.opts.headless {
+diff --git a/native/src/main.rs b/native/src/main.rs
+index 4f030aa..50f6d96 100644
+--- a/native/src/main.rs
++++ b/native/src/main.rs
+@@ -1,6 +1,8 @@
+ //! scarpe-native [--headless] [--scale F] [--fonts system|bundled] [--trace]
+ //!               [--exit-after SECS] [--inactive] [--ghost]
+ 
++#![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
++
+ use scarpe_native::runtime::Options;
+ use scarpe_native::text::FontMode;
+ use std::time::Duration;
+diff --git a/native/src/protocol.rs b/native/src/protocol.rs
+index dee92bc..297c279 100644
+--- a/native/src/protocol.rs
++++ b/native/src/protocol.rs
+@@ -73,6 +73,7 @@ pub struct DialogRequest {
+ 
+ #[derive(Clone, Debug, PartialEq)]
+ pub enum Op {
++    Clipboard { text: Option<String> },
+     Dialog(DialogRequest),
+     Layout { app: Option<Id> },
+     Snapshot { path: String, app: Option<Id>, scale: Option<f32> },
+@@ -260,6 +261,7 @@ fn op_fields(obj: &Map<String, Value>) -> Result<Op, ParseError> {
+             app,
+         },
+         "ping" => Op::Ping,
++        "clipboard" => Op::Clipboard { text: s(obj, "text") },
+         other => Op::Invalid(format!("unknown op `{other}`")),
+     })
+ }
+--- /dev/null
++++ b/native/tests/clipboard.rs
+@@ -0,0 +1,18 @@
++mod common;
++
++use common::{app, create, Harness};
++use serde_json::json;
++
++#[test]
++fn clipboard_requests_share_the_headless_clipboard_with_text_fields() {
++    let mut h = Harness::new();
++    h.feed(&app(300, 100, &[create(3, "EditLine", 2, json!({"text":""}))]));
++    h.value(json!({"op":"clipboard", "text":"آدابُ العلم\nصفحة ٧٢"}));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!("آدابُ العلم\nصفحة ٧٢"));
++    h.value(json!({"op":"clipboard", "text":"العلم"}));
++    h.value(json!({"op":"click", "target":{"id":3}}));
++    h.value(json!({"op":"key", "key":"control_v"}));
++    assert_eq!(h.node(|n| n["id"] == 3)["text"], json!("العلم"));
++    h.value(json!({"op":"clipboard", "text":""}));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!(""));
++}

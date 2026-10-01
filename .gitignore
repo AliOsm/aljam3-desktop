@@ -1,0 +1,7 @@
+/.bundle/
+/.cache/
+/vendor/
+/coverage/
+/dist/
+*.sqlite3*
+*.log
