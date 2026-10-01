@@ -1,10 +1,7 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require "fileutils"
-require "open3"
-require "json"
-require "timeout"
+require_relative "../packaging/verify_runtime"
 
 root = File.expand_path("..", __dir__)
 windows = Gem.win_platform?
@@ -23,22 +20,4 @@ scratch = File.join(verification, "home")
 output = File.join(root, "dist/verification")
 FileUtils.mkdir_p([scratch, output])
 FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(scratch, "data"))
-FileUtils.rm_f(File.join(output, "passed.json"))
-launcher = windows ? File.join(bundle, "Aljam3.exe") : File.join(bundle, "Contents/MacOS/aljam3")
-system_path = windows ? [File.join(ENV.fetch("SystemRoot"), "System32"), ENV.fetch("SystemRoot")] : %w[/usr/bin /bin /usr/sbin /sbin]
-env = {
-  "HOME" => scratch, "USERPROFILE" => scratch, "LOCALAPPDATA" => scratch,
-  "ALJAM3_DATA_DIR" => File.join(scratch, "data"), "ALJAM3_API_URL" => "http://127.0.0.1:1",
-  "ALJAM3_VERIFY_OUTPUT" => output, "SCARPE_RUN_FILE" => File.join(root, "packaging/probe.rb"),
-  "SCARPE_NATIVE_HEADLESS" => "1", "SCARPE_NATIVE_GHOST" => nil,
-  "PATH" => [File.join(root, "vendor/scarpe/spec/support/fakebin"), *system_path].join(File::PATH_SEPARATOR),
-  "SPEC_CLIPBOARD_FILE" => File.join(scratch, "clipboard.txt"), "SPEC_TRAP_FILE" => File.join(scratch, "trapped.txt")
-}
-stdout, status = Timeout.timeout(120) { Open3.capture2e(env, [launcher, launcher]) }
-puts stdout
-report = File.join(output, "passed.json")
-unless status.success? && File.file?(report) && JSON.parse(File.read(report)).fetch("passed")
-  [File.join(output, "failed.txt"), File.join(scratch, "data/launcher.log")].each { |path| warn File.read(path) if File.file?(path) }
-  abort "Packaged application verification failed"
-end
-puts File.read(report)
+PackageVerification.call(bundle:, home: scratch, output:)

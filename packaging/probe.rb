@@ -6,7 +6,16 @@ root = ENV.fetch("ALJAM3_BUNDLE_ROOT")
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
 require File.join(root, "app/lib/aljam3")
 require File.join(root, "app/lib/aljam3/pdf")
-raise "Bundled HTTPS failed" if Aljam3::API.new.books.fetch("books").empty?
+api = Aljam3::API.new
+raise "Bundled HTTPS failed" if api.books.fetch("books").empty?
+# Installer checks start with an empty library and download through the bundled runtime.
+directory = Aljam3.data_directory
+store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
+begin
+  Aljam3::Downloader.new(api:, store:, directory: File.join(directory, "books")).call(1)
+ensure
+  store.close
+end
 load File.join(root, "app/app.rb")
 app = Shoes.APPS.first
 step = 0

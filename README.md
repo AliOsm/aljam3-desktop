@@ -84,10 +84,11 @@ The Gemfile uses Lacci and Scarpe components directly from that checkout. No web
 
 ## Desktop test packages
 
-Download the ZIP for your machine from [Releases](https://github.com/AliOsm/aljam3-desktop/releases). These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
+Test files are shared directly or downloaded from private build artifacts. Publishing a release is a separate step that requires an explicit request. These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
 - **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.0-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
-- **Windows x64:** extract the entire `Aljam3-0.1.0-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. The test executable is unsigned; SmartScreen may require **More info → Run anyway**.
+- **Windows x64 installer:** run `Aljam3-0.1.0-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
+- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.0-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
 
 The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
 
@@ -100,6 +101,8 @@ mise run package
 mise exec -- ruby bin/verify-package
 mise exec -- ruby bin/archive-package
 ```
+
+On Windows, install [Inno Setup 6](https://jrsoftware.org/isinfo.php), then run `mise run installer` to wrap `dist/Aljam3` in a single setup executable. `ISCC` can override the compiler path. The manual [installer workflow](.github/workflows/windows-installer.yml) can reuse a previously verified Windows ZIP and checks silent installation, shortcuts, the installed runtime, in-place upgrade, uninstall, and preservation of downloaded books. It only uploads test artifacts.
 
 The Windows package uses a small native launcher and a source patch for Scarpe's Windows process handling and native clipboard. The macOS bundle uses an ad-hoc code signature. Public distribution with a verified publisher would additionally need platform signing credentials and macOS notarization.
 

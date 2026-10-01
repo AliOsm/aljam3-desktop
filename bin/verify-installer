@@ -1,0 +1,66 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "../packaging/verify_runtime"
+require "digest"
+
+abort "Verify installers on a disposable Windows CI runner." unless Gem.win_platform? && ENV["GITHUB_ACTIONS"] == "true"
+require "win32/registry"
+
+def run(executable, *arguments)
+  success = Timeout.timeout(120) { system([executable, executable], *arguments) }
+  raise "Installer command failed: #{executable}" unless success
+end
+
+def library_digest(home)
+  paths = [File.join(home, "data/library.sqlite3"), *Dir.glob(File.join(home, "data/books/**/*.pdf"))]
+  raise "Sample book was not downloaded" if paths.size < 2
+
+  paths.to_h { |path| [path, Digest::SHA256.file(path).hexdigest] }
+end
+
+root = File.expand_path("..", __dir__)
+installer = File.expand_path(ARGV.fetch(0) { Dir.glob(File.join(root, "dist/*-setup.exe")).fetch(0) })
+workspace = File.join(root, ".cache/Installer Test")
+FileUtils.rm_rf(workspace)
+bundle = File.join(workspace, "Installed App")
+home = File.join(workspace, "home")
+output = File.join(root, "dist/installer-verification")
+FileUtils.mkdir_p([workspace, output])
+registry = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{A247B4AC-B09F-45B2-A9C2-30364B6FA32A}_is1'
+shortcuts = [File.join(ENV.fetch("APPDATA"), "Microsoft/Windows/Start Menu/Programs/Aljam3.lnk"),
+  File.join(ENV.fetch("USERPROFILE"), "Desktop/Aljam3.lnk")]
+arguments = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=#{bundle}", "/TASKS=desktopicon"]
+
+run(installer, *arguments, "/LOG=#{output}/install.log")
+raise "Launcher was not installed" unless File.file?(File.join(bundle, "Aljam3.exe"))
+raise "Shortcuts were not installed" unless shortcuts.all? { |path| File.file?(path) }
+Win32::Registry::HKEY_CURRENT_USER.open(registry) do |key|
+  raise "Missing installed-app entry" unless key["DisplayName"] == "Aljam3"
+  raise "Wrong install location" unless File.expand_path(key["InstallLocation"]).delete_suffix("/") == bundle
+end
+PackageVerification.call(bundle:, home:, output: File.join(output, "installed"))
+before = library_digest(home)
+
+# Upgrades replace managed resources and leave the user's library intact.
+obsolete = File.join(bundle, "resources/obsolete-test.txt")
+File.write(obsolete, "old application resource")
+run(installer, *arguments, "/LOG=#{output}/upgrade.log")
+raise "Upgrade retained obsolete app resources" if File.exist?(obsolete)
+raise "Upgrade changed the downloaded library" unless before == library_digest(home)
+PackageVerification.call(bundle:, home:, output: File.join(output, "upgraded"))
+before = library_digest(home)
+
+run(File.join(bundle, "unins000.exe"), "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/LOG=#{output}/uninstall.log")
+raise "Uninstaller retained the app" if File.exist?(File.join(bundle, "Aljam3.exe")) || File.directory?(File.join(bundle, "resources"))
+raise "Uninstaller retained shortcuts" if shortcuts.any? { |path| File.exist?(path) }
+raise "Uninstaller changed the downloaded library" unless before == library_digest(home)
+begin
+  Win32::Registry::HKEY_CURRENT_USER.open(registry) { raise "Uninstaller retained installed-app entry" }
+rescue Win32::Registry::Error => error
+  raise unless error.code == 2 # ERROR_FILE_NOT_FOUND
+end
+
+report = { passed: true, checks: %w[install shortcuts installed_app_entry installed_runtime upgrade upgraded_runtime uninstall preserved_library] }
+File.write(File.join(output, "passed.json"), JSON.pretty_generate(report))
+puts JSON.pretty_generate(report)

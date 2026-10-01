@@ -1,0 +1,54 @@
+name: Windows test installer
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Successful desktop package workflow run to wrap in an installer
+        required: true
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  installer:
+    runs-on: windows-2022
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ github.token }}
+      BUILD_RUN_ID: ${{ inputs.build_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+      - name: Download the verified Windows package
+        shell: pwsh
+        run: |
+          $conclusion = gh run view $env:BUILD_RUN_ID --repo $env:GITHUB_REPOSITORY --json conclusion --jq .conclusion
+          if ($conclusion -ne 'success') { throw 'The package build must have passed.' }
+          gh run download $env:BUILD_RUN_ID --repo $env:GITHUB_REPOSITORY --name Aljam3-windows-x64 --dir input
+          if ($LASTEXITCODE) { throw 'Package download failed.' }
+          $archives = @(Get-ChildItem input/*.zip)
+          if ($archives.Count -ne 1) { throw 'Expected one Windows ZIP.' }
+          $archive = $archives[0]
+          $expected = (Get-Content "$($archive.FullName).sha256").Split(' ')[0]
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash -ne $expected) { throw 'Package checksum mismatch.' }
+          Expand-Archive $archive.FullName -DestinationPath dist
+      - name: Prepare the headless test helpers
+        run: ruby bin/setup --prepare
+      - name: Compile the installer with Inno Setup 6
+        run: ruby bin/build-installer
+      - name: Verify installation, upgrade, and uninstall
+        run: ruby bin/verify-installer
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aljam3-windows-x64-installer
+          path: |
+            dist/*-setup.exe
+            dist/*-setup.exe.sha256
+            dist/installer-verification/
+          if-no-files-found: error
+          retention-days: 30

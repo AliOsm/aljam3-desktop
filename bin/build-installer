@@ -1,0 +1,20 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "json"
+require "fileutils"
+require "digest"
+
+abort "Build the installer on Windows x64." unless Gem.win_platform?
+root = File.expand_path("..", __dir__)
+Dir.chdir(root) do
+  version = JSON.parse(File.read("dist/Aljam3/resources/build.json")).fetch("version")
+  compiler = ENV.fetch("ISCC", File.join(ENV.fetch("ProgramFiles(x86)"), "Inno Setup 6/ISCC.exe"))
+  FileUtils.cp("assets/brand/aljam3.ico", "dist/Aljam3/resources/app/assets/brand")
+  FileUtils.cp("README.md", "dist/Aljam3/README.md")
+  abort "Installer compilation failed." unless system(compiler, "/Qp", "/DAppVersion=#{version}", "packaging/windows-installer.iss")
+
+  installer = "dist/Aljam3-#{version}-windows-x64-setup.exe"
+  File.write("#{installer}.sha256", "#{Digest::SHA256.file(installer).hexdigest}  #{File.basename(installer)}\n")
+  puts "Built #{File.expand_path(installer)}"
+end

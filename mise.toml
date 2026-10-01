@@ -29,6 +29,10 @@ run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.
 description = "Build a standalone app on macOS arm64 or Windows x64"
 run = "bundle exec ruby bin/package"
 
+[tasks.installer]
+description = "Build a Windows installer from dist/Aljam3 using Inno Setup 6"
+run = "ruby bin/build-installer"
+
 [tasks.peek]
 description = "Render and interact with the app without opening a window"
 run = "bundle exec ruby bin/peek"

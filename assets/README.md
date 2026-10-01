@@ -4,6 +4,7 @@ Imported from [ieasybooks/aljam3-web-app](https://github.com/ieasybooks/aljam3-w
 
 - `brand/aljam3.svg`: the original path and viewBox from `app/components/aljam3_logo.rb`, with `currentColor` resolved to the primary color, `#ae4721`.
 - `brand/aljam3.png`: a transparent 732 × 576 rasterization of that SVG for Scarpe's native image widget, generated with CairoSVG. The vector source is retained.
+- `brand/aljam3.ico`: the same SVG rendered at 16, 32, 48, 64, 128, and 256 pixels for the Windows installer and shortcuts.
 - `fonts/NotoNaskhArabicUI.ttf`: an unchanged copy of `app/assets/fonts/NotoNaskhArabicUI[wght].ttf`, used for controls and interface text.
 - `fonts/Cairo.ttf`: `Cairo-arabic.woff2`, decompressed to TrueType for headings.
 - `fonts/Kitab.ttf`: `Kitab-Base-Regular.woff2`, decompressed to TrueType for excerpts and page text.
