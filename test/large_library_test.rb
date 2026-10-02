@@ -82,6 +82,26 @@ class LargeLibraryTest < StoreTestCase
     assert_equal [2], @store.search("علم").fetch("pages").map { |hit| hit.dig("book", "id") }.uniq
   end
 
+  def test_dense_search_preserves_full_index_excerpts_across_queries
+    @store.prepare_download(book)
+    rows = Array.new(1_105) do |index|
+      content = "#{'مقدمة ' * (index % 30)}العِلْمُ والعمل أساس الفهم. #{'كلام ' * 45}العلم نور والعمل ثمرة العلم.\n#{index}"
+      { "id" => index + 1, "number" => index + 1, "content" => content }
+    end
+    @store.add_pages(10, rows)
+    @store.complete_download(1)
+    db = @store.instance_variable_get(:@db)
+    ["العلم", "العلم العمل"].each do |query|
+      expected = db.execute(<<~SQL, [Aljam3::Text.match_query(query)])
+        SELECT rowid, snippet(pages_fts, 0, '', '', '…', 42) AS excerpt
+        FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rank LIMIT 24
+      SQL
+      actual = (1..2).flat_map { |page| @store.search(query, page:).fetch("pages") }
+      assert_equal expected.map { |row| row.fetch("rowid") }, actual.map { |row| row.fetch("id") }
+      assert_equal expected.map { |row| row.fetch("excerpt") }, actual.map { |row| row.fetch("excerpt") }
+    end
+  end
+
   def test_partial_books_never_enter_ranked_results_and_completion_invalidates_the_cache
     @store.prepare_download(book)
     @store.add_pages(10, Array.new(1_101) do |index|

@@ -94,16 +94,29 @@ module Aljam3
           SELECT rowid AS id
           FROM pages_fts WHERE pages_fts MATCH ? ORDER BY bm25(pages_fts), rowid LIMIT ? OFFSET ?
         SQL
+        pages_with_excerpts(match, ids)
+      end
+
+      def pages_with_excerpts(match, ids)
         return [] if ids.empty?
 
-        # Unary + keeps this a single bounded FTS scan, avoiding a separate
-        # initialization of the prefix query for each requested excerpt.
-        rows = @db.execute(<<~SQL, [match, *ids.minmax, JSON.generate(ids)]).to_h { |row| [row.fetch("id"), row] }
-          SELECT p.id, p.file_id, p.number, p.content, b.data, snippet(pages_fts, 0, '', '', '…', 42) AS excerpt
-          #{JOIN} WHERE pages_fts MATCH ? AND pages_fts.rowid BETWEEN ? AND ?
-          AND +pages_fts.rowid IN (SELECT value FROM json_each(?))
+        rows = @db.execute(<<~SQL, [JSON.generate(ids)]).to_h { |row| [row.fetch("id"), row] }
+          SELECT p.id, p.file_id, p.number, p.content, b.data
+          FROM pages p JOIN files f ON f.id = p.file_id JOIN books b ON b.id = f.book_id
+          WHERE p.id IN (SELECT value FROM json_each(?))
         SQL
-        ids.map { |id| rows.fetch(id) }
+        # Snippets depend on the query and each page's tokens, not corpus-wide
+        # scores. A small temporary FTS table gives identical excerpts without
+        # scanning large posting lists again or reinitializing them for each ID.
+        @db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.search_excerpts USING fts5(content, tokenize='sqlite_tokenizer_ar disable_stopwords')")
+        @db.execute("DELETE FROM search_excerpts")
+        values = ids.flat_map { |id| [id, rows.fetch(id).fetch("content")] }
+        @db.execute("INSERT INTO search_excerpts(rowid, content) VALUES #{Array.new(ids.size, '(?, ?)').join(', ')}", values)
+        excerpts = @db.execute(<<~SQL, [match]).to_h { |row| row.values_at("rowid", "excerpt") }
+          SELECT rowid, snippet(search_excerpts, 0, '', '', '…', 42) AS excerpt
+          FROM search_excerpts WHERE search_excerpts MATCH ?
+        SQL
+        ids.map { |id| rows.fetch(id).merge("excerpt" => excerpts.fetch(id)) }
       end
     end
   end

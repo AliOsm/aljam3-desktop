@@ -72,6 +72,11 @@ begin
   raise "Ranked pagination differs" unless actual == expected
   report[:ranked_pages_verified] = 6
 
+  expected = db.execute("SELECT rowid FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rowid LIMIT 72", [Aljam3::Text.match_query(query)]).map { |row| row.fetch("rowid") }
+  actual = (1..6).flat_map { |page| store.search(query, page:, order: "library").fetch("pages").map { |hit| hit.fetch("id") } }
+  raise "Library-order pagination differs" unless actual == expected
+  report[:library_pages_verified] = 6
+
   store.cancel_search
   searching = Thread.new do
     store.search("في")

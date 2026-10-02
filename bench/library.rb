@@ -133,9 +133,9 @@ measure = ->(name, before: nil, &work) do
   times = Array.new(options[:runs]) do
     before&.call
     started = clock.call
-    result = work.call
+    work.call
     elapsed = (clock.call - started) * 1000
-    puts JSON.generate(operation: name, ms: elapsed.round(2), results: result.respond_to?(:size) ? result.size : nil)
+    puts JSON.generate(operation: name, ms: elapsed.round(2))
     $stdout.flush
     elapsed
   end
@@ -159,6 +159,7 @@ measure.call("no_match", before: uncached) { store.search("كلمةغيرموج�
 measure.call("filtered_common", before: uncached) { store.search("الله", author: 1) }
 measure.call("book_search", before: uncached) { store.search("الله", book_id: books.size / 2) }
 measure.call("search_page_100", before: uncached) { store.search("الله", page: 100) }
+measure.call("library_order", before: uncached) { store.search("الله", order: "library") }
 measure.call("read_page") { store.page(books.size / 2, 1) }
 report[:peak_rss_kib] = File.read("/proc/self/status")[/^VmHWM:\s+(\d+)/, 1].to_i if File.file?("/proc/self/status")
 monitoring = false
