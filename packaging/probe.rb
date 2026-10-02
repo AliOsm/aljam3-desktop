@@ -20,6 +20,7 @@ end
 load File.join(root, "app/app.rb")
 app = Shoes.APPS.first
 step = 0
+pdf_bounds = pdf_pixels = nil
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 app.every(0.1) do
   begin
@@ -54,14 +55,21 @@ app.every(0.1) do
       pdf = automation.rect_of!(app.instance_variable_get(:@pdf_surface).linkable_id)
       text = automation.rect_of!(app.instance_variable_get(:@text_surface).linkable_id)
       raise "Reader pane order is not RTL" unless text.x > pdf.x
+      automation.wait_frames
       automation.snapshot(File.join(output, "reader.png"), scale: 2)
+      bounds = automation.rect_of!(image.linkable_id)
+      pdf_bounds = [bounds.x, bounds.y, bounds.w, bounds.h].map { |value| (value * 2).round }
+      pdf_pixels = ChunkyPNG::Image.from_file(File.join(output, "reader.png")).crop(*pdf_bounds).pixels
       app.toggle_theme
       step = 2
     when 2
       next unless app.instance_variable_get(:@page_image)
 
       raise "Theme was not saved" unless store.preference("theme") == "dark"
+      automation.wait_frames
       automation.snapshot(File.join(output, "reader-dark.png"), scale: 2)
+      dark_pixels = ChunkyPNG::Image.from_file(File.join(output, "reader-dark.png")).crop(*pdf_bounds).pixels
+      raise "PDF changed after switching themes" unless dark_pixels == pdf_pixels
       app.open_book_search
       app.instance_variable_get(:@book_search)[:query] = "العلم"
       app.request_book_search
@@ -74,7 +82,7 @@ app.every(0.1) do
       automation.snapshot(File.join(output, "search.png"), scale: 2)
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
         platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))),
-        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme book_search native_rendering] }))
+        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering] }))
       app.close
     end
   rescue StandardError => error
