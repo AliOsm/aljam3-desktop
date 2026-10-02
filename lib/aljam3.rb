@@ -2,6 +2,7 @@
 
 require_relative "aljam3/library"
 require_relative "aljam3/downloader"
+require_relative "aljam3/downloads"
 require_relative "aljam3/reading"
 require_relative "aljam3/worker"
 

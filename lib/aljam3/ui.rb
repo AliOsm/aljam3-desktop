@@ -8,10 +8,12 @@ require_relative "ui/reader"
 require_relative "ui/book_search"
 require_relative "ui/dialogs"
 require_relative "ui/browsing"
+require_relative "ui/downloads"
+require_relative "ui/reader_tools"
 
 module Aljam3
   module UI
-    include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing
+    include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools
 
     def setup
       %w[NotoNaskhArabicUI Cairo Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
@@ -24,12 +26,14 @@ module Aljam3
       @downloader = Downloader.new(api: @api, store: @store, directory: File.join(directory, "books"))
       @reading = Reading.new(api: @api, store: @store, downloader: @downloader)
       @pdf = PDF.new(cache: File.join(directory, "renders"))
-      @network_worker, @download_worker, @render_worker, @page_worker = Array.new(4) { Worker.new }
-      @workers = [@network_worker, @download_worker, @render_worker, @page_worker]
-      @updates, @downloads = Queue.new, {}
+      @network_worker, @render_worker, @page_worker, @export_worker = Array.new(4) { Worker.new }
+      @workers = [@network_worker, @render_worker, @page_worker, @export_worker]
+      @download_queue = Downloads.new(store: @store, downloader: @downloader)
+      @downloads = @download_queue.entries
       @downloaded_ids = @store.downloaded_ids
       @categories, @libraries = @store.preference("categories", []), @store.preference("libraries", [])
       @screen, @mode, @query = :home, :content, ""
+      @search_scope, @connection = :all, @api.connection
       @filters, @expanded = {}, {}
       @request_number, @render_number, @page_request = 0, 0, 0
       @busy = false
@@ -37,16 +41,27 @@ module Aljam3
       every(0.1) { tick }
       keypress do |key|
         if key == :escape
-          close_dialog if @dialog
+          @dialog ? close_dialog : clear_reader_matches if @dialog || @screen == :reader
         elsif %i[control_f alt_f].include?(key)
           if @dialog&.dig(:type) == :book_search
             @book_query_field&.focus
           elsif !@dialog
             @screen == :reader ? open_book_search : @query_field&.focus
           end
+        elsif @screen == :reader && !@dialog
+          reader_keypress(key)
+        end
+      end
+      motion { |x, _y| resize_reader_split(x) if @split_drag && !@dialog }
+      release do
+        if @split_drag
+          @split_drag = false
+          save_reader_options
+          render_pdf if reader_pdf?
         end
       end
       finish do
+        @download_queue.close
         @workers.each(&:close)
         @reading.close
         @store.close
@@ -61,21 +76,25 @@ module Aljam3
 
     def tick
       @workers.each(&:drain)
-      until @updates.empty?
-        id, fraction, message = @updates.pop
-        next unless %i[queued downloading].include?(@downloads.fetch(id).fetch(:status))
+      redraw = @download_queue.tick
+      @downloaded_ids = @store.downloaded_ids if redraw
+      if @connection != @api.connection
+        @connection = @api.connection
+        redraw = true
+      end
+      draw_window if redraw && !@split_drag
+      @progress_views.each do |id, view|
+        next unless (download = @downloads[id])
 
-        @downloads.fetch(id).merge!(fraction:, message:, status: :downloading)
-        if (view = @progress_views[id])
-          view.fetch(:bar).fraction = fraction
-          view.fetch(:label).text = message
-        end
+        view.fetch(:bar).fraction = download.fetch(:fraction)
+        view.fetch(:label).text = download_message(download)
       end
       if @viewport != [width, height]
         draw_window
         render_pdf if reader_pdf?
       end
-      if !@dialog && !@error && @results && @result && !@busy && !@loading_more && @results.scroll_max > 0 &&
+      catalog = %i[browse saved authors].include?(@screen) || (@screen == :home && !@query.empty?)
+      if catalog && !@dialog && !@error && @results && @result && !@busy && !@loading_more && @results.scroll_max > 0 &&
           @results.scroll_top >= @results.scroll_max - 160 && next_result_page
         request_catalog(page: next_result_page, append: true)
       end
@@ -96,7 +115,9 @@ module Aljam3
           draw_reader
         else
           navigation
-          stack(left: (width - @main_width) / 2, top: 80, width: @main_width, height: @content_height) do
+          connection_strip
+          @content_height -= 24
+          stack(left: (width - @main_width) / 2, top: 104, width: @main_width, height: @content_height) do
             case @screen
             when :downloads then draw_downloads
             when :home then @query.strip.empty? ? draw_home : draw_catalog
@@ -139,6 +160,7 @@ module Aljam3
 
     def navigate(screen, filters: {}, label: nil)
       @screen, @query, @mode = screen, "", screen == :authors ? :authors : :content
+      @search_scope = screen == :saved ? :downloaded : :all
       @result = @results = @error = @dialog = @dialog_scroll = nil
       @filters, @expanded, @filters_by_mode, @scope_label = filters, {}, {}, label
       @mode = :books unless filters.empty?
@@ -153,20 +175,26 @@ module Aljam3
       @request_number += 1
       request_number = @request_number
       query, screen, mode, filters = @query.strip, @screen, @mode, @filters.dup
+      downloaded = @search_scope == :downloaded
       if append
         @loading_more = true
       else
         @busy, @error, @result, @results = true, nil, nil, nil
         @expanded = {}
+        if query.empty? && mode != :authors
+          data = @store.catalog(**filters, downloaded:)
+          @result = Result.new(data, downloaded ? :downloaded : :cached, nil) unless data.fetch("books").empty?
+          @source = @result.source if @result
+        end
         draw_window
       end
       work = -> do
         if mode == :authors || screen == :authors
-          @library.authors(query:, page:)
-        elsif mode == :content && (!query.empty? || !filters.empty?) && screen != :saved
-          @library.search(query, **filters, page:)
+          @library.authors(query:, page:, downloaded:)
+        elsif mode == :content && (!query.empty? || !filters.empty?)
+          @library.search(query, **filters, page:, downloaded:)
         else
-          @library.browse(query:, **filters, page:, downloaded: screen == :saved)
+          @library.browse(query:, **filters, page:, downloaded:)
         end
       end
       @network_worker.submit(work) do |result, error|
@@ -196,26 +224,34 @@ module Aljam3
     end
 
     def source_label
-      return "جارٍ الاتصال…" if @busy
+      return @result ? "المحفوظ على جهازك · جارٍ التحديث…" : "جارٍ البحث…" if @busy
 
       { online: "متصل بالجامع", offline: "دون اتصال · الفهرس المحفوظ", local: "الخدمة غير متاحة · الفهرس المحفوظ",
-        downloaded: "محفوظ على جهازك" }.fetch(@source, "الجامع لسطح المكتب")
+        downloaded: "في كتبك المحمّلة فقط", cached: "الفهرس المحفوظ على جهازك" }.fetch(@source, "الجامع لسطح المكتب")
     end
 
     def queue_download(book)
-      id = book.fetch("id")
-      return if %i[queued downloading].include?(@downloads.dig(id, :status))
-
-      @downloads[id] = { book:, status: :queued, fraction: 0, message: "في قائمة الانتظار" }
+      @download_queue.enqueue(book)
       draw_window
-      @download_worker.submit(-> { @downloader.call(id) { |fraction, message| @updates << [id, fraction, message] } }) do |_downloaded, error|
-        if error
-          @downloads.fetch(id).merge!(status: :failed, message: error_message(error))
-        else
-          @downloads.fetch(id).merge!(status: :done, fraction: 1, message: "اكتمل · متاح دون اتصال")
-          @downloaded_ids = @store.downloaded_ids
-        end
-        draw_window
+    end
+
+    def connection_strip
+      message = case @connection
+                when :offline then "دون اتصال · كتبك المحمّلة متاحة للقراءة والبحث."
+                when :unavailable then "المكتبة غير متاحة الآن · يمكنك استخدام كتبك المحمّلة."
+                when :online then "متصل بالجامع · نزّل الكتب لتحتفظ بها دون اتصال."
+                else "مكتبتك المحفوظة جاهزة · جارٍ التحقق من الاتصال…"
+                end
+      para message, left: 160, top: 73, width: width - 180, size: 13, stroke: muted
+      if %i[offline unavailable].include?(@connection)
+        action("إعادة الاتصال", left: 16, top: 64, width: 126, variant: :ghost) { refresh_connection }
+      end
+    end
+
+    def refresh_connection
+      @network_worker.submit(-> { [@library.categories, @library.libraries] }) do |data, _error|
+        @categories, @libraries = data if data
+        %i[browse saved authors].include?(@screen) ? request_catalog : draw_window
       end
     end
 

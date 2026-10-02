@@ -3,7 +3,11 @@
 module Aljam3
   module UI
     module Reader
-      def open_book(book, page_id: nil, hit: nil)
+      def open_book(book, page_id: nil, hit: nil, query: nil)
+        if offline_unavailable?(book)
+          open_dialog(:unavailable, book:)
+          return
+        end
         unless @screen == :reader
           @catalog_return = { screen: @screen, scroll: @results&.scroll_top || 0 }
         end
@@ -14,7 +18,7 @@ module Aljam3
           location = hit || (page_id && @store.find_page(page_id))
           location = @store.find_page(location.fetch("id")) if location && !location["file_id"]
           notice = "لم نجد صفحة النتيجة في النسخة المحمّلة. فُتحت بداية الكتاب." if (hit || page_id) && !location
-          start_reader(book.merge("files" => @store.files(book.fetch("id"))), location:, notice:)
+          start_reader(book.merge("files" => @store.files(book.fetch("id"))), location:, notice:, query:)
         else
           request_number = @request_number
           @screen = :opening
@@ -31,13 +35,13 @@ module Aljam3
               @busy = false
               draw_window
             else
-              start_reader(data.first, location: data.last)
+              start_reader(data.first, location: data.last, query:)
             end
           end
         end
       end
 
-      def start_reader(book, location: nil, notice: nil)
+      def start_reader(book, location: nil, notice: nil, query: nil)
         files = book.fetch("files")
         raise ResponseError.new(404), "This book has no files." if files.empty?
 
@@ -45,9 +49,11 @@ module Aljam3
         location ||= saved
         file = files.find { |candidate| candidate.fetch("id") == location["file_id"] }
         options = @store.preference("reader", {})
+        @store.cache_books([book])
+        @bookmarks = @store.bookmarks(book.fetch("id"))
         @reader = { book:, files:, file: file || files.first, zoom: 1.0,
           mode: options.fetch("mode", "split").to_sym, text_size: options.fetch("text_size", 20),
-          tashkeel: options.fetch("tashkeel", true) }
+          tashkeel: options.fetch("tashkeel", true), split_ratio: options.fetch("split_ratio", 0.5), query: query.to_s }
         @screen = :reader
         turn_page(file ? location.fetch("number", 1) : 1, notice:)
       end
@@ -61,7 +67,7 @@ module Aljam3
       end
 
       def save_reader_options
-        @store.save_preference("reader", @reader.slice(:mode, :text_size, :tashkeel))
+        @store.save_preference("reader", @reader.slice(:mode, :text_size, :tashkeel, :split_ratio))
       end
 
       def draw_reader
@@ -80,17 +86,24 @@ module Aljam3
           size: width < 960 ? 23 : 27, weight: "semibold"
         author = book["author"]
         para text_link(Text.plain(author&.fetch("name")), stroke: muted) { browse_scope(:author, author) if author },
-          left: 16, top: heading_height + 52, width: width - 32, size: 14
+          left: 260, top: heading_height + 52, width: width - 276, size: 14
+        para availability_label(book), left: 16, top: heading_height + 52, width: 228, size: 13, stroke: muted, align: "left"
         reader_toolbar(toolbar_top)
         pane_top = toolbar_top + 68
+        unless @reader.fetch(:query).empty?
+          reader_match_bar(pane_top)
+          pane_top += 44
+        end
         if @reader[:notice]
           para @reader[:notice], left: 16, top: pane_top, width: width - 32, size: 14, stroke: primary
           pane_top += 32
         end
-        pane_width = @reader[:mode] == :split ? (width - 48) / 2 : width - 32
+        pdf_width, text_width = reader_pane_widths
         pane_height = height - pane_top - 80
-        reader_pdf_pane(width: pane_width, height: pane_height, top: pane_top) if reader_pdf?
-        reader_text_pane(width: pane_width, height: pane_height, top: pane_top) unless @reader[:mode] == :pdf
+        @pane_top, @pane_height = pane_top, pane_height
+        reader_pdf_pane(width: pdf_width, height: pane_height, top: pane_top) if reader_pdf?
+        reader_text_pane(width: text_width, height: pane_height, top: pane_top) unless @reader[:mode] == :pdf
+        draw_reader_divider if @reader[:mode] == :split
         reader_pagination
       end
 
@@ -98,27 +111,22 @@ module Aljam3
         stack(left: 16, top:, width: width - 32, height: 52) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
-          if width >= 1040
-            para "الكتاب المصوّر", left: 12, top: 19, width: 105, size: 14, align: "left"
-            para "نص الكتاب", left: width - 150, top: 19, width: 100, size: 14
-          end
-          flow(left: (width - 32 - 590) / 2, top: 8, width: 590, height: 36) do
-            icon_button("share-2", "مشاركة الصفحة") { open_dialog(:share) }
-            icon_button("download", "تنزيل الملفات") { open_dialog(:export) }
-            icon_button("image-down", "حفظ صورة الصفحة", state: @reader[:image] ? nil : "disabled") { save_page_image }
+          flow(left: 8, top: 8, width: 108, height: 36) do
             icon_button("maximize", "ملاءمة الصفحة") { change_zoom(1.0 - @reader.fetch(:zoom)) }
             icon_button("zoom-out", "تصغير PDF") { change_zoom(-0.25) }
             icon_button("zoom-in", "تكبير PDF") { change_zoom(0.25) }
-            flow(width: 132, height: 36, margin_left: 12, margin_right: 12) do
-              { pdf: ["panel-left", "PDF فقط"], split: ["columns-2", "النص والصورة"], text: ["panel-right", "النص فقط"] }.each do |mode, (icon, label)|
-                icon_button(icon, label, selected: @reader[:mode] == mode, variant: :outline) { change_reader_mode(mode) }
-              end
+          end
+          flow(left: (width - 32 - 132) / 2, top: 8, width: 132, height: 36) do
+            { pdf: ["panel-left", "PDF فقط"], split: ["columns-2", "النص والصورة"], text: ["panel-right", "النص فقط"] }.each do |mode, (icon, label)|
+              icon_button(icon, label, width: 44, selected: @reader[:mode] == mode, variant: :outline) { change_reader_mode(mode) }
             end
-            @tashkeel_button = action("تشكيل", width: 58, variant: :ghost, selected: @reader[:tashkeel], tooltip: "إظهار أو إخفاء التشكيل") { toggle_tashkeel }
-            action("−", width: 36, variant: :ghost, size: 21, tooltip: "تصغير النص") { change_text_size(-2) }
-            action("+", width: 36, variant: :ghost, size: 21, tooltip: "تكبير النص") { change_text_size(2) }
+          end
+          flow(left: width - 32 - 292, top: 8, width: 284, height: 36) do
+            icon_button("ellipsis", "أدوات الكتاب") { open_dialog(:reader_menu) }
+            action("خيارات القراءة", width: 136, variant: :ghost) { open_dialog(:reader_options) }
+            icon_button(bookmarked? ? "bookmark-check" : "bookmark", bookmarked? ? "إزالة الفاصل" : "حفظ فاصل · Ctrl/⌘ D", selected: bookmarked?) { toggle_reader_bookmark }
             @copy_button = icon_button("copy", "نسخ نص الصفحة", state: page_text.strip.empty? ? "disabled" : nil) { copy_page }
-            icon_button("search", "بحث في الكتاب") { open_book_search }
+            icon_button("search", "بحث في الكتاب · Ctrl/⌘ F") { open_book_search }
           end
         end
       end
@@ -130,8 +138,8 @@ module Aljam3
       end
 
       def reader_text_pane(width:, height:, top:)
-        left = @reader[:mode] == :split ? width + 32 : 16
-        stack(left:, top:, width:, height:) do
+        left = @reader[:mode] == :split ? @pdf_width + 32 : 16
+        @text_pane = stack(left:, top:, width:, height:) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
           @text_surface = stack(width: 1.0, height:, scroll: !@dialog) do
@@ -141,7 +149,11 @@ module Aljam3
                 action("إعادة تحميل النص", margin_top: 16) { turn_page(@reader.fetch(:number)) }
               else
                 content = @reader[:loading_text] ? "جارٍ تحميل النص…" : (page_text.strip.empty? ? "لا يتوفر نص لهذه الصفحة." : page_text)
-                @page_text = para content, font: READING_FONT, size: @reader.fetch(:text_size), leading: 8
+                @page_text = para(*reader_text_parts(content), font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
+                if !@reader[:loading_text] && @reader.delete(:focus_match)
+                  page_text = @page_text
+                  timer(0) { focus_reader_match if @page_text == page_text && @screen == :reader }
+                end
               end
             end
           end
@@ -165,14 +177,13 @@ module Aljam3
 
       def toggle_tashkeel
         @reader[:tashkeel] = !@reader.fetch(:tashkeel)
-        @page_text.text = page_text if @page_text && !@reader[:loading_text] && !@reader[:text_error]
-        @tashkeel_button.style(color: @reader[:tashkeel] ? accent : "transparent")
+        @page_text.replace(*reader_text_parts(page_text)) if @page_text && !@reader[:loading_text] && !@reader[:text_error]
         save_reader_options
       end
 
       def reader_pdf_pane(width:, height:, top:)
         @pdf_width, @pdf_height = width, height
-        stack(left: 16, top:, width:, height:) do
+        @pdf_pane = stack(left: 16, top:, width:, height:) do
           background surface, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
           @pdf_surface = stack(width: 1.0, height:, scroll: !@dialog)
@@ -224,10 +235,10 @@ module Aljam3
         @text_surface = @pdf_surface = nil
         file, book = @reader.values_at(:file, :book)
         number = number.clamp(1, file.fetch("pages_count"))
-        @reader.merge!(number:, notice:, image: nil, pdf_error: nil, page: nil, text_error: nil)
+        @reader.merge!(number:, notice:, image: nil, pdf_error: nil, page: nil, text_error: nil, match_index: 0, focus_match: true)
         @page_request = (@page_request || 0) + 1
         request_number = @page_request
-        @store.save_preference("reading:#{book.fetch('id')}", { "file_id" => file.fetch("id"), "number" => number })
+        @store.save_reading(book.fetch("id"), file_id: file.fetch("id"), number:)
         if @store.downloaded?(book.fetch("id"))
           @reader[:page] = @store.page(file.fetch("id"), number)
           @reader[:loading_text] = false
@@ -325,7 +336,7 @@ module Aljam3
 
         dialog = @dialog
         @export_feedback.text = "جارٍ حفظ الملف…"
-        @download_worker.submit(-> { HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf") }) do |_result, error|
+        @export_worker.submit(-> { HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf") }) do |_result, error|
           next unless @dialog.equal?(dialog)
 
           @export_feedback.text = error ? error_message(error) : "تم حفظ الملف"

@@ -1,0 +1,88 @@
+diff --git a/lacci/lib/shoes/drawables/progress.rb b/lacci/lib/shoes/drawables/progress.rb
+index cae1cbb..64f21c4 100644
+--- a/lacci/lib/shoes/drawables/progress.rb
++++ b/lacci/lib/shoes/drawables/progress.rb
+@@ -2,7 +2,7 @@
+ 
+ class Shoes
+   class Progress < Shoes::Drawable
+-    shoes_styles :fraction
++    shoes_styles :fraction, :color, :background_color
+ 
+     # fraction is a decimal from the start (ledger M5; Shoes 3 gives 0.0)
+     Shoes::Drawable.drawable_default_styles[Shoes::Progress][:fraction] = 0.0
+diff --git a/native/src/elements/progress.rs b/native/src/elements/progress.rs
+index dd86e6c..9981bca 100644
+--- a/native/src/elements/progress.rs
++++ b/native/src/elements/progress.rs
+@@ -10,16 +10,18 @@ const TRACK: Color = Color::rgb(0xe5, 0xe5, 0xea);
+ 
+ pub fn paint(canvas: &mut Canvas, node: &Node, lbox: &LBox) {
+     let r = lbox.rect;
++    let color = node.props.color("color").unwrap_or(ACCENT);
++    let background = node.props.color("background_color").unwrap_or(TRACK);
+     let h = r.h.min(8.0);
+     let track = Rect::new(r.x, r.y + (r.h - h) / 2.0, r.w, h);
+-    canvas.fill_rounded(track, h / 2.0, TRACK, lbox.clip);
++    canvas.fill_rounded(track, h / 2.0, background, lbox.clip);
+     match node.props.f32("fraction") {
+         Some(f) => {
+             let w = (r.w * f.clamp(0.0, 1.0)).max(if f > 0.0 { h } else { 0.0 });
+             if w > 0.0 {
+-                canvas.fill_rounded(Rect::new(track.x, track.y, w, h), h / 2.0, ACCENT, lbox.clip);
++                canvas.fill_rounded(Rect::new(track.x, track.y, w, h), h / 2.0, color, lbox.clip);
+             }
+         }
+-        None => canvas.fill_rounded(Rect::new(track.x + r.w * 0.1, track.y, r.w * 0.35, h), h / 2.0, ACCENT.fade(0.55), lbox.clip),
++        None => canvas.fill_rounded(Rect::new(track.x + r.w * 0.1, track.y, r.w * 0.35, h), h / 2.0, color.fade(0.55), lbox.clip),
+     }
+ }
+diff --git a/native/src/paint/text.rs b/native/src/paint/text.rs
+index 4a0bef0..bea2bc0 100644
+--- a/native/src/paint/text.rs
++++ b/native/src/paint/text.rs
+@@ -91,7 +91,7 @@ fn draw_highlights(canvas: &mut Canvas, run: &LayoutRun, x: f32, y: f32, metas:
+     for glyph in run.glyphs {
+         let highlight = meta_of(metas, glyph.metadata).and_then(|m| m.highlight);
+         match (highlight, current) {
+-            (Some(c), Some((cur, x0, _))) if c == cur => current = Some((cur, x0, glyph.x + glyph.w)),
++            (Some(c), Some((cur, x0, x1))) if c == cur => current = Some((cur, x0.min(glyph.x), x1.max(glyph.x + glyph.w))),
+             (Some(c), _) => {
+                 flush(canvas, current.take());
+                 current = Some((c, glyph.x, glyph.x + glyph.w));
+diff --git a/native/tests/golden.rs b/native/tests/golden.rs
+index cfbce00..eeeb4bf 100644
+--- a/native/tests/golden.rs
++++ b/native/tests/golden.rs
+@@ -133,3 +133,31 @@ fn shading_a_few_levels_off_still_matches() {
+         assert_eq!(mismatch(&shaded, &golden(scene)), None, "{scene}");
+     }
+ }
++
++#[test]
++fn arabic_span_highlights_cover_the_whole_word() {
++    let mut h = Harness::new();
++    h.feed(&common::app(360, 120, &[
++        json!({"t":"create","id":3,"kind":"Span","parent":2,"props":{"text_items":["العلم"],"fill":{"rgba":[174,71,33,255]}}}),
++        json!({"t":"create","id":4,"kind":"Para","parent":2,"props":{"text_items":[3],"left":20,"top":20,"width":320,"size":32,"align":"right"}}),
++    ]));
++    let path = std::env::temp_dir().join(format!("scarpe-arabic-highlight-{}.png", std::process::id()));
++    h.value(json!({"op":"snapshot","path":path.to_string_lossy(),"scale":1}));
++    let img = image::open(&path).unwrap().to_rgba8();
++    let colored = img.enumerate_pixels().filter(|(_, _, pixel)| pixel.0 == [174, 71, 33, 255]).collect::<Vec<_>>();
++    assert!(colored.len() > 500, "The Arabic word needs a visible highlight, got {} pixels", colored.len());
++    let min = colored.iter().map(|(x, _, _)| *x).min().unwrap();
++    let max = colored.iter().map(|(x, _, _)| *x).max().unwrap();
++    assert!(max - min > 40, "The highlight must span more than one glyph");
++    let _ = std::fs::remove_file(path);
++}
++
++#[test]
++fn progress_uses_its_theme_colors() {
++    let mut h = Harness::new();
++    h.feed(&common::app(240, 40, &[
++        json!({"t":"create","id":3,"kind":"Progress","parent":2,"props":{"left":10,"top":10,"width":200,"height":8,"fraction":0.5,"color":{"rgba":[174,71,33,255]},"background_color":{"rgba":[74,69,67,255]}}}),
++    ]));
++    assert_eq!(h.value(json!({"op":"pixel","x":30,"y":14})), json!([174,71,33,255]));
++    assert_eq!(h.value(json!({"op":"pixel","x":180,"y":14})), json!([74,69,67,255]));
++}

@@ -33,5 +33,18 @@ module Aljam3
     def match_query(query)
       normalize(query).scan(/[[:alnum:]]+/).map { |word| %Q("#{word}"*) }.join(" AND ")
     end
+
+    def match_ranges(text, query)
+      fold = ->(value) { normalize(value).tr("ة٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "ه01234567890123456789") }
+      terms = fold.call(query).scan(/[[:alnum:]]+/)
+      return [] if terms.empty?
+
+      ranges = []
+      text.to_enum(:scan, /[\p{L}\p{M}\p{N}]+/).each do
+        match = Regexp.last_match
+        ranges << [match.begin(0), match[0].length] if terms.any? { |term| fold.call(match[0]).include?(term) }
+      end
+      ranges
+    end
   end
 end

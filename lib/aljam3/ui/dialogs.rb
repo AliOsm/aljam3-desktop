@@ -28,6 +28,12 @@ module Aljam3
           when :share then [520, 284]
           when :export then [660, [@reader.fetch(:files).length * 54 + 232, 620].min]
           when :choices then [560, 420]
+          when :reader_options then [440, 460]
+          when :reader_menu then [420, 440]
+          when :bookmarks then [660, 560]
+          when :shortcuts then [600, 460]
+          when :remove_download then [600, 360]
+          when :unavailable then [560, 320]
           else [780, 620]
           end
         panel_width = [width - 32, requested_width].min
@@ -53,7 +59,9 @@ module Aljam3
           border line_color, curve: sheet ? 0 : CARD_RADIUS
           icon_button("x", "إغلاق", left: 12, top: 12) { close_dialog }
           title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
-            authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات" }.fetch(@dialog.fetch(:type)))
+            authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
+            reader_options: "خيارات القراءة", reader_menu: "أدوات الكتاب", bookmarks: "الفواصل المحفوظة",
+            shortcuts: "اختصارات لوحة المفاتيح", remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(@dialog.fetch(:type)))
           para title, left: 56, top: 18, width: panel_width - 76, size: 21, font: HEADING_FONT
           line 16, 62, panel_width - 16, 62, stroke: line_color
           stack(left: 16, top: 74, width: @main_width, height: @content_height) do
@@ -64,6 +72,12 @@ module Aljam3
             when :book_search then draw_book_search
             when :share then draw_share
             when :export then draw_export
+            when :reader_options then draw_reader_options
+            when :reader_menu then draw_reader_menu
+            when :bookmarks then draw_bookmarks
+            when :shortcuts then draw_shortcuts
+            when :remove_download then draw_remove_download
+            when :unavailable then draw_unavailable_book
             end
           end
         end

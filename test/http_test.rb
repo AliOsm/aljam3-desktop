@@ -13,6 +13,7 @@ class HTTPTest < Minitest::Test
         request = socket.gets
         while (header = socket.gets)
           break if header == "\r\n"
+          request += header
         end
         socket.write(response.respond_to?(:call) ? response.call(request) : response)
         socket.close
@@ -117,6 +118,61 @@ class HTTPTest < Minitest::Test
       end
       assert_equal "نص الكتاب", File.read(target)
       refute File.exist?("#{target}.part")
+    end
+  end
+
+  def test_resumes_an_interrupted_pdf_using_a_range_and_a_validator
+    Dir.mktmpdir do |directory|
+      target = File.join(directory, "book.pdf")
+      pdf = "%PDF-1.7\ncomplete book"
+      prefix = pdf[0, 10]
+      tail = pdf[10..]
+      resumed = nil
+      first = response(prefix, headers: { "Content-Length" => pdf.bytesize, "ETag" => '"edition-1"' })
+      second = ->(request) do
+        resumed = request
+        response(tail, status: "206 Partial Content", headers: { "Content-Range" => "bytes 10-#{pdf.bytesize - 1}/#{pdf.bytesize}", "ETag" => '"edition-1"' })
+      end
+      with_server(first, second) do |url|
+        http = Aljam3::HTTP.new
+        assert_raises(Aljam3::ConnectionError) { http.download(url, target, resume: true) }
+        refute File.exist?(target)
+        assert_equal prefix, File.binread("#{target}.part")
+        http.download(url, target, resume: true)
+      end
+      assert_match(/Range: bytes=10-/i, resumed)
+      assert_match(/If-Range: "edition-1"/i, resumed)
+      assert_equal pdf, File.binread(target)
+      refute File.exist?("#{target}.part.json")
+    end
+  end
+
+  def test_server_ignoring_range_restarts_without_appending_to_the_partial_pdf
+    Dir.mktmpdir do |directory|
+      target = File.join(directory, "book.pdf")
+      pdf = "%PDF-1.7\nnew edition"
+      first = response("%PDF-old", headers: { "Content-Length" => 1000, "ETag" => '"old"' })
+      with_server(first, response(pdf)) do |url|
+        http = Aljam3::HTTP.new
+        assert_raises(Aljam3::ConnectionError) { http.download(url, target, resume: true) }
+        http.download(url, target, resume: true)
+      end
+      assert_equal pdf, File.binread(target)
+    end
+  end
+
+  def test_invalid_content_range_retries_from_the_start
+    Dir.mktmpdir do |directory|
+      target = File.join(directory, "book.pdf")
+      pdf = "%PDF-1.7\nnew edition"
+      first = response("%PDF-old", headers: { "Content-Length" => 1000, "ETag" => '"old"' })
+      invalid = response("bad", status: "206 Partial Content", headers: { "Content-Range" => "bytes 1-3/4" })
+      with_server(first, invalid, response(pdf)) do |url|
+        http = Aljam3::HTTP.new
+        assert_raises(Aljam3::ConnectionError) { http.download(url, target, resume: true) }
+        http.download(url, target, resume: true)
+      end
+      assert_equal pdf, File.binread(target)
     end
   end
 end

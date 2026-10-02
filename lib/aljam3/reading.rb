@@ -19,7 +19,9 @@ module Aljam3
     def book(id)
       return @store.book(id).merge("files" => @store.files(id)) if @store.downloaded?(id)
 
-      @api.book(id)
+      book = @api.book(id)
+      @store.cache_books([book])
+      book
     end
 
     def page(book_id, file_id, number)

@@ -24,6 +24,10 @@ jobs:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
     steps:
       - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4.7'
@@ -46,7 +50,7 @@ jobs:
       - name: Application tests
         run: bundle exec rake test
       - name: Native clipboard and Arabic input tests
-        run: cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --test clipboard --test text_input
+        run: cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --test clipboard --test text_input --test golden
       - name: Download and verify a real sample book
         run: bundle exec ruby bin/smoke
       - name: Assemble standalone application

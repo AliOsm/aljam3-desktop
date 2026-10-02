@@ -50,10 +50,11 @@ class StoreTest < StoreTestCase
   def test_catalog_refresh_preserves_download_status_and_reading_position
     install_book
     @store.save_preference("reading:1", { "file_id" => 10, "number" => 2 })
-    @store.cache_books([book.merge("title" => "آداب <mark>العلم</mark>")])
+    @store.cache_books([book.merge("title" => "آداب <mark>العلم</mark>").reject { |key, _| key == "files" }])
     assert @store.downloaded?(1)
     assert_equal 2, @store.preference("reading:1").fetch("number")
     assert_equal 10, @store.find_page(101).fetch("file_id")
+    assert_equal 10, @store.book(1).fetch("files").first.fetch("id")
     assert_equal 1, @store.catalog(query: "اداب").fetch("books").length
   end
 
@@ -98,6 +99,7 @@ class StoreTest < StoreTestCase
     migrated = Aljam3::Store.new(path)
     assert migrated.downloaded?(1)
     assert_equal 1, migrated.preference("reading:1").fetch("number")
+    assert_equal 1, migrated.recent_books.first.fetch("number")
     assert_equal [100], migrated.search("مدرسه كتاب").fetch("pages").map { |hit| hit.fetch("id") }
     assert_equal "كتابها في الْمَدْرَسَةِ", migrated.find_page(100).fetch("content")
     migrated.close
@@ -107,5 +109,32 @@ class StoreTest < StoreTestCase
     assert_empty migrated.search("مدرسه").fetch("pages")
   ensure
     migrated&.close
+  end
+
+  def test_history_and_bookmarks_survive_reopen_and_removing_downloads
+    install_book
+    install_book(2)
+    @store.save_reading(1, file_id: 10, number: 1)
+    @store.save_reading(2, file_id: 20, number: 1)
+    @store.save_reading(1, file_id: 10, number: 2)
+    assert @store.toggle_bookmark(1, file_id: 10, number: 2, excerpt: "العلم نور")
+    @store.discard_download(1)
+    @store.close
+    @store = Aljam3::Store.new(File.join(@directory, "library.sqlite3"))
+    assert_equal [1, 2], @store.recent_books.map { |entry| entry.fetch("book_id") }
+    assert_equal 2, @store.recent_books(limit: 1).first.fetch("number")
+    assert_equal "العلم نور", @store.bookmarks(1).first.fetch("excerpt")
+    refute @store.toggle_bookmark(1, file_id: 10, number: 2, excerpt: "")
+    assert_empty @store.bookmarks(1)
+  end
+
+  def test_resuming_a_partially_indexed_batch_does_not_duplicate_pages
+    @store.prepare_download(book)
+    @store.add_pages(10, pages.first(1))
+    @store.prepare_download(book, resume: true)
+    @store.add_pages(10, pages)
+    assert_equal 2, @store.page_count(10)
+    @store.complete_download(1)
+    assert_equal [100, 101], @store.search("العلم").fetch("pages").map { |hit| hit.fetch("id") }.sort
   end
 end

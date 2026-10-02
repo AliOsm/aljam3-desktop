@@ -3,6 +3,7 @@
 require "net/http"
 require "uri"
 require "fileutils"
+require "json"
 
 module Aljam3
   class ConnectionError < StandardError; end
@@ -24,15 +25,37 @@ module Aljam3
       request(url, headers: { "Accept" => "application/json" }) { |response| response.body }
     end
 
-    def download(url, destination, validate_pdf: true, &progress)
+    def download(url, destination, validate_pdf: true, resume: false, check: -> {}, &progress)
       FileUtils.mkdir_p(File.dirname(destination))
       temporary = "#{destination}.part"
-      request(url, headers: { "Accept-Encoding" => "identity" }, timeout: 30) do |response|
-        expected = response["content-length"]&.to_i
-        received = 0
+      metadata = "#{temporary}.json"
+      saved = JSON.parse(File.read(metadata)) if resume && File.file?(metadata)
+      offset = resume && saved&.fetch("url") == url && saved["validator"] && File.file?(temporary) ? File.size(temporary) : 0
+      headers = { "Accept-Encoding" => "identity" }
+      headers.merge!("Range" => "bytes=#{offset}-", "If-Range" => saved.fetch("validator")) if offset.positive?
+      check.call
+      request(url, headers:, timeout: 8) do |response|
+        partial = response.code == "206"
+        expected = response["content-length"] && Integer(response["content-length"])
+        if partial
+          range = response["content-range"]&.match(/\Abytes (\d+)-(\d+)\/(\d+)\z/)
+          unless range && range[1].to_i == offset && range[2].to_i + 1 == range[3].to_i && (!expected || expected == range[3].to_i - offset)
+            raise ResponseError.new(416), "Invalid partial download response."
+          end
+          expected = range[3].to_i
+        end
+        received = partial ? offset : 0
+        validator = response["etag"] unless response["etag"]&.start_with?("W/")
+        validator ||= response["last-modified"]
+        FileUtils.rm_f(metadata) unless partial
         last_update = 0
-        File.open(temporary, "wb") do |file|
+        File.open(temporary, partial ? "ab" : "wb") do |file|
+          if resume
+            File.write("#{metadata}.tmp", JSON.generate(url:, validator:))
+            File.rename("#{metadata}.tmp", metadata)
+          end
           response.read_body do |chunk|
+            check.call
             file.write(chunk)
             received += chunk.bytesize
             now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -43,15 +66,25 @@ module Aljam3
           end
         end
         raise ConnectionError, "The download ended before the complete file arrived." if expected && received != expected
+        progress&.call(received, expected)
       end
       if validate_pdf && !File.binread(temporary, 1024).include?("%PDF-")
+        FileUtils.rm_f([temporary, metadata])
         raise ResponseError.new(422), "The download is not a PDF."
       end
 
+      check.call
       File.rename(temporary, destination)
+      FileUtils.rm_f(metadata)
       destination
+    rescue ResponseError => error
+      if error.status == 416 && offset&.positive?
+        FileUtils.rm_f([temporary, metadata])
+        return download(url, destination, validate_pdf:, resume:, check:, &progress)
+      end
+      raise
     ensure
-      FileUtils.rm_f(temporary) if temporary
+      FileUtils.rm_f([temporary, metadata].compact) unless resume
     end
 
     private

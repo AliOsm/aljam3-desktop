@@ -36,6 +36,17 @@ class LibraryTest < StoreTestCase
     assert_equal [["العلم", { category: 2, author: nil, library: nil, page: 3, book_id: nil }]], @api.calls
   end
 
+  def test_explicit_downloaded_scope_never_calls_the_api
+    @store.cache_books([book(2)])
+    result = @library.search("العلم", downloaded: true)
+    assert_equal :downloaded, result.source
+    assert_equal [1], result.data.fetch("pages").map { |hit| hit.dig("book", "id") }.uniq
+    result = @library.browse(downloaded: true)
+    assert_equal [1], result.data.fetch("books").map { |entry| entry.fetch("id") }
+    assert_equal [4], @library.authors(downloaded: true).data.fetch("authors").map { |author| author.fetch("id") }
+    assert_empty @api.calls
+  end
+
   def test_connection_failure_searches_downloaded_books_and_next_search_retries_api
     @api.error = Aljam3::ConnectionError.new("No route to host")
     result = @library.search("العلم")

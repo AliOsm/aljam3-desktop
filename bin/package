@@ -64,11 +64,14 @@ Dir.chdir(ROOT) do
   renderer = "scarpe-native#{'.exe' if WINDOWS}"
   copy("vendor/scarpe/native/target/release/#{renderer}", File.join(binary_dir, renderer))
   revision = IO.popen(["git", "rev-parse", "HEAD"], &:read).strip
-  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: "0.1.1", revision:, target: TARGET,
+  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: "0.1.2", revision:, target: TARGET,
     ruby: "3.4.7", scarpe: "47256367a4d3cefbb39756d8c3287814db72e927", gems: gems.map(&:full_name) }))
 
   if WINDOWS
-    run("rustc", "packaging/windows-launcher.rs", "--edition", "2021", "-O", "-C", "target-feature=+crt-static", "-o", File.join(bundle, "Aljam3.exe"))
+    resource = File.join(ROOT, ".cache/packaging/aljam3.res")
+    run("rc", "/nologo", "/fo", resource, "packaging/windows-icon.rc")
+    run("rustc", "packaging/windows-launcher.rs", "--edition", "2021", "-O", "-C", "target-feature=+crt-static",
+      "-C", "link-arg=#{resource}", "-o", File.join(bundle, "Aljam3.exe"))
   else
     copy("packaging/macos-launcher", File.join(binary_dir, "aljam3"))
     FileUtils.chmod(0o755, File.join(binary_dir, "aljam3"))
@@ -77,7 +80,7 @@ Dir.chdir(ROOT) do
     FileUtils.mkdir_p(iconset)
     [16, 32, 128, 256, 512].each do |size|
       [1, 2].each do |scale|
-        run("sips", "-z", (size * scale).to_s, (size * scale).to_s, "assets/brand/aljam3.png",
+        run("sips", "-z", (size * scale).to_s, (size * scale).to_s, "assets/brand/app-icon.png",
           "--out", File.join(iconset, "icon_#{size}x#{size}#{'@2x' if scale == 2}.png"), out: File::NULL)
       end
     end

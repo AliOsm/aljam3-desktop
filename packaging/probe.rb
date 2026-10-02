@@ -79,10 +79,59 @@ app.every(0.1) do
 
       result = app.instance_variable_get(:@book_search).fetch(:result)
       raise "Book search failed" unless result.source == :offline && result.data.fetch("pages").any?
+      automation.wait_frames
       automation.snapshot(File.join(output, "search.png"), scale: 2)
+      app.close_dialog
+      app.open_book(store.book(1), hit: result.data.fetch("pages").first, query: "العلم")
+      step = 4
+    when 4
+      next unless app.instance_variable_get(:@page_image)
+
+      reader = app.instance_variable_get(:@reader)
+      count = Aljam3::Text.match_ranges(app.page_text, reader.fetch(:query)).length
+      raise "Search highlights missing" unless count > 1
+      automation.key("f3")
+      raise "Match navigation failed" unless reader[:match_index] == 1
+      automation.wait_frames
+      automation.snapshot(File.join(output, "reader-matches.png"), scale: 2)
+      text = automation.rect_of!(app.instance_variable_get(:@text_surface).linkable_id)
+      bounds = [text.x, text.y, text.w, text.h].map { |value| (value * 2).round }
+      colored = ChunkyPNG::Image.from_file(File.join(output, "reader-matches.png")).crop(*bounds).pixels.count(ChunkyPNG::Color.from_hex(app.primary))
+      raise "Arabic highlight was not painted" unless colored > 100
+      divider = automation.rect_of!(app.instance_variable_get(:@reader_divider).linkable_id)
+      x, y = divider.center
+      automation.mouse(:down, x, y)
+      automation.mouse(:move, x - 90, y)
+      automation.mouse(:up, x - 90, y)
+      raise "Divider drag failed" unless reader[:split_ratio] < 0.45
+      app.toggle_reader_bookmark unless app.bookmarked?
+      app.open_dialog(:reader_options)
+      tashkeel = reader[:tashkeel]
+      label = tashkeel ? "إخفاء التشكيل" : "إظهار التشكيل"
+      button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == label }
+      raise "Tashkeel control missing" unless button
+      automation.click({ id: button.fetch(:id) })
+      raise "Tashkeel option failed" unless reader[:tashkeel] == !tashkeel
+      automation.wait_frames
+      automation.snapshot(File.join(output, "reading-options.png"), scale: 2)
+      app.close_dialog
+      reopened = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
+      begin
+        raise "Reading history was not persisted" unless reopened.recent_books.first.fetch("number") == reader[:number]
+        raise "Bookmark was not persisted" if reopened.bookmarks(1).empty?
+        raise "Reader settings were not persisted" unless reopened.preference("reader").fetch("split_ratio") == reader[:split_ratio]
+      ensure
+        reopened.close
+      end
+      app.navigate(:home)
+      automation.wait_frames
+      automation.snapshot(File.join(output, "home.png"), scale: 2)
+      app.navigate(:downloads)
+      automation.wait_frames
+      automation.snapshot(File.join(output, "downloads.png"), scale: 2)
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
         platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))),
-        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering] }))
+        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings] }))
       app.close
     end
   rescue StandardError => error

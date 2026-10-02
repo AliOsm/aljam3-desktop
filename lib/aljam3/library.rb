@@ -27,7 +27,9 @@ module Aljam3
       @store.preference("libraries", [])
     end
 
-    def authors(query: "", page: 1)
+    def authors(query: "", page: 1, downloaded: false)
+      return Result.new(@store.authors(query:, page:, downloaded: true), :downloaded, nil) if downloaded
+
       data = @api.authors(query:, page:)
       cached = @store.preference("authors", [])
       @store.save_preference("authors", (data.fetch("authors") + cached).uniq { |author| author.fetch("id") }.first(1000))
@@ -51,8 +53,10 @@ module Aljam3
       Result.new(@store.catalog(**options, downloaded: !query.strip.empty?), :local, error.status)
     end
 
-    def search(query, category: nil, author: nil, library: nil, page: 1, book_id: nil)
+    def search(query, category: nil, author: nil, library: nil, page: 1, book_id: nil, downloaded: false)
       options = { category:, author:, library:, page:, book_id: }
+      return Result.new(@store.search(query, **options), :downloaded, nil) if downloaded
+
       data = @api.search(query, **options)
       @store.cache_books(data.fetch("pages").map { |hit| hit.fetch("book") }.uniq { |book| book.fetch("id") })
       Result.new(data, :online, nil)

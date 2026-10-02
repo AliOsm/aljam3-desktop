@@ -5,7 +5,7 @@ module Aljam3
     module Components
       def action(label, icon: nil, variant: :outline, selected: false, **styles, &block)
         color = selected ? accent : { solid: primary, outline: card_color, ghost: "transparent" }.fetch(variant)
-        styles[:icon] = asset_path("icons", icon) if icon
+        styles[:icon] = asset_path("icons", icon, theme: variant == :solid && !selected ? :dark : @theme) if icon
         styles[:state] = "disabled" if @dialog && !@drawing_dialog
         # Shoes includes margins inside an explicit height.
         styles[:height] ||= 36 + styles.fetch(:margin_top, 0) + styles.fetch(:margin_bottom, 0)

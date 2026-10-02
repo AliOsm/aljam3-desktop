@@ -41,6 +41,7 @@ module Aljam3
         style(Shoes::Button, font: FONT, size: 15, height: 36)
         style(Shoes::EditLine, font: "#{FONT} 17", height: 40, stroke: ink, fill: card_color, border_color: line_color)
         style(Shoes::Link, stroke: ink, underline: "none")
+        style(Shoes::Progress, color: primary, background_color: line_color)
       end
 
       def toggle_theme
@@ -50,8 +51,8 @@ module Aljam3
         draw_window
       end
 
-      def asset_path(kind, name)
-        suffix = @theme == :dark ? "-dark" : ""
+      def asset_path(kind, name, theme: @theme)
+        suffix = theme == :dark ? "-dark" : ""
         File.join(ROOT, "assets", kind, "#{name}#{suffix}.png")
       end
     end

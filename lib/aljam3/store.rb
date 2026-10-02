@@ -5,9 +5,12 @@ require "json"
 require "fileutils"
 require "time"
 require_relative "text"
+require_relative "store/reading"
+require_relative "store/downloads"
 
 module Aljam3
   class Store
+    include Reading, Downloads
     PAGE_SIZE = 12
 
     def initialize(path)
@@ -35,7 +38,7 @@ module Aljam3
             @db.execute(<<~SQL, [book.fetch("id"), Text.plain(book.fetch("title")), Text.normalize(Text.plain(book.fetch("title"))), book.dig("category", "id"), JSON.generate(book)])
               INSERT INTO books(id, title, search_title, category_id, data) VALUES (?, ?, ?, ?, ?)
               ON CONFLICT(id) DO UPDATE SET title=excluded.title, search_title=excluded.search_title,
-                category_id=excluded.category_id, data=excluded.data
+                category_id=excluded.category_id, data=json_patch(books.data, excluded.data)
             SQL
           end
         end
@@ -76,12 +79,12 @@ module Aljam3
       end
     end
 
-    def authors(query: "", page: 1)
+    def authors(query: "", page: 1, downloaded: false)
       rows = @lock.synchronize do
         @db.execute("SELECT DISTINCT json_extract(data, '$.author') AS data FROM books WHERE downloaded_at IS NOT NULL")
       end
       authors = rows.filter_map { |row| JSON.parse(row.fetch("data")) if row["data"] }
-      authors = (preference("authors", []) + authors).uniq { |author| author.fetch("id") } if query.strip.empty?
+      authors = (preference("authors", []) + authors).uniq { |author| author.fetch("id") } if query.strip.empty? && !downloaded
       authors.select! { |author| Text.normalize(Text.plain(author.fetch("name"))).include?(Text.normalize(query)) }
       authors.sort_by! { |author| Text.plain(author.fetch("name")) }
       { "authors" => authors.slice((page - 1) * PAGE_SIZE, PAGE_SIZE) || [], "pagination" => pagination(authors.length, page) }
@@ -114,8 +117,11 @@ module Aljam3
       end
     end
 
-    def prepare_download(book)
+    def prepare_download(book, resume: false)
       cache_books([book])
+      existing = files(book.fetch("id"))
+      return if resume && existing.map { |file| file.values_at("id", "pages_count") } == book.fetch("files").map { |file| file.values_at("id", "pages_count") }
+
       @lock.synchronize do
         @db.transaction do
           @db.execute("DELETE FROM files WHERE book_id = ?", [book.fetch("id")])
@@ -129,7 +135,7 @@ module Aljam3
     def add_pages(file_id, pages)
       @lock.synchronize do
         @db.transaction do
-          @db.prepare("INSERT INTO pages(id, file_id, number, content) VALUES (?, ?, ?, ?)") do |statement|
+          @db.prepare("INSERT OR IGNORE INTO pages(id, file_id, number, content) VALUES (?, ?, ?, ?)") do |statement|
             pages.each { |page| statement.execute(page.fetch("id"), file_id, page.fetch("number"), page.fetch("content")) }
           end
         end
@@ -178,13 +184,12 @@ module Aljam3
 
     def migrate
       @db.transaction(:immediate) do
-        schema = case @db.get_first_value("PRAGMA user_version")
-                 when 0 then "schema.sql"
-                 when 1 then "migrations/002_arabic_search.sql"
-                 when 2 then next
-                 else raise "This library was created by a newer version of Aljam3 Desktop."
-                 end
-        @db.execute_batch(File.read(File.join(__dir__, schema)))
+        version = @db.get_first_value("PRAGMA user_version")
+        raise "This library was created by a newer version of Aljam3 Desktop." if version > 3
+
+        @db.execute_batch(File.read(File.join(__dir__, "schema.sql"))) if version.zero?
+        @db.execute_batch(File.read(File.join(__dir__, "migrations/002_arabic_search.sql"))) if version == 1
+        @db.execute_batch(File.read(File.join(__dir__, "migrations/003_reading_and_downloads.sql"))) if version < 3
       end
     end
 

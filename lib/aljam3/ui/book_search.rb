@@ -4,7 +4,7 @@ module Aljam3
   module UI
     module BookSearch
       def open_book_search
-        @book_search = { query: "" } unless @book_search&.dig(:book_id) == @reader.fetch(:book).fetch("id")
+        @book_search = { query: @reader.fetch(:query) } unless @book_search&.dig(:book_id) == @reader.fetch(:book).fetch("id")
         @book_search[:book_id] = @reader.fetch(:book).fetch("id")
         @book_search[:busy] = false
         open_dialog(:book_search)

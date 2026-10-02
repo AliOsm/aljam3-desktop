@@ -9,20 +9,22 @@ module Aljam3
         para @scope_label || heading, font: HEADING_FONT, size: 24
         para saved ? "#{@downloaded_ids.length} كتاب للقراءة والبحث دون اتصال." : "اقرأ الآن، أو نزّل الكتاب للقراءة دون اتصال.",
           size: 14, stroke: muted, margin_top: 8
-        search_form(top: 66)
-        flow(top: 126, width: 1.0, height: 38) do
+        search_scope_control(top: 60) unless @screen == :authors
+        search_form(top: 106)
+        flow(top: 164, width: 1.0, height: 38) do
           para source_label, width: -400, size: 13, stroke: muted, align: "left", margin_top: 10
           action("تصفية#{@filters.empty? ? '' : " · #{@filters.length}"}", icon: "sliders-horizontal", width: 116,
             margin_right: 12, state: @mode == :authors ? "disabled" : nil) { open_filters }
-          if saved || @screen == :authors
+          if @screen == :authors
             para "#{@result&.data&.dig('pagination', 'count') || 0} #{saved ? 'كتاب' : 'مؤلف'}", width: 272, size: 14, stroke: muted, margin_top: 10
           else
-            tabs({ authors: "المؤلفون", books: "العناوين", content: "النصوص" }, selected: @mode, width: 272) { |mode| switch_search_mode(mode) }
+            modes = saved ? { books: "العناوين", content: "النصوص" } : { authors: "المؤلفون", books: "العناوين", content: "النصوص" }
+            tabs(modes, selected: @mode, width: 272) { |mode| switch_search_mode(mode) }
           end
         end
-        para catalog_count, top: 178, size: 14, stroke: muted
-        @results = stack(top: 207, width: 1.0, height: [@content_height - 207, 100].max, scroll: !@dialog) do
-          if @busy
+        para catalog_count, top: 214, size: 14, stroke: muted
+        @results = stack(top: 244, width: 1.0, height: [@content_height - 244, 100].max, scroll: !@dialog) do
+          if @busy && !@result
             empty_state("جارٍ البحث…", "نبحث في المكتبة عن النتائج.", icon: "search")
           elsif @error
             empty_state("تعذّر إكمال البحث", @error, action_label: "إعادة المحاولة") { request_catalog }
@@ -55,6 +57,17 @@ module Aljam3
         end
       end
 
+      def search_scope_control(top:)
+        tabs({ downloaded: "كتبي المحمّلة", all: "كل المكتبة" }, selected: @search_scope, width: 290,
+          left: @main_width - 290, top:) do |scope|
+          @search_scope = scope
+          @screen = :browse if @screen == :saved && scope == :all
+          request_catalog unless @screen == :home && @query.empty?
+          draw_window
+        end
+        para "نطاق البحث", left: @main_width - 390, top: top + 9, width: 84, size: 14, stroke: muted
+      end
+
       def switch_search_mode(mode)
         @filters_by_mode ||= {}
         @filters_by_mode[@mode] = @filters
@@ -64,7 +77,7 @@ module Aljam3
       end
 
       def catalog_count
-        return "" if @busy || @error || !@result
+        return "" if @error || !@result
 
         count = @result.data.fetch("pagination").fetch("count")
         scope = %i[offline local].include?(@source) && !@query.empty? ? " · في الكتب المحمّلة" : ""
@@ -113,53 +126,28 @@ module Aljam3
               }, size: 13, margin_top: 6
             end
           end
-          book_footer(book, "صفحة #{hit.fetch('number')}", hit:)
+          book_footer(book, "صفحة #{hit.fetch('number')}", hit:, query:)
         end
       end
 
-      def book_footer(book, label, hit: nil)
+      def book_footer(book, label, hit: nil, query: nil)
         stack(height: 52) do
           line 1, 0, @main_width - 13, 0, stroke: line_color
           flow(left: 16, top: 9, width: @main_width - 44, height: 34) do
-            action(hit ? "عرض الصفحة" : "قراءة", icon: "book-open", width: 110, height: 34) { open_book(book, hit:) }
+            action(hit ? "عرض الصفحة" : "قراءة", icon: "book-open", width: 110, height: 34,
+              state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book, hit:, query:) }
             if @downloaded_ids.include?(book.fetch("id"))
-              icon_button("check", "متاح دون اتصال", width: 36, height: 34, state: "disabled") {}
-            elsif %i[queued downloading].include?(@downloads.dig(book.fetch("id"), :status))
-              action("قيد التنزيل", width: 94, height: 34, variant: :ghost) { navigate(:downloads) }
+              icon_button("trash-2", "إزالة النسخة المحمّلة", height: 34) { confirm_remove_download(book) }
+            elsif @downloads.key?(book.fetch("id"))
+              icon_button("download", "إدارة التنزيل", height: 34) { navigate(:downloads) }
             else
               icon_button("download", "تنزيل الكتاب", height: 34) { queue_download(book) }
             end
-            para label, width: -220, size: 13, stroke: muted, margin_top: 8
+            para "#{label}  ·  #{availability_label(book)}", width: -160, size: 13, stroke: muted, margin_top: 8
           end
         end
       end
 
-      def draw_downloads
-        para "التنزيلات", font: HEADING_FONT, size: 24
-        para "الكتاب المصوّر ونصه، للقراءة دون اتصال.", size: 15, stroke: muted, margin_top: 8
-        stack(top: 88, width: 1.0, height: @content_height - 88, scroll: !@dialog) do
-          if @downloads.empty?
-            empty_state("لا توجد تنزيلات جارية", "الكتب التي نزّلتها سابقًا موجودة في «كتبي المحمّلة».",
-              icon: "download", action_label: "تصفح الكتب") { navigate(:browse) }
-          else
-            @downloads.each do |id, download|
-              card do
-                stack(margin: 16) do
-                  book_heading(download.fetch(:book))
-                  label = para download.fetch(:message), size: 15, stroke: muted, margin_top: 16
-                  bar = progress(width: 1.0, margin_top: 10)
-                  bar.fraction = download.fetch(:fraction)
-                  @progress_views[id] = { label:, bar: }
-                  @downloads.fetch(id).fetch(:status).then do |status|
-                    action("قراءة", icon: "book-open", margin_top: 12) { open_book(download.fetch(:book)) } if status == :done
-                    action("إعادة المحاولة", margin_top: 12) { queue_download(download.fetch(:book)) } if status == :failed
-                  end
-                end
-              end
-            end
-          end
-        end
-      end
     end
   end
 end

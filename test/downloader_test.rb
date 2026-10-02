@@ -4,20 +4,27 @@ require_relative "test_helper"
 
 class DownloaderTest < StoreTestCase
   class API
-    attr_accessor :fail_after_first_batch, :data, :content
+    attr_accessor :fail_after_first_batch, :data, :content, :batch_size
+    attr_reader :starts
 
     def book(_id) = data
 
-    def each_page_batch(_id)
-      yield [content.first]
-      raise Aljam3::ConnectionError, "Disconnected" if fail_after_first_batch
-
-      yield content.drop(1)
+    def each_page_batch(_id, start: 1)
+      (@starts ||= []) << start
+      content.each_slice(batch_size || 1).drop(start - 1).each do |batch|
+        yield batch
+        raise Aljam3::ConnectionError, "Disconnected" if fail_after_first_batch
+      end
     end
   end
 
   class Transport
-    def download(_url, destination)
+    attr_reader :calls
+    def initialize = @calls = 0
+
+    def download(_url, destination, check:, resume:)
+      check.call
+      @calls += 1
       File.binwrite(destination, "%PDF-1.7\nexample")
       yield 16, 16
     end
@@ -27,7 +34,8 @@ class DownloaderTest < StoreTestCase
     super
     @api = API.new
     @api.data, @api.content = book, pages
-    @downloader = Aljam3::Downloader.new(api: @api, store: @store, directory: File.join(@directory, "books"), http: Transport.new)
+    @http = Transport.new
+    @downloader = Aljam3::Downloader.new(api: @api, store: @store, directory: File.join(@directory, "books"), http: @http)
   end
 
   def test_download_publishes_pdf_and_searchable_pages_together
@@ -43,16 +51,18 @@ class DownloaderTest < StoreTestCase
     assert progress.all? { |fraction| fraction.between?(0, 1) }
   end
 
-  def test_disconnect_cleans_partial_state_and_retry_succeeds
+  def test_disconnect_retains_partial_state_and_retry_does_not_download_the_pdf_again
     @api.fail_after_first_batch = true
     assert_raises(Aljam3::ConnectionError) { @downloader.call(1) }
     refute @store.downloaded?(1)
-    assert_empty @store.files(1)
+    assert_equal 1, @store.files(1).length
+    assert_equal 1, @store.page_count(10)
     assert_empty @store.search("العلم").fetch("pages")
-    assert_empty Dir.children(File.join(@directory, "books"))
     @api.fail_after_first_batch = false
     @downloader.call(1)
     assert @store.downloaded?(1)
+    assert_equal 1, @http.calls
+    assert_equal 2, @store.page_count(10)
   end
 
   def test_wrong_page_count_does_not_publish_download
@@ -62,11 +72,59 @@ class DownloaderTest < StoreTestCase
     refute File.exist?(@downloader.pdf_path(1, 10))
   end
 
+  def test_resume_skips_completed_text_batches
+    @api.batch_size = 500
+    @api.data["files"].first["pages_count"] = 501
+    @api.content = 501.times.map { |i| { "id" => 100 + i, "number" => i + 1, "content" => "العلم" } }
+    @api.fail_after_first_batch = true
+    assert_raises(Aljam3::ConnectionError) { @downloader.call(1) }
+    assert_equal 500, @store.page_count(10)
+    @api.fail_after_first_batch = false
+    @downloader.call(1)
+    assert_equal [1, 2], @api.starts
+    assert_equal 501, @store.page_count(10)
+    assert_equal 1, @http.calls
+  end
+
+  def test_recovers_a_crash_after_renaming_the_completed_directory
+    @downloader.call(1)
+    @store.instance_variable_get(:@db).execute("UPDATE books SET downloaded_at = NULL WHERE id = 1")
+    @downloader.call(1)
+    assert @store.downloaded?(1)
+    assert_equal 1, @http.calls
+  end
+
+  def test_cancelling_cleans_up_a_renamed_but_uncommitted_directory
+    @downloader.call(1)
+    @store.instance_variable_get(:@db).execute("UPDATE books SET downloaded_at = NULL WHERE id = 1")
+    @downloader.cancel(1)
+    assert_equal 0, @downloader.disk_usage(1)
+    assert_empty @store.files(1)
+  end
+
   def test_repeated_download_preserves_existing_book
     @downloader.call(1)
     @api.fail_after_first_batch = true
     assert_equal 1, @downloader.call(1).fetch("id")
     assert @store.downloaded?(1)
     assert_equal 2, @store.search("العلم").fetch("pages").length
+  end
+
+  def test_cancel_discards_partial_data_and_remove_preserves_reading_history_and_bookmarks
+    @api.fail_after_first_batch = true
+    assert_raises(Aljam3::ConnectionError) { @downloader.call(1) }
+    @downloader.cancel(1)
+    assert_empty @store.files(1)
+    assert_equal 0, @downloader.disk_usage(1)
+    @api.fail_after_first_batch = false
+    @downloader.call(1)
+    @store.save_reading(1, file_id: 10, number: 2)
+    @store.toggle_bookmark(1, file_id: 10, number: 2, excerpt: "العلم نور")
+    @downloader.remove(1)
+    refute @store.downloaded?(1)
+    assert_empty @store.search("العلم").fetch("pages")
+    assert_equal 0, @downloader.disk_usage(1)
+    assert_equal 2, @store.recent_books.first.fetch("number")
+    assert_equal 1, @store.bookmarks(1).length
   end
 end

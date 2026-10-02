@@ -2,25 +2,32 @@
 
 require_relative "test_helper"
 require_relative "../lib/aljam3/ui/reader"
+require_relative "../lib/aljam3/ui/reader_tools"
+require_relative "../lib/aljam3/ui/downloads"
 
 class ReaderTest < StoreTestCase
   class Reader
     include Aljam3::UI::Reader
+    include Aljam3::UI::ReaderTools
+    include Aljam3::UI::DownloadScreen
     attr_reader :reader, :renders
 
     def initialize(store)
       @store = store
+      @downloaded_ids = store.downloaded_ids
       @request_number = 0
       @renders = []
     end
 
     def draw_window; end
     def page_text_control
-      @page_text ||= Struct.new(:text) { def style(**); end }.new
+      @page_text ||= Struct.new(:text) do
+        def style(**); end
+        def replace(*parts) = self.text = parts.join
+      end.new
     end
     def text_controls
       @page_text = page_text_control
-      @tashkeel_button = page_text_control
     end
     def render_pdf
       @renders << [@reader.fetch(:file).fetch("id"), @reader.fetch(:number), @reader.fetch(:zoom)]
