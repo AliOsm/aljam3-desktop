@@ -69,9 +69,10 @@ Dir.chdir(ROOT) do
 
   if WINDOWS
     resource = File.join(ROOT, ".cache/packaging/aljam3.res")
+    linker = ENV.fetch("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER") { File.join(ENV.fetch("VCToolsInstallDir"), "bin/Hostx64/x64/link.exe") }
     run("rc", "/nologo", "/fo", resource, "packaging/windows-icon.rc")
     run("rustc", "packaging/windows-launcher.rs", "--edition", "2021", "-O", "-C", "target-feature=+crt-static",
-      "-C", "link-arg=#{resource}", "-o", File.join(bundle, "Aljam3.exe"))
+      "-C", "linker=#{linker}", "-C", "link-arg=#{resource}", "-o", File.join(bundle, "Aljam3.exe"))
   else
     copy("packaging/macos-launcher", File.join(binary_dir, "aljam3"))
     FileUtils.chmod(0o755, File.join(binary_dir, "aljam3"))

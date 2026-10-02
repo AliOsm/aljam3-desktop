@@ -35,10 +35,12 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: '1.98.1'
-      - name: Use a static Windows C runtime
+      - name: Configure the Windows linker and static C runtime
         if: runner.os == 'Windows'
         shell: pwsh
-        run: '"RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV'
+        run: |
+          "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$($env:VCToolsInstallDir)bin\Hostx64\x64\link.exe" >> $env:GITHUB_ENV
       - name: Prepare pinned native source
         run: ruby bin/setup --prepare
       - uses: Swatinem/rust-cache@v2
