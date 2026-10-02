@@ -26,7 +26,13 @@ module Aljam3
           input, output = streams
           begin
             input.puts(JSON.generate(method:, arguments:, options:))
-            response = JSON.parse(output.gets || raise(Cancelled, "The library operation was cancelled."))
+            line = output.gets
+            unless line
+              cancelled = @state.synchronize { !@streams.equal?(streams) }
+              raise Cancelled, "The library operation was cancelled." if cancelled
+              raise "The library worker stopped unexpectedly."
+            end
+            response = JSON.parse(line)
             received = true
             raise response.fetch("error") if response["error"]
 
@@ -45,10 +51,14 @@ module Aljam3
       private
 
       def start
-        ruby = RbConfig.ruby
-        ruby = ruby.sub(/ruby\.exe\z/i, "rubyw.exe") if Gem.win_platform?
-        env = { "GEM_HOME" => Gem.dir, "GEM_PATH" => Gem.path.join(File::PATH_SEPARATOR), "RUBYOPT" => nil }
-        Open3.popen2(env, [ruby, ruby], File.join(__dir__, "worker_main.rb"), @path).tap do |input, output, _process|
+        ruby = if (bundle = ENV["ALJAM3_BUNDLE_ROOT"])
+          File.join(bundle, "ruby/bin.real", Gem.win_platform? ? "rubyw.exe" : "ruby")
+        else
+          Gem.win_platform? ? RbConfig.ruby.sub(/ruby\.exe\z/i, "rubyw.exe") : RbConfig.ruby
+        end
+        # Portable Ruby launchers reset GEM_HOME/GEM_PATH. Pass the resolved
+        # paths as arguments so the worker uses exactly the app's gem locations.
+        Open3.popen2({ "RUBYOPT" => nil }, [ruby, ruby], File.join(__dir__, "worker_main.rb"), @path, Gem.dir, *Gem.path).tap do |input, output, _process|
           input.set_encoding(Encoding::UTF_8)
           output.set_encoding(Encoding::UTF_8)
         end

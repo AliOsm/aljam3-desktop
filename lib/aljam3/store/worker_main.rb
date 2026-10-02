@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 Encoding.default_external = Encoding::UTF_8
+require "rubygems"
+Gem.use_paths(ARGV.fetch(1), ARGV.drop(2))
 require_relative "../store"
 
 begin
