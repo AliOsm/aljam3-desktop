@@ -34,6 +34,8 @@ report_path = "#{File.dirname(options[:path])}/#{options[:label]}.json"
 save = -> { File.write(report_path, JSON.pretty_generate(report)) }
 
 if options[:prepare]
+  report[:preexisting_pages] = db.get_first_value("SELECT count(*) FROM pages")
+  report[:preexisting_completed_books] = db.get_first_value("SELECT count(*) FROM books WHERE downloaded_at IS NOT NULL")
   previous_target = store.preference("benchmark:pages")
   abort "Use a fresh benchmark path when changing the target page count" if previous_target && previous_target != options[:pages]
   abort "Refusing to overwrite an unmarked database" if !previous_target && db.get_first_value("SELECT count(*) FROM books").positive?

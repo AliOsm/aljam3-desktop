@@ -20,7 +20,7 @@ fn launch() -> io::Result<i32> {
         .env("SCARPE_NATIVE_BIN", root.join("scarpe-native.exe"))
         .env("SSL_CERT_FILE", runtime.join("lib/ca-bundle.crt"))
         .env_remove("SSL_CERT_DIR").env_remove("RUBYOPT")
-        .env_remove("BUNDLE_GEMFILE").env_remove("BUNDLE_PATH").env_remove("BUNDLE_BIN_PATH")
+        .env_remove("BUNDLE_GEMFILE").env_remove("BUNDLE_PATH").env_remove("BUNDLE_BIN_PATH").env_remove("BUNDLER_SETUP")
         .env_remove("GEM_HOME").env_remove("GEM_PATH")
         .current_dir(root).creation_flags(0x08000000)
         .stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log);

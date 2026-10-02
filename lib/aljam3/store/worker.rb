@@ -58,7 +58,9 @@ module Aljam3
         end
         # Portable Ruby launchers reset GEM_HOME/GEM_PATH. Pass the resolved
         # paths as arguments so the worker uses exactly the app's gem locations.
-        Open3.popen2({ "RUBYOPT" => nil }, [ruby, ruby], File.join(__dir__, "worker_main.rb"), @path, Gem.dir, *Gem.path).tap do |input, output, _process|
+        env = { "RUBYOPT" => nil, "BUNDLER_SETUP" => nil, "BUNDLE_GEMFILE" => nil, "BUNDLE_BIN_PATH" => nil }
+        version = Gem.loaded_specs.fetch("sqlite3").version.to_s
+        Open3.popen2(env, [ruby, ruby], File.join(__dir__, "worker_main.rb"), @path, Gem.dir, version, *Gem.path).tap do |input, output, _process|
           input.set_encoding(Encoding::UTF_8)
           output.set_encoding(Encoding::UTF_8)
         end

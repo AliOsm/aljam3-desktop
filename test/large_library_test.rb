@@ -6,10 +6,11 @@ require "timeout"
 class LargeLibraryTest < StoreTestCase
   def test_worker_uses_the_application_gems_when_a_launcher_resets_the_environment
     install_book
-    env = { "GEM_HOME" => @directory, "GEM_PATH" => @directory, "RUBYOPT" => nil }
+    env = { "GEM_HOME" => @directory, "GEM_PATH" => @directory, "RUBYOPT" => nil, "BUNDLER_SETUP" => nil, "BUNDLE_GEMFILE" => nil, "BUNDLE_BIN_PATH" => nil }
     input = JSON.generate(method: "search", arguments: ["العلم"], options: {}) + "\n"
     output, errors, status = Open3.capture3(env, RbConfig.ruby,
-      File.join(Aljam3::ROOT, "lib/aljam3/store/worker_main.rb"), File.join(@directory, "library.sqlite3"), Gem.dir, *Gem.path,
+      File.join(Aljam3::ROOT, "lib/aljam3/store/worker_main.rb"), File.join(@directory, "library.sqlite3"), Gem.dir,
+      Gem.loaded_specs.fetch("sqlite3").version.to_s, *Gem.path,
       stdin_data: input)
     assert status.success?, errors
     assert_equal 2, JSON.parse(output).fetch("result").fetch("pages").length
