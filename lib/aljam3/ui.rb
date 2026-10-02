@@ -258,6 +258,8 @@ module Aljam3
     def error_message(error)
       warn error.full_message
       case error
+      when RangeUnsupportedError then "لا يدعم مصدر الكتاب القراءة المباشرة. يمكنك تنزيله من صفحة التنزيلات."
+      when RemoteFileChangedError then "تغيّر ملف الكتاب على المصدر. أعد تحميل الصفحة."
       when ConnectionError then "تعذّر الاتصال. تحقق من الإنترنت ثم أعد المحاولة."
       when ResponseError then "تعذّر الوصول إلى المكتبة (#{error.status}). أعد المحاولة لاحقًا."
       when Errno::ENOSPC then "لا توجد مساحة كافية لتنزيل الكتاب."

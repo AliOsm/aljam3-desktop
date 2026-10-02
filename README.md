@@ -25,7 +25,7 @@ The dependency releases cover Linux x64/arm64 with glibc, macOS Apple silicon, a
 - **الرئيسية / التصنيفات / المؤلفون / الكتب**: discover libraries and categories, browse authors and their books, or search the catalog. Category and author names on book cards are links.
 - **تابع القراءة**: the home screen resumes your latest book and lists recent reading. Positions, progress, and bookmarks survive restarting the app and removing downloaded copies.
 - **Search**: switch between **النصوص**, **العناوين**, and **المؤلفون**. The filter sheet offers library, category, and author selection. Text search combines all three; the current API supports only one scope at a time for title browsing. Author-name search uses the authors endpoint. Results load more as you scroll and excerpts can be expanded.
-- **قراءة / عرض الصفحة**: read online immediately, without adding the whole book to your offline library. Text loads one page at a time; the original PDF loads for the selected volume in the background. Online search responses omit volume IDs, so the reader verifies the page ID against the book's volumes before opening a result.
+- **قراءة / عرض الصفحة**: read online without downloading a whole volume. Text loads one page at a time; PDFium seeks through HTTP byte ranges to fetch the PDF structures and page content it needs. There is no background full-PDF download. Online search responses omit volume IDs, so the reader verifies the page ID against the book's volumes before opening a result.
 - **تنزيل الكتاب**: saves every PDF volume and its searchable page text. The download queue survives closing the app. Pause, resume, retry, or cancel transfers under **التنزيلات والمساحة**, with sizes and progress. Filter unfinished or completed downloads, remove a downloaded copy, or clear temporary page images to reclaim space.
 - **Reader**: text is on the **right** and the PDF on the **left**, matching the Arabic web UI. Drag the divider to choose their widths. The toolbar selects text, PDF, or both panes. Reading options hold text size, the web app's tashkeel control, and split presets. The tools menu groups bookmarks, PDF/TXT/DOCX exports, sharing, saving a page image, and keyboard help. Copy text and fit/zoom/pan the PDF as before.
 - **Navigation**: jump to pages using Arabic, Persian, or Western digits, or choose a volume from the file popover. The book's reading position and reader preferences are saved. Returning to the catalog restores the results and scroll position.
@@ -33,7 +33,7 @@ The dependency releases cover Linux x64/arm64 with glibc, macOS Apple silicon, a
 - **Reader shortcuts**: Left/Page Down advances, Right/Page Up goes back, Home/End selects the first/last page of the volume, Ctrl/Cmd-J focuses the page number, and Ctrl/Cmd-D toggles a bookmark. Search results highlight normalized matching words in the reader; F3 and Shift-F3 move between matches **on the current page**. Escape clears highlighting. Use book search to find other matching pages.
 - **Appearance**: the initial theme follows the operating system where available. The sun/moon button switches between Aljam3's light and dark palettes and saves your choice. Document scans retain their original colors.
 
-PDF pages are rendered inside Scarpe with PDFium. Online reading uses a temporary cache of up to three PDF volumes and 50 text pages; these never enter the offline search index. The cache is removed when the app closes normally. Explicit downloads remain available offline.
+PDF pages are rendered inside Scarpe with PDFium. Online reading caches up to 8 MiB of PDF chunks for each of three recent volumes and 50 text pages in memory; these never enter the offline search index. Cached chunks are reused when paging and zooming, and disappear when the app exits. PDF layout affects how much data a page needs. A host that ignores byte ranges produces an explanation, never an automatic full download. Explicit book downloads and PDF exports still save complete files. Only explicitly downloaded books are guaranteed to remain readable and searchable offline.
 
 The interface is currently Arabic-only. Web features still outside this implementation include popular-book carousels, image cropping/copying to the clipboard, and account UI. The API does not expose the web homepage's curated/popular lists. PDF annotations and direct text selection on the rendered PDF image are not supported.
 
@@ -57,7 +57,7 @@ mise run peek     # native screenshot and layout, without opening a window
 mise run verify-ui # live online/offline reading and native UI integration checks
 ```
 
-The smoke check downloads book 1 if it is not already under `.cache/smoke`. It then simulates an unreachable API to verify SQLite fallback and renders a real PDF page. To repeat the actual download, use an empty smoke directory.
+The smoke check downloads book 1 if it is not already under `.cache/smoke`. It then simulates an unreachable API to verify SQLite fallback and renders a real PDF page. It also renders distant pages using HTTP ranges, verifies identical pixels to the local PDF, measures transferred bytes, and checks that cached pages need no new requests. To repeat the actual download, use an empty smoke directory.
 
 `peek` forwards Scarpe's inspection arguments. It uses a scratch HOME, scratch app data, and Scarpe's fake clipboard/dialog commands. Screenshots and preview data stay under ignored `.cache/`.
 
@@ -80,7 +80,7 @@ Tests cover API preference and reconnection, explicit local scope, Arabic search
 | `lib/aljam3/library.rb` | API-first queries and local fallback |
 | `lib/aljam3/store.rb`, `store/`, `schema.sql`, `migrations/` | Catalog, FTS index, reading history, bookmarks, and durable queue |
 | `lib/aljam3/downloads.rb`, `downloader.rb`, `reading.rb` | Queue lifecycle, resumable downloads, and temporary online reading |
-| `lib/aljam3/pdf.rb` | Small PDFium FFI binding and bounded render cache |
+| `lib/aljam3/pdf.rb`, `remote_pdf.rb` | PDFium file/range callbacks, bounded chunk cache, and rendered page cache |
 | `lib/aljam3/worker.rb` | Background work with callbacks delivered on the UI thread |
 
 Scarpe is pinned in `bin/setup`. The [UI source patch](patches/scarpe-ui.patch) adds right-aligned native inputs, flat button variants, theme-aware disabled controls, and accessible names for icon buttons and unlabelled search fields. Arabic shaping, caret movement, selection, and mouse coordinates remain native. The patch combines the earlier input/button patches and includes native regression checks; setup applies it idempotently and refuses conflicting source changes. The [reading patch](patches/scarpe-reading.patch) fixes native RTL span highlights and adds theme colors to progress bars, with pixel regression checks. There are no runtime monkey patches or webviews.
@@ -91,9 +91,9 @@ The Gemfile uses Lacci and Scarpe directly from that checkout. No local web serv
 
 Test files are shared directly or downloaded from private build artifacts. Publishing a release is a separate step that requires an explicit request. These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
-- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.2-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
-- **Windows x64 installer:** run `Aljam3-0.1.2-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
-- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.2-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
+- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.3-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
+- **Windows x64 installer:** run `Aljam3-0.1.3-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
+- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.3-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
 
 The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
 

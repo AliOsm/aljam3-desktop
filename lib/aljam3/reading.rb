@@ -1,20 +1,22 @@
 # frozen_string_literal: true
 
-require "tmpdir"
-require_relative "http"
+require_relative "remote_pdf"
 
 module Aljam3
   # Online reading never changes the downloaded library or its search index.
-  # PDFs are fetched per volume; page text is fetched on demand.
+  # PDF sections and page text are fetched on demand.
   class Reading
     def initialize(api:, store:, downloader:, http: HTTP.new)
       @api, @store, @downloader, @http = api, store, downloader, http
-      @directory = Dir.mktmpdir("aljam3-reading-")
-      @pages = {}
+      @pages, @pdfs = {}, {}
       @lock = Mutex.new
     end
 
-    def close = FileUtils.remove_entry(@directory)
+    def close
+      @http.close
+      @pages.clear
+      @pdfs.clear
+    end
 
     def book(id)
       return @store.book(id).merge("files" => @store.files(id)) if @store.downloaded?(id)
@@ -54,14 +56,14 @@ module Aljam3
       raise ResponseError.new(404), "The search page could not be found in this book."
     end
 
-    def pdf_path(book_id, file)
+    def pdf_source(book_id, file)
       return @downloader.pdf_path(book_id, file.fetch("id")) if @store.downloaded?(book_id)
 
-      path = File.join(@directory, "#{Integer(file.fetch('id'))}.pdf")
-      @http.download(file.fetch("urls").fetch("pdf"), path) unless File.file?(path)
-      FileUtils.touch(path)
-      Dir.glob(File.join(@directory, "*.pdf")).sort_by { |pdf| File.mtime(pdf) }.reverse.drop(3).each { |pdf| File.delete(pdf) }
-      path
+      url = file.fetch("urls").fetch("pdf")
+      source = @pdfs.delete(url) || RemotePDF.new(url, http: @http)
+      @pdfs[url] = source
+      @pdfs.shift if @pdfs.size > 3
+      source
     end
   end
 end

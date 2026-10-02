@@ -4,6 +4,7 @@
 require "bundler/setup"
 require_relative "../lib/aljam3"
 require_relative "../lib/aljam3/pdf"
+require_relative "../packaging/verify_streaming"
 
 directory = File.join(Aljam3::ROOT, ".cache/smoke")
 store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
@@ -20,7 +21,9 @@ begin
   raise "Offline search failed." unless result.source == :offline && result.data.fetch("pages").any?
   file = store.files(1).first
   image = Aljam3::PDF.new(cache: File.join(directory, "renders")).render(downloader.pdf_path(1, file.fetch("id")), page: 10, width: 1000)
-  puts "PASS: live catalog, complete book download, connection failure → SQLite search, and PDF rendering."
+  streaming = StreamingVerification.call(file:, local_path: downloader.pdf_path(1, file.fetch("id")))
+  puts "PASS: live catalog, complete book download, connection failure → SQLite search, PDF rendering, and seeking over HTTP ranges."
+  puts "Online PDF: #{JSON.generate(streaming)}"
   puts "Book: #{book.fetch('title')}"
   puts "Offline results: #{result.data.fetch('pagination').fetch('count')}"
   puts "PDF image: #{image.path} (#{image.width} × #{image.height})"

@@ -29,9 +29,11 @@ class ReadingTest < StoreTestCase
   class HTTP
     attr_reader :calls
     def initialize = @calls = []
-    def download(url, path)
+    def close; end
+    def read_range(url, offset:, length:, **)
       @calls << url
-      File.binwrite(path, "%PDF-1.7\nfixture")
+      bytes = "%PDF-1.7\nfixture"
+      Aljam3::HTTP::Range.new(bytes.byteslice(offset, length), bytes.bytesize, '"v1"', url)
     end
   end
 
@@ -48,17 +50,19 @@ class ReadingTest < StoreTestCase
     super
   end
 
-  def test_online_reading_fetches_one_page_and_volume_without_creating_an_offline_book
+  def test_online_reading_uses_a_lazy_pdf_source_without_creating_an_offline_book
     opened = @reading.book(1)
     assert_equal 2, @reading.page(1, 10, 2).fetch("number")
-    path = @reading.pdf_path(1, opened.fetch("files").first)
-    assert File.file?(path)
+    source = @reading.pdf_source(1, opened.fetch("files").first)
+    assert_instance_of Aljam3::RemotePDF, source
+    assert_empty @http.calls
+    assert_equal "%PDF", source.read(0, 4)
     assert_empty @store.downloaded_ids
     assert_empty @store.search("العلم").fetch("pages")
     assert_empty @store.files(1)
 
     @reading.page(1, 10, 2)
-    assert_equal path, @reading.pdf_path(1, opened.fetch("files").first)
+    assert_same source, @reading.pdf_source(1, opened.fetch("files").first)
     assert_equal [[:book, 1], [:page, 10, 2]], @api.calls
     assert_equal 1, @http.calls.length
   end
@@ -68,7 +72,7 @@ class ReadingTest < StoreTestCase
     @api.error = Aljam3::ConnectionError.new("Offline")
     assert_equal 10, @reading.book(1).fetch("files").first.fetch("id")
     assert_equal 101, @reading.page(1, 10, 2).fetch("id")
-    assert_equal @downloader.pdf_path(1, 10), @reading.pdf_path(1, book.fetch("files").first)
+    assert_equal @downloader.pdf_path(1, 10), @reading.pdf_source(1, book.fetch("files").first)
     assert_empty @api.calls
     assert_empty @http.calls
   end

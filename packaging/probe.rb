@@ -6,13 +6,17 @@ root = ENV.fetch("ALJAM3_BUNDLE_ROOT")
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
 require File.join(root, "app/lib/aljam3")
 require File.join(root, "app/lib/aljam3/pdf")
+require_relative "verify_streaming"
 api = Aljam3::API.new
 raise "Bundled HTTPS failed" if api.books.fetch("books").empty?
 # Installer checks start with an empty library and download through the bundled runtime.
 directory = Aljam3.data_directory
 store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
 begin
-  Aljam3::Downloader.new(api:, store:, directory: File.join(directory, "books")).call(1)
+  downloader = Aljam3::Downloader.new(api:, store:, directory: File.join(directory, "books"))
+  downloader.call(1)
+  file = store.files(1).first
+  streaming = StreamingVerification.call(file:, local_path: downloader.pdf_path(1, file.fetch("id")))
   store.save_preference("theme", "light")
 ensure
   store.close
@@ -130,8 +134,8 @@ app.every(0.1) do
       automation.wait_frames
       automation.snapshot(File.join(output, "downloads.png"), scale: 2)
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
-        platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))),
-        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings] }))
+        platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:,
+        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache] }))
       app.close
     end
   rescue StandardError => error

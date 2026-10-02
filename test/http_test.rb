@@ -5,24 +5,30 @@ require "socket"
 
 class HTTPTest < Minitest::Test
   include Fixtures
-  def with_server(*responses)
+  def with_server(*responses, keep_alive: false)
     server = TCPServer.new("127.0.0.1", 0)
     thread = Thread.new do
+      socket = nil
       responses.each do |response|
-        socket = server.accept
+        socket ||= server.accept
         request = socket.gets
         while (header = socket.gets)
           break if header == "\r\n"
           request += header
         end
         socket.write(response.respond_to?(:call) ? response.call(request) : response)
-        socket.close
+        unless keep_alive
+          socket.close
+          socket = nil
+        end
       end
+    ensure
+      socket&.close
     end
     yield "http://127.0.0.1:#{server.addr[1]}"
   ensure
-    server&.close
     thread&.kill&.join
+    server&.close
   end
 
   def response(body, status: "200 OK", headers: {})
@@ -173,6 +179,83 @@ class HTTPTest < Minitest::Test
         http.download(url, target, resume: true)
       end
       assert_equal pdf, File.binread(target)
+    end
+  end
+
+  def test_pdf_range_follows_redirects_and_accepts_a_short_final_block
+    request = nil
+    part = response("tail", status: "206 Partial Content", headers: { "Content-Range" => "bytes 100-103/104", "ETag" => '"v1"' })
+    with_server(response("", status: "302 Found", headers: { "Location" => "/file.pdf" }), ->(value) { request = value; part }) do |url|
+      result = Aljam3::HTTP.new.read_range(url, offset: 100, length: 64, validator: '"v1"')
+      assert_equal "tail", result.bytes
+      assert_equal 104, result.size
+      assert_equal "#{url}/file.pdf", result.url
+      assert_equal '"v1"', result.validator
+    end
+    assert_match(/Range: bytes=100-163/i, request)
+    assert_match(/If-Range: "v1"/i, request)
+    assert_match(/Accept-Encoding: identity/i, request)
+  end
+
+  def test_pdf_range_refuses_a_full_response_without_waiting_for_its_body
+    # The server sends headers, but never sends the promised full PDF body.
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new do
+      socket = server.accept
+      while (header = socket.gets)
+        break if header == "\r\n"
+      end
+      socket.write("HTTP/1.1 200 OK\r\nContent-Length: 500000000\r\n\r\n")
+      socket.read
+    ensure
+      socket&.close
+    end
+    Timeout.timeout(2) do
+      assert_raises(Aljam3::RangeUnsupportedError) do
+        Aljam3::HTTP.new.read_range("http://127.0.0.1:#{server.addr[1]}", offset: 0, length: 64)
+      end
+    end
+  ensure
+    thread&.kill&.join
+    server&.close
+  end
+
+  def test_pdf_ranges_reuse_the_connection_between_page_reads
+    headers = { "Connection" => "keep-alive", "ETag" => '"v1"' }
+    first = response("head", status: "206 Partial Content", headers: headers.merge("Content-Range" => "bytes 0-3/8"))
+    second = response("tail", status: "206 Partial Content", headers: headers.merge("Content-Range" => "bytes 4-7/8"))
+    http = Aljam3::HTTP.new
+    Timeout.timeout(2) do
+      with_server(first, second, keep_alive: true) do |url|
+        assert_equal "head", http.read_range(url, offset: 0, length: 4).bytes
+        assert_equal "tail", http.read_range(url, offset: 4, length: 4, validator: '"v1"').bytes
+      end
+    end
+  ensure
+    http&.close
+  end
+
+  def test_pdf_ranges_reject_wrong_offsets_compression_and_unexpected_body_lengths
+    cases = [
+      response("abcd", status: "206 Partial Content", headers: { "Content-Range" => "bytes 1-4/10" }),
+      response("abcd", status: "206 Partial Content", headers: { "Content-Range" => "bytes 0-3/10", "Content-Encoding" => "gzip" }),
+      response("abcde", status: "206 Partial Content", headers: { "Content-Range" => "bytes 0-3/10" })
+    ]
+    cases.each do |value|
+      with_server(value) do |url|
+        assert_raises(Aljam3::ResponseError) { Aljam3::HTTP.new.read_range(url, offset: 0, length: 4) }
+      end
+    end
+    with_server(response("ab", status: "206 Partial Content", headers: { "Content-Range" => "bytes 0-3/10", "Content-Length" => 4 })) do |url|
+      assert_raises(Aljam3::ConnectionError) { Aljam3::HTTP.new.read_range(url, offset: 0, length: 4) }
+    end
+  end
+
+  def test_pdf_ranges_reject_a_changed_edition_instead_of_mixing_bytes
+    [response("new edition"), response("abcd", status: "206 Partial Content", headers: { "Content-Range" => "bytes 0-3/10", "ETag" => '"v2"' })].each do |value|
+      with_server(value) do |url|
+        assert_raises(Aljam3::RemoteFileChangedError) { Aljam3::HTTP.new.read_range(url, offset: 0, length: 4, validator: '"v1"') }
+      end
     end
   end
 end

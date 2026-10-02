@@ -7,6 +7,8 @@ require "json"
 
 module Aljam3
   class ConnectionError < StandardError; end
+  class RangeUnsupportedError < StandardError; end
+  class RemoteFileChangedError < StandardError; end
   class ResponseError < StandardError
     attr_reader :status
 
@@ -17,12 +19,52 @@ module Aljam3
   end
 
   class HTTP
+    Range = Data.define(:bytes, :size, :validator, :url)
     NETWORK_ERRORS = [SocketError, IOError, Timeout::Error, OpenSSL::SSL::SSLError,
       Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::ECONNABORTED, Errno::EHOSTUNREACH,
       Errno::ENETUNREACH, Errno::ENETDOWN, Errno::ETIMEDOUT, Errno::EPIPE].freeze
 
     def get(url)
       request(url, headers: { "Accept" => "application/json" }) { |response| response.body }
+    end
+
+    def read_range(url, offset:, length:, validator: nil)
+      raise ArgumentError, "Invalid byte range." unless offset >= 0 && length.positive?
+
+      headers = { "Range" => "bytes=#{offset}-#{offset + length - 1}", "Accept-Encoding" => "identity" }
+      headers["If-Range"] = validator if validator
+      request(url, headers:, persistent: true) do |response|
+        if response.code == "200"
+          raise RemoteFileChangedError, "The PDF changed. Please retry." if validator
+
+          raise RangeUnsupportedError, "This host does not support reading PDF sections."
+        end
+        range = response["content-range"]&.match(/\Abytes (\d+)-(\d+)\/(\d+)\z/)
+        unless response.code == "206" && range && range[1].to_i == offset &&
+            range[2].to_i == [offset + length, range[3].to_i].min - 1 &&
+            range[3].to_i > offset && [nil, "identity"].include?(response["content-encoding"])
+          raise ResponseError.new(502), "Invalid PDF byte range."
+        end
+        current = response["etag"] unless response["etag"]&.start_with?("W/")
+        current ||= response["last-modified"]
+        raise RemoteFileChangedError, "The PDF changed. Please retry." if validator && current != validator
+
+        expected = range[2].to_i - offset + 1
+        bytes = +"".b
+        response.read_body do |chunk|
+          raise ResponseError.new(502), "PDF range exceeded its requested size." if bytes.bytesize + chunk.bytesize > expected
+
+          bytes << chunk
+        end
+        raise ConnectionError, "The PDF section was interrupted." unless bytes.bytesize == expected
+
+        Range.new(bytes, range[3].to_i, current, response.uri.to_s)
+      end
+    end
+
+    def close
+      @range_http.finish if @range_http&.started?
+      @range_http = @range_origin = nil
     end
 
     def download(url, destination, validate_pdf: true, resume: false, check: -> {}, &progress)
@@ -89,29 +131,45 @@ module Aljam3
 
     private
 
-    def request(url, headers: {}, timeout: 8, redirects: 5, &block)
+    def request(url, headers: {}, timeout: 8, redirects: 5, persistent: false, &block)
       uri = URI(url)
       raise ArgumentError, "Expected an HTTP(S) URL." unless %w[http https].include?(uri.scheme)
 
-      http = Net::HTTP.new(uri.host, uri.port)
-      http.use_ssl = uri.scheme == "https"
-      http.open_timeout = 3
-      http.read_timeout = timeout
-      http.write_timeout = timeout
-      http.max_retries = 0
+      http = connection(uri, timeout:, persistent:)
       request = Net::HTTP::Get.new(uri, { "User-Agent" => "Aljam3Desktop/0.1", **headers })
+      result = redirect = nil
       http.request(request) do |response|
         case response
-        when Net::HTTPSuccess then return block.call(response)
+        when Net::HTTPSuccess then result = block.call(response)
         when Net::HTTPRedirection
           raise ResponseError, response.code if redirects.zero? || !response["location"]
 
-          return request(URI.join(uri, response["location"]).to_s, headers:, timeout:, redirects: redirects - 1, &block)
+          redirect = URI.join(uri, response["location"]).to_s
         else raise ResponseError, response.code
         end
       end
+      return request(redirect, headers:, timeout:, redirects: redirects - 1, persistent:, &block) if redirect
+
+      result
     rescue *NETWORK_ERRORS => error
       raise ConnectionError, error.message
+    end
+
+    def connection(uri, timeout:, persistent:)
+      origin = [uri.scheme, uri.host, uri.port]
+      return @range_http if persistent && @range_origin == origin && @range_http&.started?
+
+      close if persistent
+      http = Net::HTTP.new(uri.host, uri.port)
+      http.use_ssl = uri.scheme == "https"
+      http.open_timeout = 3
+      http.read_timeout = http.write_timeout = timeout
+      http.max_retries = 0
+      if persistent
+        http.start
+        @range_http, @range_origin = http, origin
+      end
+      http
     end
   end
 end

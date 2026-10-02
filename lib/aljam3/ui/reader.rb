@@ -265,11 +265,13 @@ module Aljam3
         render_number = @render_number
         book, file, number, zoom = @reader.values_at(:book, :file, :number, :zoom)
         pane_width = @pdf_width
+        check = -> { raise PDF::Cancelled unless @render_number == render_number && reader_pdf? }
         @render_worker.submit(-> {
-          path = @reading.pdf_path(book.fetch("id"), file)
-          @pdf.render(path, page: number, width: (pane_width - 32) * zoom * 1.5)
+          check.call
+          source = @reading.pdf_source(book.fetch("id"), file)
+          @pdf.render(source, page: number, width: (pane_width - 32) * zoom * 1.5, check:)
         }) do |rendered, error|
-          next unless @screen == :reader && @render_number == render_number
+          next unless reader_pdf? && @render_number == render_number
 
           @reader.merge!(image: rendered, pdf_error: error && error_message(error))
           draw_window
