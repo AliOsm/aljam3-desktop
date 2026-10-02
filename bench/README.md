@@ -2,6 +2,38 @@
 
 Generation and performance benchmarks use disposable databases under `.cache/benchmark`; small correctness verifiers also use temporary directories. They never need the user's downloaded PDFs or app data directory. Performance runs place SQLite temporary files beside their fixtures, on the SSD used for the measurements.
 
+## Current search: limited relevance (0.1.5)
+
+The agreed default ranks the first **10,000 eligible matching pages**, after all filters, using BM25 statistics within that pool. It does not rank the complete library. **البحث في المزيد** adds another 10,000 matching pages and reranks; the optional library order is still uncapped. Matching still requires all query words.
+
+The [final full-size report](results/limited-full.json) uses **63,535 books / 37,610,673 repeated-OCR pages** and a **127.54 GB database**, without PDFs. Medians of three trials on the same Linux workstation; pool rebuilt before each initial query, worker already running, OS caches uncontrolled, SQLite temporary files on SSD. The fixture and its limitations are described below.
+
+| Search | 2,000 candidates | 5,000 candidates | 10,000 candidates |
+| --- | ---: | ---: | ---: |
+| `الله` | 0.45 s | 1.12 s | 2.31 s |
+| `في` | 0.44 s | 1.11 s | 2.29 s |
+| `العلم العمل الناس` | 2.44 s | 3.14 s | 4.35 s |
+| `الزمخشري` | 0.34 s | 0.85 s | 1.73 s |
+| `الله`, author filter | 0.79 s | 1.64 s | 3.16 s |
+| `الله`, one book | 0.10 s | 0.10 s | 0.10 s |
+
+Expanding 10K → 20K took **2.53 s**. Cached result pages 2 and 800 took **25.59 / 26.41 ms**. Optional library order took **6.92 ms**, catalog browsing **2.53 ms**, and page reads during search **0.04 ms**. Cancellation took **22.70 ms**.
+
+Combined driver/query-worker RSS peaked at **213.5 MiB**; the sampled Ruby heartbeat gap peaked at **35.40 ms**. These exclude the native renderer and PDF memory, and do not measure native frame rate or establish latency guarantees. First searches on another computer, cold disk caches, different OCR vocabulary, and sparse filters can be slower.
+
+Profiling removed two unnecessary costs: replacing a pool now drops its temporary index instead of re-tokenizing old text during DELETE, and expansion indexes only the added candidates. Ranking and excerpts stay inside SQLite; Ruby receives only ranked IDs and the visible result page. The [one-million-page run](results/limited-1m.json) records the intermediate comparison.
+
+Correctness tests cover AND matching, eligibility and combined filters before the cap, stable paging, cache invalidation, query/scope resets, and a deliberately better result outside the initial pool that appears after expansion. The measured 2K and 5K options are comparisons; **10K remains the product default**. These tests establish the pool contract, not human relevance quality. A better match outside the pool can be missed, and deterministic rowid selection can favor particular books. Pool-local BM25 can order pages differently from global BM25.
+
+Reproduce against the completed, disposable fixture:
+
+```sh
+mise exec -- bundle exec ruby bench/limited.rb \
+  .cache/benchmark/full/library.sqlite3 bench/results/limited-full.json
+```
+
+The following sections preserve the previous exhaustive-ranking baseline and fixture-generation methodology. Their global-ranking descriptions apply to 0.1.4, not the current bounded search.
+
 ## Workload
 
 The public source indexes contain **63,535 entries and 37,610,673 pages** across the Prophet Mosque, Shamela/Waqfeya, and Waqfeya collections. This is a workload envelope, not an exact current API catalog count. `prepare.rb` saves the source URLs and SHA-256 checksums, samples eight text volumes from distinct categories in each collection, and retains the actual catalog titles, authors, and categories.

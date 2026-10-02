@@ -24,6 +24,17 @@ app.every(0.1) do
     when 0
       app.instance_variable_set(:@theme, :light)
       app.apply_theme
+      app.draw_window
+      shot.call("home-first-use")
+      field = app.instance_variable_get(:@query_field)
+      automation.click({ id: field.linkable_id })
+      automation.type("العلم والعمل")
+      raise "Field focus is not tracked" unless app.instance_variable_get(:@editing_field) == field
+      app.refresh_window
+      raise "Background refresh interrupted typing" unless app.instance_variable_get(:@query_field) == field && field.text == "العلم والعمل"
+      automation.key("tab")
+      raise "Blur did not clear editing state" if app.instance_variable_get(:@editing_field)
+      app.navigate(:home)
       app.open_book({ "id" => 1 })
       step = 1
     when 1
@@ -167,14 +178,39 @@ app.every(0.1) do
       app.open_dialog(:bookmarks)
       shot.call("bookmarks")
       app.close_dialog
-      app.open_dialog(:reader_options)
+      options_button = app.instance_variable_get(:@action_views).fetch("خيارات القراءة")
+      anchor = automation.rect_of!(options_button.linkable_id)
+      automation.click({ id: options_button.linkable_id })
+      panel = automation.rect_of!(app.instance_variable_get(:@dialog_panel).linkable_id)
+      raise "Options popup is detached from its trigger" unless (panel.y - anchor.y - anchor.h - 8).abs < 1
+      raise "Options popup leaves the viewport" unless panel.x >= 16 && panel.y >= 16 && panel.x + panel.w <= 784 && panel.y + panel.h <= 684
       shot.call("reading-options")
+      automation.key("escape")
+      returned = app.instance_variable_get(:@action_views).fetch("خيارات القراءة")
+      raise "Closing popup lost keyboard focus" unless automation.focused == returned.linkable_id
+      menu_button = app.instance_variable_get(:@action_views).fetch("أدوات الكتاب")
+      automation.click({ id: menu_button.linkable_id })
+      shot.call("reader-menu")
       app.close_dialog
       page = reader[:number]
       automation.key("left")
       raise "Next page shortcut failed" unless reader[:number] == page + 1
       automation.key("right")
       raise "Previous page shortcut failed" unless reader[:number] == page
+      raise "Reader header is missing" unless app.instance_variable_get(:@action_views).key?("الرئيسية")
+      raise "Redundant Go button remains" if automation.layout.any? { |node| node[:kind] == "Button" && node[:text] == "اذهب" }
+      field = app.instance_variable_get(:@page_field)
+      automation.click({ id: field.linkable_id })
+      automation.key("control_a")
+      automation.type("٠")
+      automation.key("enter")
+      raise "Invalid page changed reading position" unless reader[:number] == page
+      raise "Invalid page has no explanation" if app.instance_variable_get(:@page_feedback).text.empty?
+      shot.call("page-validation")
+      automation.key("control_a")
+      automation.type(page.to_s.tr("0123456789", "٠١٢٣٤٥٦٧٨٩"))
+      automation.key("enter")
+      raise "Enter did not accept Arabic page digits" unless reader[:number] == page
       app.navigate(:home)
       raise "Recent reading missing" unless store.recent_books.first.fetch("number") == page
       shot.call("home-compact")
@@ -243,7 +279,7 @@ app.every(0.1) do
       raise "Bookmarks lost after removal" if store.bookmarks(1).empty?
       raise "Reading history lost after removal" if store.recent_books.empty?
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true,
-        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_sheet_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope bounded_pagination immediate_cached_catalog remove_download_preserves_history] }))
+        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_sheet_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope bounded_pagination immediate_cached_catalog remove_download_preserves_history typing_during_background_refresh field_blur anchored_popup popup_focus_return reader_header page_validation enter_arabic_digits] }))
       app.close
     end
   rescue StandardError => error

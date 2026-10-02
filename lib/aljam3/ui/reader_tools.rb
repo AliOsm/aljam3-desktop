@@ -46,19 +46,21 @@ module Aljam3
 
       def draw_bookmarks
         para "مواضع محفوظة في هذا الكتاب، تبقى معك بعد إغلاق التطبيق.", size: 15, stroke: muted
-        stack(top: 52, width: 1.0, height: @content_height - 52, scroll: true) do
+        scroll_area(top: 48, height: @content_height - 48, scroll: true) do
           if @bookmarks.empty?
             para "لا توجد فواصل بعد. احفظ الصفحة من زر الفاصل أو Ctrl/⌘ D.", size: 16, stroke: muted
           end
           @bookmarks.each do |entry|
-            stack(margin_bottom: 20, margin_right: 12) do
+            card(padding: 16) do
               file = @reader.fetch(:files).find { |candidate| candidate.fetch("id") == entry.fetch("file_id") }
               para "#{file&.fetch('name')} · صفحة #{entry.fetch('number')}", size: 16
               para entry.fetch("excerpt"), size: 14, stroke: muted, margin_top: 8
-              action("فتح الصفحة", width: 126, margin_top: 10, state: file ? nil : "disabled") do
-                close_dialog
-                @reader[:file] = file
-                turn_page(entry.fetch("number"))
+              row(margin_top: 12, height: 48) do
+                action("فتح الصفحة", width: 126, state: file ? nil : "disabled") do
+                  close_dialog
+                  @reader[:file] = file
+                  turn_page(entry.fetch("number"))
+                end
               end
             end
           end
@@ -68,25 +70,25 @@ module Aljam3
       def draw_reader_menu
         [ ["الفواصل المحفوظة", "bookmark", :bookmarks], ["تنزيل الكتاب وتصديره", "download", :export],
           ["مشاركة الصفحة", "share-2", :share], ["اختصارات لوحة المفاتيح", "keyboard", :shortcuts] ].each do |label, icon, type|
-          action(label, icon:, width: 1.0, height: 48, margin_bottom: 8, variant: :ghost) { open_dialog(type, nested: true) }
+          control = action(label, icon:, width: 1.0, height: 40, margin_bottom: 4, variant: :ghost, align: "right") { open_dialog(type) }
+          @dialog_first ||= control
         end
-        action("حفظ صورة الصفحة", icon: "image-down", width: 1.0, height: 48, variant: :ghost,
+        action("حفظ صورة الصفحة", icon: "image-down", width: 1.0, height: 36, variant: :ghost, align: "right",
           state: @reader[:image] ? nil : "disabled") { save_page_image }
       end
 
       def draw_reader_options
-        para "حجم النص", size: 16
-        flow(top: 38, width: 1.0, height: 36) do
-          action("−", width: 44, size: 21) { change_text_size(-2); draw_window }
-          para @reader.fetch(:text_size).to_s, width: 70, align: "center", margin_top: 8
-          action("+", width: 44, size: 21) { change_text_size(2); draw_window }
+        row do
+          para "حجم النص", width: -140, size: 16
+          @dialog_first = action("+", tooltip: "تكبير النص", width: 44, size: 21, state: @reader[:text_size] >= 35 ? "disabled" : nil) { change_text_size(2); draw_window }
+          para @reader.fetch(:text_size).to_s, width: 52, align: "center"
+          action("−", tooltip: "تصغير النص", width: 44, size: 21, state: @reader[:text_size] <= 17 ? "disabled" : nil) { change_text_size(-2); draw_window }
         end
         action(@reader[:tashkeel] ? "إخفاء التشكيل" : "إظهار التشكيل", icon: @reader[:tashkeel] ? "filled-shaddah" : "dotted-shaddah", selected: @reader[:tashkeel],
-          top: 92, width: 1.0) { toggle_tashkeel; draw_window }
-        para "مساحة النص والصورة", top: 152, size: 16
-        para "اسحب الفاصل بينهما، أو اختر نسبة مريحة.", top: 180, size: 14, stroke: muted
-        flow(top: 216, width: 1.0, height: 36) do
-          { 0.35 => "نص أوسع", 0.5 => "متساويان", 0.65 => "PDF أوسع" }.each do |ratio, label|
+          top: 52, width: 1.0, align: "right") { toggle_tashkeel; draw_window }
+        para "مساحة النص والصورة", top: 112, size: 16
+        row(top: 148) do
+          { 0.35 => "نص أوسع", 0.5 => "متساويان", 0.65 => "صورة أوسع" }.each do |ratio, label|
             action(label, width: (@main_width / 3).floor, selected: (@reader[:split_ratio] - ratio).abs < 0.02) do
               @reader[:split_ratio] = ratio
               save_reader_options
@@ -95,7 +97,7 @@ module Aljam3
             end
           end
         end
-        para "تُحفظ اختياراتك تلقائيًا.", top: 278, size: 14, stroke: muted
+        para "تُحفظ اختياراتك تلقائيًا. يمكنك أيضًا سحب الفاصل.", top: 208, size: 13, stroke: muted
       end
 
       def reader_keypress(key)
@@ -116,9 +118,9 @@ module Aljam3
         { "Ctrl / ⌘ F" => "بحث في الكتاب", "Ctrl / ⌘ D" => "حفظ الفاصل أو إزالته", "Ctrl / ⌘ J" => "الانتقال إلى رقم صفحة",
           "← / Page Down" => "الصفحة التالية", "→ / Page Up" => "الصفحة السابقة", "Home / End" => "بداية الملف / نهايته",
           "F3 / Shift F3" => "التطابق التالي / السابق في الصفحة", "Escape" => "إغلاق النافذة أو تمييز البحث" }.each do |keys, label|
-          flow(height: 38) do
-            para keys, width: 210, align: "left", size: 14, stroke: muted
-            para label, width: -210, size: 15
+          row(height: 38) do
+            para label, width: -200, size: 15
+            para keys, width: 200, align: "left", size: 14, stroke: muted
           end
         end
       end
@@ -139,12 +141,12 @@ module Aljam3
       def reader_match_bar(top)
         count = Text.match_ranges(page_text, @reader.fetch(:query)).length
         position = count.zero? ? 0 : @reader.fetch(:match_index, 0) + 1
-        flow(left: 16, top:, width: width - 32, height: 36) do
-          icon_button("x", "إزالة تمييز البحث") { clear_reader_matches }
+        row(left: 16, top:, width: width - 32) do
+          para "البحث: #{@reader.fetch(:query)[0, 64]}", width: -272, size: 15, stroke: primary, wrap: "trim"
+          @match_label = para "#{position} / #{count} في الصفحة", width: 164, size: 14, stroke: muted, align: "center"
           icon_button("arrow-right", "التطابق السابق · Shift F3", state: count.zero? ? "disabled" : nil) { move_reader_match(-1) }
           icon_button("arrow-left", "التطابق التالي · F3", state: count.zero? ? "disabled" : nil) { move_reader_match(1) }
-          @match_label = para "#{position} / #{count} في الصفحة", width: 164, size: 14, stroke: muted, margin_top: 9, align: "center"
-          para "البحث: #{@reader.fetch(:query)[0, 64]}", width: -280, size: 15, stroke: primary, margin_top: 8
+          icon_button("x", "إزالة تمييز البحث") { clear_reader_matches }
         end
       end
 

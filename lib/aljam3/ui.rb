@@ -37,11 +37,17 @@ module Aljam3
       @filters, @expanded = {}, {}
       @request_number, @render_number, @page_request = 0, 0, 0
       @busy = false
+      @search_pool_size = Store::Search::POOL_SIZE
       draw_window
       every(0.1) { tick }
       keypress do |key|
         if key == :escape
-          @dialog ? close_dialog : clear_reader_matches if @dialog || @screen == :reader
+          if @dialog
+            close_dialog
+          elsif @screen == :reader
+            @page_field.text = @reader.fetch(:number).to_s if @page_field
+            clear_reader_matches
+          end
         elsif %i[control_f alt_f].include?(key)
           if @dialog&.dig(:type) == :book_search
             @book_query_field&.focus
@@ -70,7 +76,7 @@ module Aljam3
         next if error
 
         @categories, @libraries = data
-        draw_window if %i[home categories].include?(@screen) || @dialog&.dig(:type) == :filters
+        refresh_window if %i[home categories].include?(@screen) || @dialog&.dig(:type) == :filters
       end
     end
 
@@ -82,7 +88,11 @@ module Aljam3
         @connection = @api.connection
         redraw = true
       end
-      draw_window if redraw && !@split_drag
+      @redraw_pending ||= redraw
+      if @redraw_pending && !@split_drag && !@editing_field
+        draw_window
+        @redraw_pending = false
+      end
       @progress_views.each do |id, view|
         next unless (download = @download_queue.entry(id))
 
@@ -104,12 +114,15 @@ module Aljam3
       @main_width = [width - 32, 1120].min
       @content_height = [height - 100, 260].max
       @drawing_dialog = false
+      @editing_field = nil
+      @redraw_pending = false
+      @action_views = {}
       clear do
         background paper
+        navigation
         if @screen == :reader
           draw_reader
         else
-          navigation
           connection_strip
           @content_height -= 24
           stack(left: (width - @main_width) / 2, top: 104, width: @main_width, height: @content_height) do
@@ -129,23 +142,26 @@ module Aljam3
       @pdf_surface.scroll_top = pdf_scroll if @screen == :reader && @pdf_surface
     end
 
+    def refresh_window
+      @editing_field ? @redraw_pending = true : draw_window
+    end
+
     def navigation
       stack(left: 0, top: 0, width: width, height: 60) do
         background paper
         line 0, 59, width, 59, stroke: line_color
-        flow(left: 16, top: 12, width: 264, height: 36) do
-          icon_button(@theme == :dark ? "sun" : "moon", @theme == :dark ? "الوضع الفاتح" : "الوضع الداكن") { toggle_theme }
-          navigation_button("التنزيلات", :downloads, width: 90)
-          navigation_button("كتبي المحمّلة", :saved, width: 130)
-        end
-        flow(left: width - 404, top: 12, width: 326, height: 36) do
-          navigation_button("الكتب", :browse, width: 68)
+        row(left: (width - @main_width) / 2, top: 12, width: @main_width) do
+          image(asset_path("brand", "aljam3"), width: 52, height: 35, margin_right: 8,
+            alt: "الجامع · الرئيسية") { navigate(:home) unless @dialog }
+          navigation_button("الرئيسية", :home, width: 76)
+          navigation_button("التصنيفات", :categories, width: 88)
           navigation_button("المؤلفون", :authors, width: 80)
-          navigation_button("التصنيفات", :categories, width: 90)
-          navigation_button("الرئيسية", :home, width: 88)
+          navigation_button("الكتب", :browse, width: 68)
+          stack(width: -606, height: 1)
+          navigation_button("كتبي المحمّلة", :saved, width: 116)
+          navigation_button("التنزيلات", :downloads, width: 90)
+          icon_button(@theme == :dark ? "sun" : "moon", @theme == :dark ? "الوضع الفاتح" : "الوضع الداكن") { toggle_theme }
         end
-        image(asset_path("brand", "aljam3"), left: width - 64, top: 12, width: 45, height: 35,
-          alt: "الجامع · الرئيسية") { navigate(:home) unless @dialog }
       end
     end
 
@@ -159,6 +175,7 @@ module Aljam3
       @search_scope = screen == :saved ? :downloaded : :all
       @result = @results = @error = @dialog = @dialog_scroll = nil
       @filters, @expanded, @filters_by_mode, @scope_label = filters, {}, {}, label
+      @search_pool_size, @search_signature = Store::Search::POOL_SIZE, nil
       @mode = :books unless filters.empty?
       @request_number += 1
       @render_number += 1
@@ -167,13 +184,20 @@ module Aljam3
       %i[browse saved authors].include?(screen) ? request_catalog : draw_window
     end
 
-    def request_catalog(page: 1)
+    def request_catalog(page: 1, expand: false)
+      @editing_field = nil
+      signature = [@query.strip, @screen, @mode, @filters.dup, @search_scope, @search_order]
+      @search_pool_size = Store::Search::POOL_SIZE if @search_signature != signature
+      @search_signature = signature
+      @search_pool_size += Store::Search::POOL_SIZE if expand
       @store.cancel_search if @busy
       @request_number += 1
       request_number = @request_number
       query, screen, mode, filters = @query.strip, @screen, @mode, @filters.dup
+      @result_query = query
       downloaded = @search_scope == :downloaded
       order = @search_order
+      pool_size = @search_pool_size
       @busy, @error, @result, @results = true, nil, nil, nil
       @expanded = {}
       if query.empty? && mode != :authors
@@ -187,8 +211,8 @@ module Aljam3
 
         if mode == :authors || screen == :authors
           @library.authors(query:, page:, downloaded:)
-        elsif mode == :content && (!query.empty? || !filters.empty?)
-          @library.search(query, **filters, page:, downloaded:, order:)
+        elsif mode == :content && !query.empty?
+          @library.search(query, **filters, page:, downloaded:, order:, pool_size:)
         else
           @library.browse(query:, **filters, page:, downloaded:)
         end
@@ -202,7 +226,7 @@ module Aljam3
         else
           @result, @source = result, result.source
         end
-        draw_window
+        refresh_window
       end
     end
 

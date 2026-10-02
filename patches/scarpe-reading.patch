@@ -1,21 +1,22 @@
 diff --git a/lacci/lib/shoes/drawables/progress.rb b/lacci/lib/shoes/drawables/progress.rb
-index cae1cbb..64f21c4 100644
+index cae1cbb..1961052 100644
 --- a/lacci/lib/shoes/drawables/progress.rb
 +++ b/lacci/lib/shoes/drawables/progress.rb
-@@ -2,7 +2,7 @@
+@@ -2,7 +2,8 @@
  
  class Shoes
    class Progress < Shoes::Drawable
 -    shoes_styles :fraction
 +    shoes_styles :fraction, :color, :background_color
++    shoes_styles :direction
  
      # fraction is a decimal from the start (ledger M5; Shoes 3 gives 0.0)
      Shoes::Drawable.drawable_default_styles[Shoes::Progress][:fraction] = 0.0
 diff --git a/native/src/elements/progress.rs b/native/src/elements/progress.rs
-index dd86e6c..9981bca 100644
+index dd86e6c..c24bd52 100644
 --- a/native/src/elements/progress.rs
 +++ b/native/src/elements/progress.rs
-@@ -10,16 +10,18 @@ const TRACK: Color = Color::rgb(0xe5, 0xe5, 0xea);
+@@ -10,16 +10,19 @@ const TRACK: Color = Color::rgb(0xe5, 0xe5, 0xea);
  
  pub fn paint(canvas: &mut Canvas, node: &Node, lbox: &LBox) {
      let r = lbox.rect;
@@ -30,7 +31,8 @@ index dd86e6c..9981bca 100644
              let w = (r.w * f.clamp(0.0, 1.0)).max(if f > 0.0 { h } else { 0.0 });
              if w > 0.0 {
 -                canvas.fill_rounded(Rect::new(track.x, track.y, w, h), h / 2.0, ACCENT, lbox.clip);
-+                canvas.fill_rounded(Rect::new(track.x, track.y, w, h), h / 2.0, color, lbox.clip);
++                let x = if node.props.str("direction") == Some("rtl") { track.right() - w } else { track.x };
++                canvas.fill_rounded(Rect::new(x, track.y, w, h), h / 2.0, color, lbox.clip);
              }
          }
 -        None => canvas.fill_rounded(Rect::new(track.x + r.w * 0.1, track.y, r.w * 0.35, h), h / 2.0, ACCENT.fade(0.55), lbox.clip),
@@ -51,10 +53,10 @@ index 4a0bef0..bea2bc0 100644
                  flush(canvas, current.take());
                  current = Some((c, glyph.x, glyph.x + glyph.w));
 diff --git a/native/tests/golden.rs b/native/tests/golden.rs
-index cfbce00..eeeb4bf 100644
+index cfbce00..aef51b3 100644
 --- a/native/tests/golden.rs
 +++ b/native/tests/golden.rs
-@@ -133,3 +133,31 @@ fn shading_a_few_levels_off_still_matches() {
+@@ -133,3 +133,41 @@ fn shading_a_few_levels_off_still_matches() {
          assert_eq!(mismatch(&shaded, &golden(scene)), None, "{scene}");
      }
  }
@@ -85,4 +87,14 @@ index cfbce00..eeeb4bf 100644
 +    ]));
 +    assert_eq!(h.value(json!({"op":"pixel","x":30,"y":14})), json!([174,71,33,255]));
 +    assert_eq!(h.value(json!({"op":"pixel","x":180,"y":14})), json!([74,69,67,255]));
++}
++
++#[test]
++fn rtl_progress_fills_from_the_right() {
++    let mut h = Harness::new();
++    h.feed(&common::app(240, 40, &[
++        json!({"t":"create","id":3,"kind":"Progress","parent":2,"props":{"left":10,"top":10,"width":200,"height":8,"fraction":0.25,"direction":"rtl","color":{"rgba":[174,71,33,255]},"background_color":{"rgba":[74,69,67,255]}}}),
++    ]));
++    assert_eq!(h.value(json!({"op":"pixel","x":30,"y":14})), json!([74,69,67,255]));
++    assert_eq!(h.value(json!({"op":"pixel","x":180,"y":14})), json!([174,71,33,255]));
 +}

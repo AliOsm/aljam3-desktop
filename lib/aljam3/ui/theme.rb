@@ -41,7 +41,8 @@ module Aljam3
         style(Shoes::Button, font: FONT, size: 15, height: 36)
         style(Shoes::EditLine, font: "#{FONT} 17", height: 40, stroke: ink, fill: card_color, border_color: line_color)
         style(Shoes::Link, stroke: ink, underline: "none")
-        style(Shoes::Progress, color: primary, background_color: line_color)
+        style(Shoes::Stack, scrollbar_color: muted)
+        style(Shoes::Progress, color: primary, background_color: line_color, direction: "rtl", height: 8)
       end
 
       def toggle_theme

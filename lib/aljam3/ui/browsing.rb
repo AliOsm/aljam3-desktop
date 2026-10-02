@@ -12,48 +12,61 @@ module Aljam3
 
       def author_row(author)
         card do
-          stack(margin: 16) do
+          stack(padding: 16) do
             para text_link(Text.plain(author.fetch("name"))) { browse_scope(:author, author) }, size: 20
-            para "#{author.fetch('books_count', 0)} كتاب", size: 14, stroke: muted, margin_top: 6
-            action("كتب المؤلف", icon: "arrow-left", width: 120, margin_top: 12) { browse_scope(:author, author) }
+            row(margin_top: 12, height: 48) do
+              para "#{author.fetch('books_count', 0)} كتاب", width: -132, size: 14, stroke: muted
+              action("كتب المؤلف", icon: "arrow-left", width: 132) { browse_scope(:author, author) }
+            end
           end
         end
       end
 
       def draw_home
-        para "مكتبتك، حيث توقفت", font: HEADING_FONT, size: 28
-        para "تابع قراءتك، أو ابحث عن كتابك القادم.", size: 16, stroke: muted, margin_top: 8
-        search_scope_control(top: 62)
-        search_form(top: 108)
-        @results = stack(top: 176, width: 1.0, height: @content_height - 176, scroll: !@dialog) do
-          recent = @store.recent_books(limit: 6)
+        recent = @store.recent_books(limit: 4)
+        para recent.empty? ? "المكتبة بين يديك" : "مكتبتك، حيث توقفت", font: HEADING_FONT, size: 26
+        para "ابحث في الكتب، وتابع القراءة، واحتفظ بما تحتاجه دون اتصال.", size: 16, stroke: muted, margin_top: 8
+        search_scope_control(top: 64)
+        search_form(top: 112)
+        @results = scroll_area(top: 180, height: @content_height - 180) do
           unless recent.empty?
-            para "تابع القراءة", font: HEADING_FONT, size: 21, margin_bottom: 14
-            reading_card(recent.first)
-            if recent.length > 1
-              para "قرأت مؤخرًا", font: HEADING_FONT, size: 19, margin_top: 12, margin_bottom: 12
-              recent.drop(1).each { |entry| recent_reading_row(entry) }
+            columns = @main_width >= 920 && recent.size > 1
+            flow(direction: "rtl") do
+              stack(width: columns ? 0.52 : 1.0, padding_left: columns ? 24 : 0) do
+                section_heading("تابع القراءة")
+                reading_card(recent.first)
+              end
+              if recent.size > 1
+                stack(width: columns ? 0.48 : 1.0) do
+                  section_heading("قرأت مؤخرًا")
+                  recent.drop(1).each { |entry| recent_reading_row(entry) }
+                end
+              end
             end
           end
-          if recent.empty? && @downloaded_ids.any?
-            para "جاهزة للقراءة دون اتصال", font: HEADING_FONT, size: 21, margin_bottom: 14
-            @downloaded_ids.first(3).each { |id| book_row(@store.book(id)) }
-          end
-          para "اكتشف المكتبة", font: HEADING_FONT, size: 21, margin_top: 24, margin_bottom: 16
-          @libraries.reverse.each do |library|
-            stack(height: 58, margin_right: 12) do
-              para text_link(library_name(library)) { browse_scope(:library, library) }, left: 130, top: 12,
-                width: @main_width - 158, size: 17
-              para "#{library.fetch('books_count')} كتاب", left: 12, top: 14, width: 110, size: 14, stroke: muted, align: "left"
-              line 12, 57, @main_width - 24, 57, stroke: line_color
-            end
-          end
+          section_heading("اكتشف المكتبة", action: "جميع الكتب") { navigate(:browse) }
           if @libraries.empty?
-            para "اتصل بالإنترنت لاستكشاف المكتبة، أو افتح كتبك المحمّلة.", stroke: muted, size: 15
+            para "اتصل بالإنترنت لاستكشاف المكتبة، أو افتح كتبك المحمّلة.", stroke: muted, size: 15, margin_bottom: 20
+          else
+            columns = @main_width >= 940 ? 3 : 2
+            flow(direction: "rtl") do
+              @libraries.each do |library|
+                stack(width: 1.0 / columns, padding_left: 12) do
+                  card do
+                    stack(padding: 16) do
+                      para text_link(library_name(library)) { browse_scope(:library, library) }, size: 18
+                      row(margin_top: 12, height: 48) do
+                        para "#{library.fetch('books_count')} كتاب", width: -36, size: 14, stroke: muted
+                        icon_button("arrow-left", "استكشاف #{library_name(library)}") { browse_scope(:library, library) }
+                      end
+                    end
+                  end
+                end
+              end
+            end
           end
-          para "التصنيفات", font: HEADING_FONT, size: 21, margin_top: 24, margin_bottom: 16
-          @categories.first(6).each { |category| category_row(category) }
-          action("جميع التصنيفات", width: 1.0, margin_right: 12) { navigate(:categories) }
+          section_heading("التصنيفات", action: "جميع التصنيفات") { navigate(:categories) }
+          category_grid(@categories.first(6))
         end
       end
 
@@ -65,16 +78,16 @@ module Aljam3
         total = file&.fetch("pages_count")
         location = [files.length > 1 && file&.fetch("name"), "صفحة #{entry.fetch('number')}#{total ? " من #{total}" : ''}"].select { |part| part }.join(" · ")
         card do
-          stack(margin: 20) do
+          stack(padding: 20) do
             book_heading(book)
-            para "#{location}  ·  #{availability_label(book)}", size: 14, stroke: muted, margin_top: 14
-            progress(width: 1.0, margin_top: 12).fraction = entry.fetch("number").fdiv(total).clamp(0, 1) if total&.positive?
-            stack(height: 60) do
-              action("متابعة القراءة", icon: "book-open", width: 168, top: 20, left: @main_width - 220, variant: :solid,
+            para location, size: 14, stroke: muted, margin_top: 16
+            if total&.positive?
+              progress(width: 1.0, height: 24, margin_top: 16).fraction = entry.fetch("number").fdiv(total).clamp(0, 1)
+            end
+            row(height: 60, margin_top: 24) do
+              action("متابعة القراءة", icon: "book-open", width: 164, variant: :solid,
                 state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book) }
-              unless @downloaded_ids.include?(book.fetch("id"))
-                action("تنزيل للقراءة دون اتصال", icon: "download", width: 206, top: 20, variant: :ghost) { queue_download(book) }
-              end
+              para availability_label(book), width: -164, size: 13, stroke: muted, align: "left"
             end
           end
         end
@@ -82,40 +95,52 @@ module Aljam3
 
       def recent_reading_row(entry)
         book = entry.fetch("book")
-        stack(height: 78, margin_right: 12) do
-          para text_link(Text.plain(book.fetch("title"))[0, 80]) { open_book(book) },
-            left: 140, top: 10, width: @main_width - 164, size: 16
-          para "صفحة #{entry.fetch('number')} · #{availability_label(book)}", left: 140, top: 42,
-            width: @main_width - 164, size: 13, stroke: muted
-          action("متابعة", left: 12, top: 17, width: 104, variant: :ghost,
+        row(height: 82) do
+          stack(width: -44) do
+            para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 16, wrap: "trim"
+            para "صفحة #{entry.fetch('number')} · #{availability_label(book)}", size: 13, stroke: muted, margin_top: 6
+          end
+          icon_button("arrow-left", "متابعة #{Text.plain(book.fetch('title'))}", width: 44,
             state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book) }
-          line 12, 77, @main_width - 24, 77, stroke: line_color
         end
+        separator
       end
 
       def draw_categories
         para "التصنيفات", font: HEADING_FONT, size: 24
-        input(@query, top: 58, width: 1.0, tooltip: "البحث في التصنيفات") do |field|
+        para "اختر مجالًا لاستكشاف كتبه، أو ابحث عن تصنيف.", size: 15, stroke: muted, margin_top: 8
+        input(@query, top: 72, width: 1.0, height: 44, placeholder: "اسم التصنيف…", tooltip: "البحث في التصنيفات") do |field|
           @query = field.text
           draw_category_choices
         end
-        @category_choices = stack(top: 120, width: 1.0, height: @content_height - 120, scroll: !@dialog)
+        @category_choices = stack(top: 140, width: 1.0, height: @content_height - 140, scroll: !@dialog, direction: "rtl")
         draw_category_choices
       end
 
       def draw_category_choices
         @category_choices.clear do
-          @categories.select { |category| Text.normalize(category.fetch("name")).include?(Text.normalize(@query)) }.each { |category| category_row(category) }
+          stack(padding_left: 14) do
+            categories = @categories.select { |category| Text.normalize(category.fetch("name")).include?(Text.normalize(@query)) }
+            if categories.empty?
+              empty_state("لا توجد تصنيفات مطابقة", "جرّب اسمًا آخر أو امسح البحث.", icon: "search")
+            else
+              category_grid(categories)
+            end
+          end
         end
       end
 
-      def category_row(category)
-        stack(height: 52, margin_right: 12) do
-          flow(left: 12, top: 16, width: @main_width - 48, height: 24) do
-            para "#{category.fetch('books_count', 0)} كتاب", width: 100, size: 14, stroke: muted, align: "left"
-            para text_link(category.fetch("name")) { browse_scope(:category, category) }, width: -100, size: 16
+      def category_grid(categories)
+        flow(direction: "rtl") do
+          categories.each do |category|
+            stack(width: 0.5, padding_left: 16) do
+              row(height: 60) do
+                para text_link(category.fetch("name")) { browse_scope(:category, category) }, width: -100, size: 16
+                para "#{category.fetch('books_count', 0)} كتاب", width: 100, size: 13, stroke: muted, align: "left"
+              end
+              separator
+            end
           end
-          line 12, 51, @main_width - 24, 51, stroke: line_color
         end
       end
     end

@@ -1,0 +1,241 @@
+{
+  "pages": 37610673,
+  "bytes": 127539724288,
+  "ruby": "3.4.7",
+  "sqlite": "3.53.2",
+  "recorded_at": "2026-10-02T21:15:56Z",
+  "fixture": "7,031 sampled OCR pages repeated with numeric suffixes; PDFs excluded",
+  "temporary_directory": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/full/tmp",
+  "cache": "Uncontrolled OS cache; pool rebuilt before each initial query; worker already running",
+  "ranking": "BM25 within first eligible matching pages in rowid order, not global relevance",
+  "measurements": {
+    "common_2000": {
+      "median_ms": 451.73,
+      "trials_ms": [
+        451.73,
+        451.86,
+        446.59
+      ]
+    },
+    "prefix_2000": {
+      "median_ms": 438.77,
+      "trials_ms": [
+        441.1,
+        438.77,
+        438.53
+      ]
+    },
+    "three_words_2000": {
+      "median_ms": 2440.67,
+      "trials_ms": [
+        2443.6,
+        2440.67,
+        2414.07
+      ]
+    },
+    "rare_2000": {
+      "median_ms": 338.61,
+      "trials_ms": [
+        338.61,
+        341.31,
+        338.28
+      ]
+    },
+    "author_2000": {
+      "median_ms": 789.82,
+      "trials_ms": [
+        789.82,
+        785.63,
+        791.36
+      ]
+    },
+    "book_2000": {
+      "median_ms": 101.73,
+      "trials_ms": [
+        103.1,
+        101.73,
+        101.47
+      ]
+    },
+    "no_match_2000": {
+      "median_ms": 1.0,
+      "trials_ms": [
+        1.14,
+        1.0,
+        0.97
+      ]
+    },
+    "common_5000": {
+      "median_ms": 1124.02,
+      "trials_ms": [
+        1124.02,
+        1125.12,
+        1120.38
+      ]
+    },
+    "prefix_5000": {
+      "median_ms": 1112.72,
+      "trials_ms": [
+        1111.57,
+        1112.72,
+        1114.3
+      ]
+    },
+    "three_words_5000": {
+      "median_ms": 3138.88,
+      "trials_ms": [
+        3201.77,
+        3136.73,
+        3138.88
+      ]
+    },
+    "rare_5000": {
+      "median_ms": 846.59,
+      "trials_ms": [
+        846.51,
+        846.59,
+        878.6
+      ]
+    },
+    "author_5000": {
+      "median_ms": 1642.87,
+      "trials_ms": [
+        1642.87,
+        1639.35,
+        1643.9
+      ]
+    },
+    "book_5000": {
+      "median_ms": 102.34,
+      "trials_ms": [
+        102.34,
+        101.56,
+        102.97
+      ]
+    },
+    "no_match_5000": {
+      "median_ms": 1.14,
+      "trials_ms": [
+        1.22,
+        1.07,
+        1.14
+      ]
+    },
+    "common_10000": {
+      "median_ms": 2314.82,
+      "trials_ms": [
+        2324.5,
+        2314.82,
+        2313.45
+      ]
+    },
+    "prefix_10000": {
+      "median_ms": 2287.37,
+      "trials_ms": [
+        2283.88,
+        2287.37,
+        2289.22
+      ]
+    },
+    "three_words_10000": {
+      "median_ms": 4350.73,
+      "trials_ms": [
+        4352.5,
+        4346.75,
+        4350.73
+      ]
+    },
+    "rare_10000": {
+      "median_ms": 1732.47,
+      "trials_ms": [
+        1732.47,
+        1735.57,
+        1726.17
+      ]
+    },
+    "author_10000": {
+      "median_ms": 3164.28,
+      "trials_ms": [
+        3187.01,
+        3158.56,
+        3164.28
+      ]
+    },
+    "book_10000": {
+      "median_ms": 102.69,
+      "trials_ms": [
+        106.16,
+        102.69,
+        101.69
+      ]
+    },
+    "no_match_10000": {
+      "median_ms": 1.07,
+      "trials_ms": [
+        1.22,
+        1.07,
+        0.97
+      ]
+    },
+    "expand_10k_to_20k": {
+      "median_ms": 2531.98,
+      "trials_ms": [
+        2531.98,
+        2489.25,
+        2555.35
+      ]
+    },
+    "cached_page_2": {
+      "median_ms": 25.59,
+      "trials_ms": [
+        25.98,
+        25.59,
+        25.38
+      ]
+    },
+    "cached_page_800": {
+      "median_ms": 26.41,
+      "trials_ms": [
+        26.47,
+        26.41,
+        26.39
+      ]
+    },
+    "library_order": {
+      "median_ms": 6.92,
+      "trials_ms": [
+        7.88,
+        6.88,
+        6.92
+      ]
+    },
+    "catalog": {
+      "median_ms": 2.53,
+      "trials_ms": [
+        2.92,
+        2.53,
+        2.21
+      ]
+    },
+    "page_read": {
+      "median_ms": 0.04,
+      "trials_ms": [
+        0.14,
+        0.04,
+        0.03
+      ]
+    },
+    "page_read_during_search": {
+      "median_ms": 0.04,
+      "trials_ms": [
+        0.12,
+        0.04,
+        0.03
+      ]
+    }
+  },
+  "peak_rss_kib": 218648,
+  "heartbeat_max_ms": 35.4,
+  "cancel_ms": 22.7,
+  "verified": true
+}

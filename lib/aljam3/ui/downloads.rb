@@ -20,9 +20,9 @@ module Aljam3
 
       def format_bytes(bytes)
         return "الحجم غير معروف" unless bytes
-        return "#{(bytes / 1_073_741_824.0).round(2)} GB" if bytes >= 1_073_741_824
+        return "\u2066#{(bytes / 1_073_741_824.0).round(2)} GB\u2069" if bytes >= 1_073_741_824
 
-        "#{(bytes / 1_048_576.0).round(1)} MB"
+        "\u2066#{(bytes / 1_048_576.0).round(1)} MB\u2069"
       end
 
       def download_message(download)
@@ -34,23 +34,21 @@ module Aljam3
         para "التنزيلات والمساحة", font: HEADING_FONT, size: 24
         para "#{@downloaded_ids.length} كتاب متاح دون اتصال · PDF: #{format_bytes(@store.download_bytes)} · النص والفهرس: #{format_bytes(@store.database_bytes)}",
           size: 15, stroke: muted, margin_top: 8
-        flow(top: 70, width: 1.0, height: 36) do
-          action("كتبي المحمّلة", width: 140, margin_right: 12) { navigate(:saved) }
-          action("مسح صور الصفحات المؤقتة", width: 206, variant: :ghost) do
+        row(top: 72) do
+          tabs({ all: "الكل", active: "غير المكتملة", done: "المكتملة" }, selected: @download_filter || :all, width: 288) do |filter|
+            @download_filter, @download_page, @results = filter, 1, nil
+            draw_window
+          end
+          stack(width: -634, height: 1)
+          action("كتبي المحمّلة", width: 140) { navigate(:saved) }
+          action("مسح الصور المؤقتة", width: 206, variant: :ghost) do
             FileUtils.rm_f(Dir.glob(File.join(Aljam3.data_directory, "renders/*.png")))
             @storage_feedback = "تم تحرير مساحة الصور المؤقتة. ستُنشأ مجددًا عند القراءة."
             draw_window
           end
         end
-        tabs({ done: "المكتملة", active: "غير المكتملة", all: "الكل" }, selected: @download_filter || :all,
-          left: @main_width - 288, top: 70, width: 288) do |filter|
-          @download_filter = filter
-          @download_page = 1
-          @results = nil
-          draw_window
-        end
-        para @storage_feedback || "يمكنك إيقاف التنزيل ومتابعته. يُحفظ تقدمك عند إغلاق التطبيق.", top: 122, size: 14, stroke: muted
-        @results = stack(top: 166, width: 1.0, height: @content_height - 166, scroll: !@dialog) do
+        para @storage_feedback || "يمكنك إيقاف التنزيل ومتابعته. يُحفظ تقدمك عند إغلاق التطبيق.", top: 124, size: 14, stroke: muted
+        @results = scroll_area(top: 164, height: @content_height - 164) do
           page, filter = @download_page || 1, @download_filter || :all
           count = @store.download_count(filter:)
           @download_page = page = [page, [(count.fdiv(Store::PAGE_SIZE)).ceil, 1].max].min
@@ -64,15 +62,13 @@ module Aljam3
               completed_download_row(id, download)
               next
             end
-            card do
-              stack(margin: 16) do
-                book_heading(download.fetch(:book))
-                label = para download_message(download), size: 14, stroke: muted, margin_top: 12
-                bar = progress(width: 1.0, margin_top: 10)
+            card(padding: 16) do
+                para Text.plain(download.fetch(:book).fetch("title")), size: 20
+                label = para download_message(download), size: 14, stroke: muted, margin_top: 8
+                bar = progress(width: 1.0, height: 24, margin_top: 16)
                 bar.fraction = download.fetch(:fraction)
                 @progress_views[id] = { label:, bar: }
-                flow(height: 52, margin_top: 12) { download_actions(id, download) }
-              end
+                row(height: 52, margin_top: 16) { download_actions(id, download) }
             end
           end
           page_controls(page:, previous: page > 1, following: page * Store::PAGE_SIZE < count) do |number|
@@ -84,26 +80,28 @@ module Aljam3
 
       def completed_download_row(id, download)
         book = download.fetch(:book)
-        stack(height: 116, margin_right: 12) do
-          para text_link(Text.plain(book.fetch("title"))[0, 100]) { open_book(book) },
-            left: 324, top: 16, width: @main_width - 360, size: 18
-          para "#{Text.plain(book.dig('author', 'name'))} · #{format_bytes(download[:bytes])} · متاح دون اتصال",
-            left: 16, top: 82, width: @main_width - 52, size: 13, stroke: muted
-          flow(left: 16, top: 20, width: 300, height: 36) { download_actions(id, download) }
-          line 16, 115, @main_width - 28, 115, stroke: line_color
+        card(padding: 16) do
+          row(height: 64) do
+            stack(width: -312) do
+              para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 18, wrap: "trim"
+              para "#{Text.plain(book.dig('author', 'name'))} · #{format_bytes(download[:bytes])} · متاح دون اتصال",
+                size: 13, stroke: muted, margin_top: 8, wrap: "trim"
+            end
+            row(width: 312) { download_actions(id, download) }
+          end
         end
       end
 
       def download_actions(id, download)
         case download.fetch(:status)
         when :done
-          action("قراءة", icon: "book-open", width: 110, margin_right: 8) { open_book(download.fetch(:book)) }
-          action("إزالة النسخة المحمّلة", icon: "trash-2", width: 180, variant: :ghost) { confirm_remove_download(download.fetch(:book)) }
+          action("قراءة", icon: "book-open", width: 122, margin_left: 12) { open_book(download.fetch(:book)) }
+          action("إزالة النسخة المحمّلة", icon: "trash-2", key: [:remove_download, id], width: 180, variant: :ghost) { confirm_remove_download(download.fetch(:book)) }
         when :downloading, :queued
-          action("إيقاف مؤقت", icon: "pause", width: 132, margin_right: 8) { @download_queue.pause(id); draw_window }
+          action("إيقاف مؤقت", icon: "pause", width: 144, margin_left: 12) { @download_queue.pause(id); draw_window }
           action("إلغاء التنزيل", width: 124, variant: :ghost) { @download_queue.cancel(id); draw_window }
         when :paused, :failed
-          action(download[:status] == :paused ? "متابعة التنزيل" : "إعادة المحاولة", icon: "play", width: 146, margin_right: 8) { queue_download(download.fetch(:book)) }
+          action(download[:status] == :paused ? "متابعة التنزيل" : "إعادة المحاولة", icon: "play", width: 158, margin_left: 12) { queue_download(download.fetch(:book)) }
           action("إلغاء التنزيل", width: 124, variant: :ghost) { @download_queue.cancel(id); draw_window }
         end
       end
@@ -118,7 +116,7 @@ module Aljam3
         para "سيُحذف PDF والنص المحفوظ. حجم ملفات PDF: #{format_bytes(@store.download(book.fetch('id'))&.fetch(:bytes))}. تبقى مواضع القراءة والفواصل محفوظة، ويمكنك تنزيل الكتاب مجددًا.",
           size: 16, stroke: muted, margin_top: 16
         para @dialog[:error].to_s, size: 14, stroke: primary, margin_top: 12
-        action(@dialog[:busy] ? "جارٍ الإزالة…" : "إزالة النسخة", top: @content_height - 48, width: 142,
+        action(@dialog[:busy] ? "جارٍ الإزالة…" : "إزالة النسخة", top: @content_height - 36, right: 0, width: 142,
           variant: :solid, state: @dialog[:busy] ? "disabled" : nil) do
           dialog = @dialog
           dialog[:busy] = true
@@ -136,7 +134,7 @@ module Aljam3
             end
           end
         end
-        action("احتفاظ بالكتاب", top: @content_height - 48, left: 154, width: 144, state: @dialog[:busy] ? "disabled" : nil) { close_dialog }
+        action("احتفاظ بالكتاب", top: @content_height - 36, right: 154, width: 144, state: @dialog[:busy] ? "disabled" : nil) { close_dialog }
       end
     end
   end

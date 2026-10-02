@@ -23,7 +23,7 @@ run = "bundle exec rake test"
 
 [tasks.test-native]
 description = "Check native input, button styles, keyboard controls, and accessibility"
-run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --test text_input --test protocol --test a11y --test golden --test clipboard"
+run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test text_input --test protocol --test a11y --test golden --test clipboard"
 
 [tasks.package]
 description = "Build a standalone app on macOS arm64 or Windows x64"

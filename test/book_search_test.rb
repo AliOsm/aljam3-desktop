@@ -27,6 +27,7 @@ class BookSearchTest < StoreTestCase
     end
 
     def draw_window; end
+    def refresh_window; end
     def error_message(error) = error.message
   end
 
@@ -45,5 +46,32 @@ class BookSearchTest < StoreTestCase
     callback.call(work.call, nil)
     refute view.book_search.fetch(:busy)
     assert_equal 2, view.book_search.fetch(:result).data.fetch("pages").length
+  end
+
+  def test_expansion_persists_for_pagination_and_resets_for_a_new_query
+    install_book
+    view = View.new(@store)
+    view.request_book_search
+    assert_equal 10_000, view.book_search[:pool_size]
+    view.request_book_search(expand: true)
+    assert_equal 20_000, view.book_search[:pool_size]
+    view.request_book_search(page: 2)
+    assert_equal 20_000, view.book_search[:pool_size]
+    view.book_search[:query] = "العمل"
+    view.request_book_search
+    assert_equal 10_000, view.book_search[:pool_size]
+  end
+
+  def test_finishing_a_search_preserves_the_next_draft_and_its_results_query
+    install_book
+    view = View.new(@store)
+    view.request_book_search
+    work, callback = view.network_worker.jobs.last
+    view.book_search[:query] = "مسودة البحث التالي"
+    callback.call(work.call, nil)
+    refute view.book_search[:busy]
+    assert_equal "مسودة البحث التالي", view.book_search[:query]
+    assert_equal "العلم", view.book_search[:searched_query]
+    assert_equal 2, view.book_search[:result].data.fetch("pages").length
   end
 end

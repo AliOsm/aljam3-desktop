@@ -4,69 +4,90 @@ module Aljam3
   module UI
     module Dialogs
       def open_dialog(type, nested: false, **data)
+        @editing_field = nil
         @dialog_scroll ||= { results: @results&.scroll_top || 0, text: @text_surface&.scroll_top || 0, pdf: @pdf_surface&.scroll_top || 0 }
         @dialog_stack ||= []
         @dialog_stack << @dialog if nested && @dialog
-        @dialog = { type:, **data }
+        @dialog_stack.clear unless nested
+        return_focus = @dialog&.dig(:type) == :reader_menu ? @dialog[:return_focus] : @last_action_key
+        @dialog = { type:, anchor: @last_action_rect, return_focus:, **data }
         draw_window
+        (@dialog_first || @dialog_close)&.focus
       end
 
       def close_dialog
-        was_search = @dialog&.dig(:type) == :book_search
+        closed = @dialog
+        @editing_field = nil
+        was_search = closed&.dig(:type) == :book_search
         @store.cancel_search if was_search
         @dialog = @dialog_stack&.pop
         @book_search[:busy] = false if was_search
+        @dialog_scroll = nil if block_given? && !@dialog
+        yield if block_given?
         draw_window
         @dialog_scroll = nil unless @dialog
+        @action_views[closed[:return_focus]]&.focus if closed
       end
 
       def draw_dialog
         type = @dialog.fetch(:type)
         sheet = type == :filters
+        popup = %i[volumes reader_options reader_menu].include?(type)
+        menu = type == :reader_menu
         requested_width, requested_height = case type
-          when :filters then [368, height]
-          when :volumes then [360, [@reader.fetch(:files).length * 48 + 160, 440].min]
-          when :share then [520, 284]
-          when :export then [660, [@reader.fetch(:files).length * 54 + 232, 620].min]
-          when :choices then [560, 420]
-          when :reader_options then [440, 460]
-          when :reader_menu then [420, 440]
-          when :bookmarks then [660, 560]
-          when :shortcuts then [600, 460]
-          when :remove_download then [600, 360]
-          when :unavailable then [560, 320]
-          else [780, 620]
-          end
+          when :filters then [368, height - 60]
+          when :volumes then [360, [@reader.fetch(:files).length * 44 + 96 + (@reader.fetch(:files).length > 6 ? 52 : 0), 440].min]
+          when :share then [480, 280]
+          when :export then [620, [@reader.fetch(:files).length * 64 + 220, 620].min]
+          when :choices then [520, 440]
+          when :reader_options then [384, 336]
+          when :reader_menu then [304, 216]
+          when :bookmarks then [640, 540]
+          when :shortcuts then [540, 420]
+          when :remove_download then [560, 340]
+          when :unavailable then [520, 320]
+          else [800, 640]
+        end
         panel_width = [width - 32, requested_width].min
-        panel_height = [sheet ? height : height - 64, requested_height].min
-        left, top = if sheet
-          [width - panel_width, 0]
-        elsif type == :volumes
-          [16, height - 72 - panel_height]
+        panel_height = [height - (sheet ? 60 : 32), requested_height].min
+        if sheet
+          left, top = width - panel_width, 60
+        elsif popup && (anchor = @dialog[:anchor])
+          x, y, w, h = anchor
+          left = (x + w - panel_width).clamp(16, width - panel_width - 16)
+          top = y + h + 8
+          top = y - panel_height - 8 if top + panel_height > height - 16
+          top = top.clamp(16, height - panel_height - 16)
         else
-          [(width - panel_width) / 2, (height - panel_height) / 2]
+          left, top = (width - panel_width) / 2, (height - panel_height) / 2
         end
         stack(left: 0, top: 0, width: width, height: height) do
-          background rgb(0, 0, 0, type == :volumes ? 0 : 0.45)
+          background rgb(0, 0, 0, popup ? 0.10 : 0.28)
           click do |_button, x, y|
             close_dialog unless (left..left + panel_width).cover?(x) && (top..top + panel_height).cover?(y)
           end
         end
         @drawing_dialog = true
         main_width, content_height = @main_width, @content_height
-        @main_width, @content_height = panel_width - 32, panel_height - 86
-        stack(left:, top:, width: panel_width, height: panel_height) do
+        padding, body_top = menu ? 8 : 20, menu ? 8 : 76
+        @main_width, @content_height = panel_width - padding * 2, panel_height - body_top - padding
+        @dialog_close = @dialog_first = nil
+        @dialog_panel = stack(left:, top:, width: panel_width, height: panel_height) do
           background card_color, curve: sheet ? 0 : CARD_RADIUS
           border line_color, curve: sheet ? 0 : CARD_RADIUS
-          icon_button("x", "إغلاق", left: 12, top: 12) { close_dialog }
-          title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
-            authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
-            reader_options: "خيارات القراءة", reader_menu: "أدوات الكتاب", bookmarks: "الفواصل المحفوظة",
-            shortcuts: "اختصارات لوحة المفاتيح", remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(@dialog.fetch(:type)))
-          para title, left: 56, top: 18, width: panel_width - 76, size: 21, font: HEADING_FONT
-          line 16, 62, panel_width - 16, 62, stroke: line_color
-          stack(left: 16, top: 74, width: @main_width, height: @content_height) do
-            case @dialog.fetch(:type)
+          unless menu
+            title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
+              authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
+              reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
+              remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, ""))
+            row(left: 20, top: 16, width: panel_width - 40) do
+              para title, width: -36, size: 20, font: HEADING_FONT
+              @dialog_close = icon_button("x", "إغلاق") { close_dialog }
+            end
+            separator(left: 20, top: 64, width: panel_width - 40)
+          end
+          stack(left: padding, top: body_top, width: @main_width, height: @content_height) do
+            case type
             when :filters then draw_filters
             when :choices, :volumes then draw_choices
             when :authors then draw_author_choices
@@ -104,7 +125,7 @@ module Aljam3
                     end
           scoped_label = @scope_label if filters[key] && filters[key] == @filters[key]
           selected = choices.find { |_, id| id == filters[key] }&.first || scoped_label || "الجميع"
-          action(selected[0, 40], tooltip: selected, icon: "chevron-down", top: 102 + index * 92, width: 1.0, height: 40) do
+          action(selected, key: [:filter, key], tooltip: selected, icon: "chevron-down", top: 102 + index * 92, width: 1.0, height: 40, align: "right") do
             selection = ->(value) do
               filters.clear unless @mode == :content || @screen == :saved
               value ? filters[key] = value : filters.delete(key)
@@ -127,11 +148,15 @@ module Aljam3
       end
 
       def draw_choices
-        input(@dialog.fetch(:query, ""), width: 1.0, tooltip: "البحث في القائمة") do |field|
-          @dialog[:query] = field.text
-          update_choices
+        searchable = @dialog.fetch(:choices).size > 6
+        if searchable
+          @dialog_first = input(@dialog.fetch(:query, ""), width: 1.0, tooltip: "البحث في القائمة", placeholder: "ابحث في القائمة…") do |field|
+            @dialog[:query] = field.text
+            update_choices
+          end
         end
-        @choices = stack(top: 56, width: 1.0, height: @content_height - 56, scroll: true)
+        top = searchable ? 56 : 0
+        @choices = stack(top:, width: 1.0, height: @content_height - top, scroll: true, direction: "rtl")
         update_choices
       end
 
@@ -141,12 +166,12 @@ module Aljam3
         choices = @dialog.fetch(:choices).select { |label, _| Text.normalize(label).include?(Text.normalize(@dialog.fetch(:query, ""))) }
         @choices.clear do
           choices.each do |label, value|
-            action(label, width: 1.0, height: 44, margin_right: 12, margin_bottom: 4, variant: :ghost) do
+            selected = @dialog[:type] == :volumes && value.fetch("id") == @reader.fetch(:file).fetch("id")
+            control = action(label, tooltip: label, width: 1.0, height: 44, margin_left: 14, margin_bottom: 4, variant: :ghost, align: "right", selected:) do
               selection = @dialog.fetch(:selection)
-              close_dialog
-              selection.call(value)
-              draw_window
+              close_dialog { selection.call(value) }
             end
+            @dialog_first ||= control
           end
           para "لا توجد خيارات مطابقة.", stroke: muted if choices.empty?
         end
@@ -162,34 +187,31 @@ module Aljam3
           next unless @dialog.equal?(dialog)
 
           dialog.merge!(busy: false, result:, error: error && error_message(error))
-          draw_window
+          refresh_window
         end
       end
 
       def draw_author_choices
-        flow(height: 40) do
-          action("بحث", width: 70, margin_right: 12) { request_authors }
-          field = input(@dialog.fetch(:query), width: -82, tooltip: "اسم المؤلف") { |control| @dialog[:query] = control.text }
+        row(height: 40) do
+          field = input(@dialog.fetch(:query), width: -82, tooltip: "اسم المؤلف", placeholder: "اسم المؤلف…") { |control| @dialog[:query] = control.text }
           field.finish = proc { request_authors }
+          action("بحث", width: 82, margin_left: 12, height: 40, variant: :solid) { request_authors }
         end
-        stack(top: 56, width: 1.0, height: @content_height - 56, scroll: true) do
+        scroll_area(top: 56, height: @content_height - 56, scroll: true) do
           selection = @dialog.fetch(:selection)
-          action("جميع المؤلفين", width: 1.0, margin_right: 12) { close_dialog; selection.call(nil); draw_window }
+          action("جميع المؤلفين", width: 1.0, align: "right") { close_dialog { selection.call(nil) } }
           if @dialog[:busy]
             para "جارٍ البحث…", stroke: muted, margin_top: 16
           elsif @dialog[:error]
             para @dialog[:error], stroke: muted, margin_top: 16
           elsif (result = @dialog[:result])
             result.data.fetch("authors").each do |author|
-              action(Text.plain(author.fetch("name")), width: 1.0, height: 44, margin_right: 12, variant: :ghost) do
-                close_dialog
-                selection.call(author.fetch("id"))
-                draw_window
+              action(Text.plain(author.fetch("name"))[0, 72], width: 1.0, height: 44, variant: :ghost, align: "right") do
+                close_dialog { selection.call(author.fetch("id")) }
               end
             end
             current, total = result.data.fetch("pagination").values_at("current_page", "total_pages")
-            action("التالي", width: 100) { request_authors(page: current + 1) } if current < total
-            action("السابق", width: 100) { request_authors(page: current - 1) } if current > 1
+            page_controls(page: current, previous: current > 1, following: current < total) { |number| request_authors(page: number) }
           end
         end
       end
@@ -198,11 +220,11 @@ module Aljam3
         para "رابط إلى الصفحة الحالية على الجامع.", size: 15, stroke: muted
         url = "https://aljam3.com/ar/#{@reader.fetch(:book).fetch('id')}/#{@reader.fetch(:file).fetch('id')}/#{@reader.fetch(:number)}"
         input(url, top: 48, width: 1.0, state: "readonly", align: "left", tooltip: "رابط الصفحة")
-        action("نسخ الرابط", icon: "copy", top: 108, width: 132, variant: :solid) do
+        action("نسخ الرابط", icon: "copy", top: 108, right: 0, width: 132, variant: :solid) do
           self.clipboard = url
           @share_feedback.text = "تم نسخ الرابط"
         end
-        @share_feedback = para "", top: 158, size: 14, stroke: muted
+        @share_feedback = para "", top: 156, size: 14, stroke: muted
       end
     end
   end

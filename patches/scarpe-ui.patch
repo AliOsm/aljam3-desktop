@@ -1,30 +1,60 @@
 diff --git a/lacci/lib/shoes/drawables/button.rb b/lacci/lib/shoes/drawables/button.rb
-index a8ec5b6..72932f4 100644
+index a8ec5b6..3216b56 100644
 --- a/lacci/lib/shoes/drawables/button.rb
 +++ b/lacci/lib/shoes/drawables/button.rb
-@@ -5,6 +5,7 @@ class Shoes
+@@ -5,6 +5,8 @@ class Shoes
      include Shoes::Focusable
  
      shoes_styles :text, :width, :height, :top, :left, :color, :padding_top, :padding_bottom, :text_color, :size, :font_size, :tooltip, :icon, :icon_pos, :font, :stroke
 +    shoes_styles :variant, :border_color, :disabled_color
++    shoes_styles :align
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
      shoes_events :click
  
 diff --git a/lacci/lib/shoes/drawables/edit_line.rb b/lacci/lib/shoes/drawables/edit_line.rb
-index 081a65f..8bdbe05 100644
+index 081a65f..a65b671 100644
 --- a/lacci/lib/shoes/drawables/edit_line.rb
 +++ b/lacci/lib/shoes/drawables/edit_line.rb
-@@ -4,8 +4,8 @@ class Shoes
+@@ -4,11 +4,13 @@ class Shoes
    class EditLine < Shoes::Drawable
      include Shoes::Focusable
  
 -    shoes_styles :text, :width, :font, :tooltip, :stroke, :secret
 -    shoes_styles :fill, :border_color # the box and its edge, in the page's colours (ledger G17)
 +    shoes_styles :text, :width, :font, :tooltip, :stroke, :secret, :align
++    shoes_styles :placeholder, :placeholder_color
 +    shoes_styles :fill, :border_color, :disabled_color # the box and its edge, in the page's colours (ledger G17)
      shoes_style :change # the handler (manual 1123-1128, ledger G10)
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
-     shoes_events :change, :finish
+-    shoes_events :change, :finish
++    shoes_events :change, :finish, :focus_changed
++    attr_writer :focus_changed
+ 
+     # text "returns a string of characters", empty ones included (ledger M5)
+     Shoes::Drawable.drawable_default_styles[Shoes::EditLine][:text] = ""
+@@ -31,6 +33,10 @@ class Shoes
+         @finish&.call(self)
+       end
+ 
++      bind_self_event("focus_changed") do |focused|
++        @focus_changed&.call(self, focused)
++      end
++
+       create_display_drawable
+     end
+ 
+diff --git a/lacci/lib/shoes/drawables/slot.rb b/lacci/lib/shoes/drawables/slot.rb
+index ef8affd..0d7a694 100644
+--- a/lacci/lib/shoes/drawables/slot.rb
++++ b/lacci/lib/shoes/drawables/slot.rb
+@@ -11,6 +11,7 @@ class Shoes::Slot < Shoes::Drawable
+   # - :center — center the slot
+   # - another_drawable — position relative to that element
+   shoes_styles :attach
++  shoes_styles :direction, :valign, :scrollbar_color
+ 
+   # fill, stroke, rotate, translate... for the shapes drawn in this slot
+   include Shoes::DrawContext
 diff --git a/native/src/a11y.rs b/native/src/a11y.rs
 index 33cb211..2a82c07 100644
 --- a/native/src/a11y.rs
@@ -51,7 +81,7 @@ index 33cb211..2a82c07 100644
              n.set_read_only();
              works(&mut n, node, &[Action::Click, Action::Focus]);
 diff --git a/native/src/elements/button.rs b/native/src/elements/button.rs
-index 813abb5..fbc2cf9 100644
+index 813abb5..a76c5f9 100644
 --- a/native/src/elements/button.rs
 +++ b/native/src/elements/button.rs
 @@ -1,9 +1,10 @@
@@ -67,7 +97,45 @@ index 813abb5..fbc2cf9 100644
  use crate::doc::Node;
  use crate::input::{Key, KeyInput, Named};
  use crate::layout::{LBox, Rect, TextBox};
-@@ -140,22 +141,40 @@ pub fn paint(
+@@ -50,12 +51,17 @@ fn icon_pos(node: &Node) -> Option<IconPos> {
+ 
+ /// Where the label goes inside a (w, h) button, and the icon's box, both from its corner.
+ fn arrange(node: &Node, w: f32, h: f32, label: (f32, f32)) -> ((f32, f32), Option<Rect>) {
+-    let centred = ((w - label.0) / 2.0, (h - label.1) / 2.0);
++    let start_for = |width: f32| match node.props.str("align") {
++        Some("right") => (w - PAD_X - width).max(0.0),
++        Some("left") => PAD_X.min(w - width),
++        _ => (w - width) / 2.0,
++    };
++    let centred = (start_for(label.0), (h - label.1) / 2.0);
+     let Some(pos) = icon_pos(node) else { return (centred, None) };
+     let gap = if label.0 > 0.0 { ICON_GAP } else { 0.0 };
+     match pos {
+         IconPos::Left | IconPos::Right => {
+-            let start = (w - (ICON + gap + label.0)) / 2.0;
++            let start = start_for(ICON + gap + label.0);
+             let (icon_x, text_x) = if pos == IconPos::Left { (start, start + ICON + gap) } else { (start + label.0 + gap, start) };
+             ((text_x, centred.1), Some(Rect::new(icon_x, (h - ICON) / 2.0, ICON, ICON)))
+         }
+@@ -118,8 +124,15 @@ pub fn size(node: &Node, engine: &mut TextEngine) -> (f32, f32) {
+ }
+ 
+ pub fn label(node: &Node, w: f32, h: f32, engine: &mut TextEngine) -> Label {
+-    let rich = rich(node, engine);
+-    let shaped = engine.shape(&rich, None);
++    let mut rich = rich(node, engine);
++    let mut shaped = engine.shape(&rich, None);
++    let icon_width = if matches!(icon_pos(node), Some(IconPos::Left | IconPos::Right)) { ICON + ICON_GAP } else { 0.0 };
++    let available = (w - PAD_X * 2.0 - icon_width).max(0.0);
++    if node.props.str("align").is_some() && shaped.width > available {
++        rich.wrap = crate::text::rich::WrapMode::Trim;
++        rich.align = if node.props.str("align") == Some("right") { crate::text::rich::Align::Right } else { crate::text::rich::Align::Left };
++        shaped = engine.shape(&rich, Some(available));
++    }
+     let ((dx, dy), _) = arrange(node, w, h - SHADOW, (shaped.width, shaped.height));
+     Label { shaped, dx, dy }
+ }
+@@ -140,24 +153,43 @@ pub fn paint(
  ) {
      let (bx, r) = (lbox.rect, face(lbox.rect));
      let clip = lbox.clip;
@@ -121,13 +189,37 @@ index 813abb5..fbc2cf9 100644
 +        canvas.stroke_rounded(r, RADIUS, Color::rgba(0, 0, 0, 38), 1.0, clip);
 +    }
      let inner = Rect::new(r.x + 2.0, r.y, r.w - 4.0, r.h);
-     let inner_clip = clip.and_then(|c| c.intersect(&inner)).or(Some(inner));
+-    let inner_clip = clip.and_then(|c| c.intersect(&inner)).or(Some(inner));
++    let Some(visible) = clip.map_or(Some(inner), |c| c.intersect(&inner)) else { return };
++    let inner_clip = Some(visible);
      if let Some(tb) = label {
+         text::draw_shaped(canvas, engine, &tb.shaped, tb.x, tb.y, inner_clip, None);
+     }
 diff --git a/native/src/elements/edit_line.rs b/native/src/elements/edit_line.rs
-index d3498f8..ed45fcc 100644
+index d3498f8..21a7cdb 100644
 --- a/native/src/elements/edit_line.rs
 +++ b/native/src/elements/edit_line.rs
-@@ -80,7 +80,7 @@ pub fn draw_field(
+@@ -24,6 +24,19 @@ pub fn paint(canvas: &mut Canvas, node: &Node, lbox: &LBox, state: WidgetState,
+     let field = text_field::ensure(&mut view.fields, node, &mut text.fonts);
+     let inner = inner_rect(r, field.line_height());
+     field.fit(&mut text.fonts.system, inner);
++    if let Some(hint) = node.props.str("placeholder").filter(|_| field.text().is_empty()) {
++        let mut style = TextStyle::new(field.size, node.props.color("placeholder_color").unwrap_or(field.color.fade(0.55)));
++        if let Some(family) = node.props.str("font").and_then(|font| crate::style::font::parse_font(font).family) {
++            style.family = text.fonts.resolve_family(&family);
++        }
++        let mut rich = RichText::plain(hint, style);
++        rich.wrap = crate::text::rich::WrapMode::Trim;
++        rich.align = if node.props.str("align") == Some("right") { crate::text::rich::Align::Right } else { crate::text::rich::Align::Left };
++        let shaped = text.shape(&rich, Some(inner.w));
++        if let Some(clip) = lbox.clip.map_or(Some(inner), |c| c.intersect(&inner)) {
++            draw_shaped(canvas, text, &shaped, inner.x, inner.y, Some(clip), None);
++        }
++    }
+     draw_field(canvas, field, Rect::new(r.x + 3.0, r.y + 1.0, r.w - 6.0, r.h - 2.0), lbox.clip, state.focused, colors.accent, text);
+ }
+ 
+@@ -80,7 +93,7 @@ pub fn draw_field(
      for r in field.selection() {
          canvas.fill_rect(r, selection, clip);
      }
@@ -137,7 +229,7 @@ index d3498f8..ed45fcc 100644
          let shaped = text.shape(&RichText::plain(&field.bullets(), TextStyle::new(field.size, field.color)), None);
          draw_shaped(canvas, text, &shaped, x, y, clip, None);
 diff --git a/native/src/elements/mod.rs b/native/src/elements/mod.rs
-index ea03df5..0f3df64 100644
+index ea03df5..6ee3f69 100644
 --- a/native/src/elements/mod.rs
 +++ b/native/src/elements/mod.rs
 @@ -112,7 +112,11 @@ pub fn paint(
@@ -146,7 +238,7 @@ index ea03df5..0f3df64 100644
          let r = lbox.rect;
 -        canvas.fill_rect(Rect::new(r.x - 4.0, r.y - 4.0, r.w + 8.0, r.h + 8.0), Color::rgba(255, 255, 255, 140), lbox.clip);
 +        if let Some(color) = node.props.color("disabled_color") {
-+            canvas.fill_rounded(r, 6.0, color.with_alpha(140), lbox.clip);
++            canvas.fill_rounded(r, 6.0, color.fade(140.0 / 255.0), lbox.clip);
 +        } else {
 +            canvas.fill_rect(Rect::new(r.x - 4.0, r.y - 4.0, r.w + 8.0, r.h + 8.0), Color::rgba(255, 255, 255, 140), lbox.clip);
 +        }
@@ -257,6 +349,153 @@ index 941a35d..cb953fe 100644
 +    };
 +    field
  }
+diff --git a/native/src/input.rs b/native/src/input.rs
+index 429cb36..cc81e35 100644
+--- a/native/src/input.rs
++++ b/native/src/input.rs
+@@ -896,9 +896,13 @@ impl Runtime {
+     pub fn set_focus(&mut self, app: Id, id: Option<Id>) {
+         let Some(view) = self.views.get_mut(&app) else { return };
+         if view.ui.focus != id {
++            if let Some(previous) = view.ui.focus.filter(|i| self.doc.get(*i).is_some_and(|n| n.kind.is_text_input())) {
++                self.out.event("focus_changed", Some(previous), vec![json!(false)]);
++            }
+             view.ui.focus = id;
+             if let Some(node) = id.and_then(|i| self.doc.get(i)).filter(|n| n.kind.is_text_input()) {
+                 text_field::ensure(&mut view.ui.fields, node, &mut self.text.fonts);
++                self.out.event("focus_changed", Some(node.id), vec![json!(true)]);
+             }
+             self.request_redraw(app);
+         }
+diff --git a/native/src/layout/mod.rs b/native/src/layout/mod.rs
+index 925c710..18aebf3 100644
+--- a/native/src/layout/mod.rs
++++ b/native/src/layout/mod.rs
+@@ -12,7 +12,7 @@ use crate::elements::{self, image::ImageCache};
+ use crate::limits;
+ use crate::paint::shapes;
+ use crate::props::{Edges, Id};
+-use crate::style::Dim;
++use crate::style::{Color, Dim};
+ use crate::text::{rich, RichText, ShapedText, TextEngine};
+ use std::collections::HashMap;
+ 
+@@ -123,6 +123,8 @@ pub struct Scroller {
+     pub viewport: Rect,
+     pub content_height: f32,
+     pub top: f32,
++    pub rtl: bool,
++    pub color: Option<Color>,
+ }
+ 
+ impl Scroller {
+@@ -348,6 +350,11 @@ impl Engine<'_> {
+ 
+     fn children_within_depth(&mut self, slot: Id, flow: bool, content: Rect, avail_h: f32) -> (f32, Vec<Id>) {
+         let doc = self.doc;
++        let parent = doc.get(slot);
++        let rtl = flow && parent.is_some_and(|n| n.props.str("direction") == Some("rtl"));
++        let center = flow && parent.is_some_and(|n| n.props.str("valign") == Some("center"));
++        let fixed_height = parent.is_some_and(|n| n.props.has("height"));
++        let mut rows: Vec<(f32, Vec<Id>)> = Vec::new();
+         let mut cursor = Cursor::default();
+         let mut later = Vec::new();
+         for &child in doc.children(slot) {
+@@ -358,7 +365,28 @@ impl Engine<'_> {
+             match role(node) {
+                 Role::Skip | Role::Subscription => {}
+                 Role::OutOfFlow => later.push(child),
+-                Role::InFlow => self.place_in_flow(node, flow, content, &mut cursor, avail_h),
++                Role::InFlow => {
++                    self.place_in_flow(node, flow, content, &mut cursor, avail_h);
++                    if rtl || center {
++                        if rows.last().is_none_or(|(y, _)| *y != cursor.y) {
++                            rows.push((cursor.y, Vec::new()));
++                        }
++                        rows.last_mut().unwrap().1.push(child);
++                    }
++                }
++            }
++        }
++        let single_row = rows.len() == 1;
++        for (y, children) in rows {
++            let row_h = if single_row && fixed_height { avail_h } else {
++                children.iter().filter_map(|id| self.out.rect(*id)).map(|r| r.bottom() - content.y - y).fold(0.0, f32::max)
++            };
++            for child in children {
++                if let Some(rect) = self.out.rect(child) {
++                    let dx = if rtl { content.x + content.right() - rect.right() - rect.x } else { 0.0 };
++                    let dy = if center { content.y + y + (row_h - rect.h) / 2.0 - rect.y } else { 0.0 };
++                    self.translate_subtree(child, dx, dy);
++                }
+             }
+         }
+         let used = if flow { cursor.y + cursor.row_h } else { cursor.y };
+@@ -733,7 +761,9 @@ impl Engine<'_> {
+             return;
+         }
+         let doc = self.doc;
+-        let mut scroller = Scroller { viewport, content_height, top: 0.0 };
++        let rtl = doc.get(slot).is_some_and(|n| n.props.str("direction") == Some("rtl"));
++        let color = doc.get(slot).and_then(|n| n.props.color("scrollbar_color"));
++        let mut scroller = Scroller { viewport, content_height, top: 0.0, rtl, color };
+         scroller.top = self.scroll.get(&slot).copied().unwrap_or(0.0).clamp(0.0, scroller.max_top());
+         if scroller.top != 0.0 {
+             for &child in doc.children(slot) {
+diff --git a/native/src/layout/tests.rs b/native/src/layout/tests.rs
+index 300eb08..53686cb 100644
+--- a/native/src/layout/tests.rs
++++ b/native/src/layout/tests.rs
+@@ -84,6 +84,35 @@ fn flow_packs_left_to_right_and_wraps() {
+     assert_eq!(r(&l, flow).h, 40.0);
+ }
+ 
++#[test]
++fn rtl_flow_preserves_source_order_and_centers_whole_children() {
++    let mut s = Scene::new();
++    let row = s.add("Flow", ROOT, json!({"width": 220, "height": 60, "direction": "rtl", "valign": "center"}));
++    let first = s.add("Button", row, json!({"width": 60, "height": 36, "text": "first"}));
++    let second = s.add("Stack", row, json!({"width": 100, "height": 50}));
++    let nested = s.add("Stack", second, json!({"width": 30, "height": 20}));
++    let l = s.layout(480.0, 420.0);
++    assert_eq!(r(&l, first), Rect::new(160.0, 12.0, 60.0, 36.0));
++    assert_eq!(r(&l, second), Rect::new(60.0, 5.0, 100.0, 50.0));
++    assert_eq!(r(&l, nested), Rect::new(60.0, 5.0, 30.0, 20.0));
++    assert!(l.order.iter().position(|id| *id == first) < l.order.iter().position(|id| *id == second));
++}
++
++#[test]
++fn rtl_flow_wraps_from_the_right_and_scroller_keeps_its_direction() {
++    let mut s = Scene::new();
++    let row = s.add("Flow", ROOT, json!({"width": 220, "direction": "rtl"}));
++    let first = s.add("Stack", row, json!({"width": 150, "height": 20}));
++    let second = s.add("Stack", row, json!({"width": 150, "height": 20}));
++    let scrolling = s.add("Stack", ROOT, json!({"width": 220, "height": 50, "scroll": true, "direction": "rtl"}));
++    s.add("Stack", scrolling, json!({"height": 200}));
++    let l = s.layout(480.0, 420.0);
++    assert_eq!(r(&l, first), Rect::new(70.0, 0.0, 150.0, 20.0));
++    assert_eq!(r(&l, second), Rect::new(70.0, 20.0, 150.0, 20.0));
++    assert!(l.scrollers[&scrolling].rtl);
++    assert_eq!(l.scrollers[&scrolling].max_top(), 150.0);
++}
++
+ #[test]
+ fn width_forms() {
+     let mut s = Scene::new();
+diff --git a/native/src/paint/decor.rs b/native/src/paint/decor.rs
+index c077522..058dfc2 100644
+--- a/native/src/paint/decor.rs
++++ b/native/src/paint/decor.rs
+@@ -51,7 +51,7 @@ pub fn scrollbars(canvas: &mut Canvas, layout: &Layout) {
+         let track = v.h - 4.0;
+         let thumb = (track * v.h / s.content_height).max(24.0).min(track);
+         let y = v.y + 2.0 + (track - thumb) * (s.top / s.max_top());
+-        let bar = Rect::new(v.right() - 8.0, y, 5.0, thumb);
+-        canvas.fill_rounded(bar, 2.5, SCROLLBAR, clip.or(Some(v)));
++        let bar = Rect::new(if s.rtl { v.x + 3.0 } else { v.right() - 8.0 }, y, 5.0, thumb);
++        canvas.fill_rounded(bar, 2.5, s.color.map_or(SCROLLBAR, |color| color.fade(0.65)), clip.or(Some(v)));
+     }
+ }
 diff --git a/native/tests/a11y.rs b/native/tests/a11y.rs
 index 46ea95e..d3a3c82 100644
 --- a/native/tests/a11y.rs
@@ -282,10 +521,10 @@ index 46ea95e..d3a3c82 100644
 +    assert_eq!(one(&mut h, "text_input")["name"], json!("Search books"));
 +}
 diff --git a/native/tests/protocol.rs b/native/tests/protocol.rs
-index be297fe..4ec152b 100644
+index be297fe..c52c30b 100644
 --- a/native/tests/protocol.rs
 +++ b/native/tests/protocol.rs
-@@ -1015,3 +1015,48 @@ fn a_span_named_again_after_its_para_went_still_shows() {
+@@ -1015,3 +1015,57 @@ fn a_span_named_again_after_its_para_went_still_shows() {
          .collect::<String>());
      assert_eq!(h.node(|n| n["id"] == 9)["text"], json!("Again kept"));
  }
@@ -334,11 +573,20 @@ index be297fe..4ec152b 100644
 +        assert!(named(&events(&msgs), "click").is_empty());
 +    }
 +}
++
++#[test]
++fn transparent_disabled_overlay_preserves_the_surface() {
++    let mut h = Harness::new();
++    h.feed(&app(200, 100, &[
++        create(3, "Button", 2, json!({"text":"", "variant":"ghost", "state":"disabled", "color":"#2c2828", "disabled_color":{"rgba":[0,0,0,0]}, "left":20, "top":20, "width":80, "height":36})),
++    ]));
++    assert_eq!(h.value(json!({"op":"pixel","x":40,"y":40})), json!([44,40,40,255]));
++}
 diff --git a/native/tests/text_input.rs b/native/tests/text_input.rs
-index c20739e..7c5855d 100644
+index c20739e..35e6e19 100644
 --- a/native/tests/text_input.rs
 +++ b/native/tests/text_input.rs
-@@ -270,3 +270,105 @@ fn a_fields_font_keeps_its_weight_and_slant() {
+@@ -270,3 +270,125 @@ fn a_fields_font_keeps_its_weight_and_slant() {
      assert!(bold.len() * 10 > plain.len() * 13, "bold puts down at least 30% more ink: {} against {}", plain.len(), bold.len());
      assert!(lean(&italic) > lean(&plain) + 0.5, "italic leans right: {:.2} against {:.2}", lean(&plain), lean(&italic));
  }
@@ -443,4 +691,24 @@ index c20739e..7c5855d 100644
 +    assert!((f.caret().unwrap().x - 230.0).abs() < 1.0);
 +    key(&mut h, ":control_a");
 +    assert_eq!(key(&mut h, "backspace"), [""]);
++}
++
++#[test]
++fn fields_report_focus_changes_for_click_and_tab() {
++    let mut h = Harness::new();
++    h.feed(&app(300, 200, &[
++        create(3, "EditLine", 2, json!({"text": "", "width": 200})),
++        create(4, "EditLine", 2, json!({"text": "", "width": 200})),
++    ]));
++    let (messages, _) = h.req(json!({"op":"click","target":{"id":3}}));
++    let changes = events(&messages);
++    let focused = named(&changes, "focus_changed");
++    assert_eq!(focused.len(), 1);
++    assert_eq!((focused[0].1.clone(), focused[0].2.clone()), (json!(3), json!([true])));
++    let (messages, _) = h.req(json!({"op":"key","key":"tab"}));
++    let changes = events(&messages);
++    let focused = named(&changes, "focus_changed");
++    assert_eq!(focused.len(), 2);
++    assert_eq!((focused[0].1.clone(), focused[0].2.clone()), (json!(3), json!([false])));
++    assert_eq!((focused[1].1.clone(), focused[1].2.clone()), (json!(4), json!([true])));
 +}

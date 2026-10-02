@@ -3,13 +3,42 @@
 module Aljam3
   module UI
     module Components
+      def row(**styles, &block)
+        flow(width: 1.0, height: 36, direction: "rtl", valign: "center", **styles, &block)
+      end
+
+      def scroll_area(**styles, &block)
+        stack(width: 1.0, direction: "rtl", scroll: !@dialog, **styles) do
+          stack(margin: [14, 0, 0, 16], &block)
+        end
+      end
+
+      def separator(**styles)
+        stack(height: 1, **styles) { background line_color }
+      end
+
+      def section_heading(title, action: nil, &block)
+        row(height: 40, margin_bottom: 12) do
+          para title, width: action ? -132 : 1.0, font: HEADING_FONT, size: 20
+          self.action(action, width: 132, variant: :ghost, &block) if action
+        end
+      end
+
+      def card(**styles, &block)
+        stack(margin_bottom: 16, **styles) do
+          background card_color, curve: CARD_RADIUS
+          border line_color, curve: CARD_RADIUS
+          instance_exec(&block)
+        end
+      end
+
       def page_controls(page:, previous:, following:, &change)
         return unless previous || following
 
-        flow(height: 48, margin_top: 12) do
-          action("التالي", width: 100, state: following ? nil : "disabled", margin_right: 12) { change.call(page + 1) }
-          para "صفحة #{page}", width: 100, size: 14, stroke: muted, margin_top: 10
-          action("السابق", width: 100, state: previous ? nil : "disabled") { change.call(page - 1) }
+        row(height: 52, margin_top: 8) do
+          action("السابق", icon: "arrow-right", width: 100, state: previous ? nil : "disabled") { change.call(page - 1) }
+          para "صفحة #{page}", width: 100, size: 14, stroke: muted, align: "center"
+          action("التالي", icon: "arrow-left", width: 100, state: following ? nil : "disabled") { change.call(page + 1) }
         end
       end
 
@@ -27,67 +56,89 @@ module Aljam3
         current + 1 if current < pagination.fetch("total_pages")
       end
 
-      def action(label, icon: nil, variant: :outline, selected: false, **styles, &block)
+      def ranking_notice(data, &expand)
+        ranking = data["ranking"]
+        return unless ranking && ranking["has_more"]
+
+        stack(padding: 16, margin_bottom: 16) do
+          background surface, curve: CARD_RADIUS
+          row do
+            para "مرتبة من أول #{ranking.fetch('candidates')} صفحة مطابقة", width: -140, size: 14
+            action("البحث في المزيد", width: 140, &expand)
+          end
+          para "توسيع البحث يضيف صفحات مطابقة وقد يغيّر ترتيب النتائج.", size: 13, stroke: muted, margin_top: 8
+        end
+      end
+
+      def action(label, icon: nil, variant: :outline, selected: false, key: nil, **styles, &block)
         color = selected ? accent : { solid: primary, outline: card_color, ghost: "transparent" }.fetch(variant)
         styles[:icon] = asset_path("icons", icon, theme: variant == :solid && !selected ? :dark : @theme) if icon
         styles[:state] = "disabled" if @dialog && !@drawing_dialog
-        # Shoes includes margins inside an explicit height.
         styles[:height] ||= 36 + styles.fetch(:margin_top, 0) + styles.fetch(:margin_bottom, 0)
-        button(label, variant: variant.to_s, color:, text_color: variant == :solid && !selected ? "#ffffff" : ink,
-          border_color: line_color, disabled_color: card_color, stroke: primary, icon_pos: "right", **styles, &block)
+        key ||= styles[:tooltip] || label
+        control = button(label, variant: variant.to_s, color:, text_color: variant == :solid && !selected ? "#ffffff" : ink,
+          border_color: line_color, disabled_color: @dialog && !@drawing_dialog ? rgb(0, 0, 0, 0) : card_color, stroke: primary, icon_pos: "right", **styles) do |clicked|
+          @editing_field = nil
+          @last_action_key = key
+          @last_action_rect = Shoes::DisplayService.layout_cache[clicked.linkable_id]&.first(4)
+          block&.call(clicked)
+        end
+        (@action_views ||= {})[key] = control
+        control
       end
 
       def input(text = "", **styles, &block)
         styles[:state] = "disabled" if @dialog && !@drawing_dialog
-        edit_line(text, align: "right", disabled_color: card_color, **styles, &block)
+        field = edit_line(text, align: "right", disabled_color: card_color, placeholder_color: muted, **styles) do |control|
+          block&.call(control)
+        end
+        field.focus_changed = proc do |control, focused|
+          @editing_field = focused ? control : nil if focused || @editing_field == control
+        end
+        field
       end
 
       def text_link(text, **styles, &block)
         return span(text, **styles) if @dialog && !@drawing_dialog
 
-        link(text, **styles, &block)
+        link(text, **styles) { @editing_field = nil; block.call }
       end
 
       def icon_button(icon, label, **styles, &block)
         action("", icon:, tooltip: label, width: 36, variant: :ghost, **styles, &block)
       end
 
-      def tabs(choices, selected:, width:, **position, &select)
-        flow(width:, height: 38, **position) do
-          background surface, curve: 6
+      def tabs(choices, selected:, width:, widths: {}, **position, &select)
+        row(width:, **position) do
+          background surface, curve: CARD_RADIUS
           choices.each do |value, label|
             action(label, variant: :ghost, selected: value == selected,
-              width: width / choices.length, height: 38) { select.call(value) }
+              width: widths.fetch(value, width / choices.length), height: 36) { select.call(value) }
           end
         end
       end
 
       def highlighted(text, query)
-        terms = Text.normalize(query).split
         text.split(/(\s+)/).map do |word|
-          terms.any? { |term| Text.normalize(word).include?(term) } ? span(word, fill: accent, stroke: primary) : word
+          Text.match_ranges(word, query).any? ? span(word, fill: accent, stroke: primary) : word
         end
       end
 
       def status_note(text, width:, **position)
         stack(width:, height: 28, **position) do
-          background surface, curve: 5
+          background surface, curve: CARD_RADIUS
           para text, size: 14, stroke: muted, align: "center", margin_top: 4
         end
       end
 
       def empty_state(heading, description, icon: "book-open", action_label: nil, &on_action)
-        stack(margin: [32, 42, 32, 32]) do
-          stack(height: 46, width: 1.0) do
-            image asset_path("icons", icon), left: @main_width - 92, width: 28, height: 28
+        stack(padding: 24, margin_top: 16) do
+          row(height: 40) do
+            image asset_path("icons", icon), width: 24, height: 24, margin_right: 12
+            para heading, width: -40, font: HEADING_FONT, size: 21
           end
-          para heading, font: HEADING_FONT, size: 22
           para description, size: 16, stroke: muted, margin_top: 12
-          if action_label
-            stack(height: 56) do
-              action(action_label, left: @main_width - 224, top: 20, width: 160, &on_action)
-            end
-          end
+          row(margin_top: 20, height: 56) { action(action_label, width: 160, variant: :solid, &on_action) } if action_label
         end
       end
     end

@@ -4,47 +4,66 @@ module Aljam3
   module UI
     module Catalog
       def draw_catalog
-        saved = @screen == :saved
+        saved, authors = @screen == :saved, @screen == :authors
         heading = { saved: "كتبي المحمّلة", authors: "المؤلفون", browse: "الكتب", home: "نتائج البحث" }.fetch(@screen)
         para @scope_label || heading, font: HEADING_FONT, size: 24
-        para saved ? "#{@downloaded_ids.length} كتاب للقراءة والبحث دون اتصال." : "اقرأ الآن، أو نزّل الكتاب للقراءة دون اتصال.",
-          size: 14, stroke: muted, margin_top: 8
-        search_scope_control(top: 60) unless @screen == :authors
-        search_form(top: 106)
-        flow(top: 164, width: 1.0, height: 38) do
-          para source_label, width: -400, size: 13, stroke: muted, align: "left", margin_top: 10
-          action("تصفية#{@filters.empty? ? '' : " · #{@filters.length}"}", icon: "sliders-horizontal", width: 116,
-            margin_right: 12, state: @mode == :authors ? "disabled" : nil) { open_filters }
-          if @screen == :authors
-            para "#{@result&.data&.dig('pagination', 'count') || 0} #{saved ? 'كتاب' : 'مؤلف'}", width: 272, size: 14, stroke: muted, margin_top: 10
-          else
-            modes = saved ? { books: "العناوين", content: "النصوص" } : { authors: "المؤلفون", books: "العناوين", content: "النصوص" }
-            tabs(modes, selected: @mode, width: 272) { |mode| switch_search_mode(mode) }
-          end
+        description = if saved
+          "#{@downloaded_ids.length} كتاب للقراءة والبحث دون اتصال."
+        elsif authors
+          "ابحث عن مؤلف لاستكشاف كتبه."
+        else
+          "ابحث في النصوص أو العناوين، ثم افتح الكتاب أو نزّله."
         end
-        para catalog_count, left: 282, width: @main_width - 282, top: 214, size: 14, stroke: muted
-        if @result && result_key == "pages" && @source != :online
-          tabs({ library: "ترتيب المكتبة", relevance: "الأكثر صلة" }, selected: @search_order, width: 266, left: 0, top: 206) do |order|
+        para description, size: 15, stroke: muted, margin_top: 8
+        search_scope_control(top: 64) unless authors
+        form_top = authors ? 72 : 112
+        search_form(top: form_top)
+        row(top: form_top + 56) do
+          unless authors
+            modes = saved ? { content: "النصوص", books: "العناوين" } : { content: "النصوص", books: "العناوين", authors: "المؤلفون" }
+            tabs(modes, selected: @mode, width: 270) { |mode| switch_search_mode(mode) }
+            action("تصفية#{@filters.empty? ? '' : " · #{@filters.length}"}", icon: "sliders-horizontal",
+              width: 116, margin_left: 12) { open_filters }
+          end
+          para catalog_count, width: authors ? 1.0 : -386, size: 14, stroke: muted, align: authors ? "right" : "left"
+        end
+        result_top = form_top + 108
+        if @mode == :content && !@query.strip.empty? && (@search_scope == :downloaded || (@result ? @source != :online : %i[offline unavailable].include?(@connection)))
+          tabs({ relevance: "الأكثر صلة", library: "ترتيب المكتبة" }, selected: @search_order, width: 260,
+            right: 0, top: result_top) do |order|
             @search_order = order
             request_catalog
           end
+          result_top += 52
         end
-        @results = stack(top: 244, width: 1.0, height: [@content_height - 244, 100].max, scroll: !@dialog) do
+        @results = scroll_area(top: result_top, height: [@content_height - result_top, 100].max) do
           if @busy && !@result
             empty_state("جارٍ البحث…", "نبحث في المكتبة عن النتائج.", icon: "search")
           elsif @error
             empty_state("تعذّر إكمال البحث", @error, action_label: "إعادة المحاولة") { request_catalog }
           elsif @result
+            ranking_notice(@result.data) { request_catalog(expand: true) }
             items = @result.data.fetch(result_key)
             if items.empty?
-              empty_state(saved ? "مكتبتك تبدأ بكتاب" : "لا توجد نتائج", saved ? "نزّل كتابًا لتقرأه وتبحث فيه أينما كنت." : "جرّب كلمات أخرى أو امسح التصفية.",
-                action_label: saved ? "تصفح الكتب" : "مسح البحث") { navigate(:browse) }
+              empty_library = saved && @downloaded_ids.empty?
+              empty_state(empty_library ? "مكتبتك تبدأ بكتاب" : "لا توجد نتائج", empty_library ? "نزّل كتابًا لتقرأه وتبحث فيه أينما كنت." : "جرّب كلمات أخرى أو امسح البحث والتصفية.",
+                action_label: empty_library ? "تصفح الكتب" : "مسح البحث") do
+                if empty_library
+                  navigate(:browse)
+                else
+                  @query, @filters, @scope_label = "", {}, nil
+                  request_catalog
+                end
+              end
+            elsif result_key == "pages"
+              items.each { |item| search_row(item, query: @result_query) }
             else
-              items.each do |item|
-                case result_key
-                when "pages" then search_row(item)
-                when "authors" then author_row(item)
-                else book_row(item)
+              columns = @main_width >= 940 ? 2 : 1
+              flow(direction: "rtl") do
+                items.each do |item|
+                  stack(width: 1.0 / columns, padding_left: columns > 1 ? 12 : 0) do
+                    result_key == "authors" ? author_row(item) : book_row(item)
+                  end
                 end
               end
             end
@@ -55,22 +74,28 @@ module Aljam3
       end
 
       def search_form(top:)
-        flow(top:, width: 1.0, height: 48) do
-          action("بحث", width: 76, height: 44, margin_right: 12, variant: :solid) { request_catalog }
-          @query_field = input(@query, width: -88, height: 44, tooltip: @screen == :authors ? "البحث عن مؤلف" : "البحث في الكتب والنصوص") { |field| @query = field.text }
+        row(top:, height: 44) do
+          @query_field = input(@query, width: -92, height: 44, margin_right: 12,
+            placeholder: @screen == :authors ? "اسم المؤلف" : "ابحث عن كلمة، عبارة، أو عنوان كتاب…",
+            tooltip: @screen == :authors ? "البحث عن مؤلف" : "البحث في الكتب والنصوص") { |field| @query = field.text }
           @query_field.finish = proc { request_catalog }
+          action("بحث", icon: "search", width: 92, height: 44, variant: :solid) { request_catalog }
         end
       end
 
       def search_scope_control(top:)
-        tabs({ downloaded: "كتبي المحمّلة", all: "كل المكتبة" }, selected: @search_scope, width: 290,
-          left: @main_width - 290, top:) do |scope|
-          @search_scope = scope
-          @screen = :browse if @screen == :saved && scope == :all
-          request_catalog unless @screen == :home && @query.empty?
-          draw_window
+        row(top:) do
+          para "نطاق البحث", width: 92, size: 14, stroke: muted
+          tabs({ all: "كل المكتبة", downloaded: "كتبي المحمّلة" }, selected: @search_scope, width: 280) do |scope|
+            @search_scope = scope
+            @screen = :browse if @screen == :saved && scope == :all
+            if @screen == :home && @query.empty?
+              draw_window
+            else
+              request_catalog
+            end
+          end
         end
-        para "نطاق البحث", left: @main_width - 390, top: top + 9, width: 84, size: 14, stroke: muted
       end
 
       def switch_search_mode(mode)
@@ -82,18 +107,11 @@ module Aljam3
       end
 
       def catalog_count
-        return "" if @error || !@result
+        return @busy ? "جارٍ البحث…" : "" if @error || !@result
 
-        scope = %i[offline local].include?(@source) && !@query.empty? ? " · في الكتب المحمّلة" : ""
-        "#{result_count(@result.data)}#{scope}"
-      end
+        return "#{@result.data.fetch('pagination').fetch('count')} مؤلف" if result_key == "authors"
 
-      def card
-        stack(margin_bottom: 12, margin_right: 12) do
-          background card_color, curve: CARD_RADIUS
-          border line_color, curve: CARD_RADIUS
-          yield
-        end
+        "#{result_count(@result.data)} · #{@source == :online ? 'كل المكتبة' : 'المحفوظ على جهازك'}"
       end
 
       def book_heading(book)
@@ -101,57 +119,62 @@ module Aljam3
         if category
           para text_link(Text.plain(category.fetch("name")), stroke: muted) { browse_scope(:category, category) }, size: 13, margin_bottom: 8
         end
-        para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 19, weight: "semibold", margin_bottom: 6
+        para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 20, weight: "semibold"
         if author
-          para text_link(Text.plain(author.fetch("name")), stroke: muted) { browse_scope(:author, author) }, size: 14
+          para text_link(Text.plain(author.fetch("name")), stroke: muted) { browse_scope(:author, author) }, size: 14, margin_top: 8
         end
       end
 
       def book_row(book)
         card do
-          stack(margin: 16) { book_heading(book) }
-          book_footer(book, "#{book.fetch('pages_count')} صفحة  ·  #{book.fetch('files_count')} ملف")
+          stack(padding: 16) { book_heading(book) }
+          book_footer(book, "#{book.fetch('pages_count')} صفحة · #{book.fetch('files_count')} ملف")
         end
       end
 
       def search_row(hit, query: @query)
         book = hit.fetch("book")
+        in_book = @dialog&.dig(:type) == :book_search
         card do
-          stack(margin: 16) do
-            book_heading(book)
+          stack(padding: 16) do
+            if in_book
+              row do
+                para "صفحة #{hit.fetch('number')}", width: -124, size: 16
+                action("عرض الصفحة", icon: "book-open", width: 124) { open_book(book, hit:, query:) }
+              end
+            else
+              book_heading(book)
+            end
             expanded = @expanded[hit.fetch("id")]
             content = Text.plain(hit.fetch("content"))
             excerpt = expanded ? content : Text.excerpt(hit.fetch("excerpt", content), query, length: 300)
-            para(*highlighted(excerpt, query), font: READING_FONT, size: 18, leading: 7, margin_top: 12)
+            para(*highlighted(excerpt, query), font: READING_FONT, size: 19, leading: 8, margin_top: 16)
             if content.length > 300
               para text_link(expanded ? "إخفاء" : "اقرأ المزيد", stroke: primary) {
                 @expanded[hit.fetch("id")] = !expanded
                 draw_window
-              }, size: 13, margin_top: 6
+              }, size: 14, margin_top: 8
             end
           end
-          book_footer(book, "صفحة #{hit.fetch('number')}", hit:, query:)
+          book_footer(book, "صفحة #{hit.fetch('number')}", hit:, query:) unless in_book
         end
       end
 
       def book_footer(book, label, hit: nil, query: nil)
-        stack(height: 52) do
-          line 1, 0, @main_width - 13, 0, stroke: line_color
-          flow(left: 16, top: 9, width: @main_width - 44, height: 34) do
-            action(hit ? "عرض الصفحة" : "قراءة", icon: "book-open", width: 110, height: 34,
-              state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book, hit:, query:) }
-            if @downloaded_ids.include?(book.fetch("id"))
-              icon_button("trash-2", "إزالة النسخة المحمّلة", height: 34) { confirm_remove_download(book) }
-            elsif @download_queue.entry(book.fetch("id"))
-              icon_button("download", "إدارة التنزيل", height: 34) { navigate(:downloads) }
-            else
-              icon_button("download", "تنزيل الكتاب", height: 34) { queue_download(book) }
-            end
-            para "#{label}  ·  #{availability_label(book)}", width: -160, size: 13, stroke: muted, margin_top: 8
+        separator
+        row(height: 68, margin: [16, 16, 16, 16]) do
+          para "#{label} · #{availability_label(book)}", width: -160, size: 13, stroke: muted
+          action(hit ? "عرض الصفحة" : "قراءة", icon: "book-open", width: 124, margin_right: 8,
+            state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book, hit:, query:) }
+          if @downloaded_ids.include?(book.fetch("id"))
+            icon_button("trash-2", "إزالة النسخة المحمّلة", key: [:remove_download, book.fetch("id")]) { confirm_remove_download(book) }
+          elsif @download_queue.entry(book.fetch("id"))
+            icon_button("download", "إدارة التنزيل") { navigate(:downloads) }
+          else
+            icon_button("download", "تنزيل الكتاب") { queue_download(book) }
           end
         end
       end
-
     end
   end
 end

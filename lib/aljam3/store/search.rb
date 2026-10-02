@@ -3,42 +3,38 @@
 module Aljam3
   class Store
     class Search
+      POOL_SIZE = 10_000
       COUNT_LIMIT = 1000
-      CACHE_PAGES = 5
       JOIN = "FROM pages_fts JOIN pages p ON p.id = pages_fts.rowid JOIN files f ON f.id = p.file_id JOIN books b ON b.id = f.book_id"
 
       def initialize(db)
         @db = db
       end
 
-      def call(query, page: 1, order: "relevance", category: nil, author: nil, library: nil, book_id: nil)
-        match = Text.match_query(query)
-        page = [Integer(page), 1].max
+      def call(query, page: 1, order: "relevance", pool_size: POOL_SIZE, category: nil, author: nil, library: nil, book_id: nil)
         raise ArgumentError, "Unknown search order" unless %w[library relevance].include?(order.to_s)
 
+        match = Text.match_query(query)
+        page, pool_size = [Integer(page), 1].max, [Integer(pool_size), 1].max
         scopes = { "b.category_id" => category, "b.author_id" => author, "b.library_id" => library, "b.id" => book_id }.compact
-        first_page = ((page - 1) / CACHE_PAGES) * CACHE_PAGES + 1
-        version = @db.get_first_value("PRAGMA data_version")
-        @index_summary = nil if @data_version != version
-        @data_version = version
-        key = [version, match, order.to_s, scopes, first_page]
-        if @cache_key != key
-          @cache = fetch(match, scopes, order.to_s, first_page)
-          @cache_key = key
+        base, terms = query_scope(match, scopes)
+        if order.to_s == "relevance"
+          key = [@db.get_first_value("PRAGMA data_version"), match, scopes, pool_size]
+          prepare_pool(base, terms, match, pool_size, key) unless @pool_key == key
+          offset = (page - 1) * PAGE_SIZE
+          ids = @ranked_ids.slice(offset, PAGE_SIZE) || []
+          rows = ranked_pages(match, ids)
+          result(rows, page:, count: @ranked_ids.size, exact: !@pool_more, more: offset + PAGE_SIZE < @ranked_ids.size,
+            order: "relevance", ranking: { "candidates" => @ranked_ids.size, "has_more" => @pool_more,
+              "next_pool_size" => @pool_more ? pool_size + POOL_SIZE : nil })
+        else
+          library_pages(base, terms, match, page)
         end
-        rows = @cache.fetch(:rows)
-        offset = (page - first_page) * PAGE_SIZE
-        more = rows.size > offset + PAGE_SIZE
-        count, exact = @cache.values_at(:count, :exact)
-        count = [count, (first_page - 1) * PAGE_SIZE + rows.size - 1].max if !exact && rows.any?
-        { "pages" => rows.slice(offset, PAGE_SIZE) || [], "pagination" => { "count" => count, "count_is_exact" => exact,
-          "current_page" => page, "total_pages" => exact ? [(count.fdiv(PAGE_SIZE)).ceil, 1].max : nil,
-          "next_page" => more ? page + 1 : nil }, "order" => order.to_s }
       end
 
       private
 
-      def fetch(match, scopes, order, first_page)
+      def query_scope(match, scopes)
         conditions = ["pages_fts MATCH ?", "b.downloaded_at IS NOT NULL", *scopes.keys.map { |column| "#{column} = ?" }]
         terms = [match, *scopes.values]
         unless scopes.empty?
@@ -46,77 +42,62 @@ module Aljam3
           conditions.concat(["pages_fts.rowid >= ?", "pages_fts.rowid <= ?"])
           terms.concat([bounds["first"] || 0, bounds["last"] || -1])
         end
-        base = "#{JOIN} WHERE #{conditions.join(' AND ')}"
-        offset = (first_page - 1) * PAGE_SIZE
-        ids = match.empty? ? [] : @db.execute("SELECT p.id #{base} ORDER BY pages_fts.rowid LIMIT ?", [*terms, COUNT_LIMIT + 1]).map { |row| row.fetch("id") }
-        exact = ids.length <= COUNT_LIMIT
-        count = [ids.length, COUNT_LIMIT].min
-        columns = "p.id, p.file_id, p.number, p.content, snippet(pages_fts, 0, '', '', '…', 42) AS excerpt, b.data"
-        rows = if ids.empty?
-          []
-        elsif order == "relevance" && scopes.empty? && dense_complete_index?(ids)
-          ranked_pages(match, offset)
-        elsif order == "relevance"
-          @db.execute("SELECT #{columns} #{base} ORDER BY rank LIMIT ? OFFSET ?", [*terms, CACHE_PAGES * PAGE_SIZE + 1, offset])
-        else
-          @db.execute("SELECT #{columns} #{base} ORDER BY pages_fts.rowid LIMIT ? OFFSET ?", [*terms, CACHE_PAGES * PAGE_SIZE + 1, offset])
+        ["#{JOIN} WHERE #{conditions.join(' AND ')}", terms]
+      end
+
+      def prepare_pool(base, terms, match, limit, key)
+        extending = @pool_key && @pool_key.first(3) == key.first(3) && limit > @pool_key.last
+        @pool_key = nil
+        ids = match.empty? ? [] : @db.execute("SELECT p.id #{base} ORDER BY pages_fts.rowid LIMIT ?", [*terms, limit + 1]).map { |row| row.fetch("id") }
+        @pool_more = ids.size > limit
+        ids.pop if @pool_more
+        unless extending
+          # Dropping the temporary index avoids re-tokenizing its old text on DELETE.
+          @db.execute("DROP TABLE IF EXISTS temp.search_pool")
+          @db.execute("CREATE VIRTUAL TABLE temp.search_pool USING fts5(content, tokenize='sqlite_tokenizer_ar disable_stopwords')")
         end
-        if rows.any? && rows.length < CACHE_PAGES * PAGE_SIZE + 1
-          count, exact = offset + rows.length, true
-        end
-        hits = rows.map { |row| row.merge("book" => JSON.parse(row.delete("data"))) }
-        { rows: hits, count:, exact: }
+        # Keep text inside SQLite. Both BM25 statistics and scoring are local to
+        # this pool; scoring on the original index would still scan global terms.
+        additions = extending ? ids - @candidate_ids : ids
+        @db.execute("INSERT INTO search_pool(rowid, content) SELECT id, content FROM pages WHERE id IN (SELECT value FROM json_each(?))", [JSON.generate(additions)])
+        @ranked_ids = ids.empty? ? [] : @db.execute("SELECT rowid FROM search_pool WHERE search_pool MATCH ? ORDER BY bm25(search_pool), rowid", [match]).map { |row| row.fetch("rowid") }
+        @candidate_ids = ids
+        @pool_key = key
       end
 
-      def dense_complete_index?(ids)
-        return false if ids.size <= COUNT_LIMIT
-
-        @index_summary ||= @db.get_first_row(<<~SQL)
-          SELECT min(f.first_page_id) AS first, max(f.last_page_id) AS last,
-            sum(json_extract(f.data, '$.pages_count')) AS pages,
-            max(b.downloaded_at IS NULL) AS incomplete
-          FROM files f JOIN books b ON b.id = f.book_id WHERE f.first_page_id IS NOT NULL
-        SQL
-        return false if @index_summary["incomplete"] == 1 || @index_summary["pages"].to_i.zero?
-
-        # Estimate density from the count probe, adjusted for gaps in API IDs.
-        # Sparse matches use the FTS sort to avoid a second prefix scan. Both
-        # plans rank every match; the estimate affects performance only.
-        library_density = @index_summary["pages"].fdiv(@index_summary["last"] - @index_summary["first"] + 1)
-        (ids.size - 1).fdiv(ids.last - ids.first) >= library_density / 8
-      end
-
-      def ranked_pages(match, offset)
-        # Explicit BM25 lets SQLite keep only the best rows while scoring every
-        # match. ORDER BY rank instead sorts all matches inside the FTS cursor.
-        # Without incomplete books or filters, metadata joins can follow ranking.
-        ids = @db.execute(<<~SQL, [match, CACHE_PAGES * PAGE_SIZE + 1, offset]).map { |row| row.fetch("id") }
-          SELECT rowid AS id
-          FROM pages_fts WHERE pages_fts MATCH ? ORDER BY bm25(pages_fts), rowid LIMIT ? OFFSET ?
-        SQL
-        pages_with_excerpts(match, ids)
-      end
-
-      def pages_with_excerpts(match, ids)
+      def ranked_pages(match, ids)
         return [] if ids.empty?
 
-        rows = @db.execute(<<~SQL, [JSON.generate(ids)]).to_h { |row| [row.fetch("id"), row] }
-          SELECT p.id, p.file_id, p.number, p.content, b.data
-          FROM pages p JOIN files f ON f.id = p.file_id JOIN books b ON b.id = f.book_id
-          WHERE p.id IN (SELECT value FROM json_each(?))
+        rows = @db.execute(<<~SQL, [match, JSON.generate(ids)]).to_h { |row| [row.fetch("id"), row] }
+          SELECT p.id, p.file_id, p.number, p.content, b.data,
+            snippet(search_pool, 0, '', '', '…', 42) AS excerpt
+          FROM search_pool JOIN pages p ON p.id=search_pool.rowid
+            JOIN files f ON f.id=p.file_id JOIN books b ON b.id=f.book_id
+          WHERE search_pool MATCH ? AND search_pool.rowid IN (SELECT value FROM json_each(?))
         SQL
-        # Snippets depend on the query and each page's tokens, not corpus-wide
-        # scores. A small temporary FTS table gives identical excerpts without
-        # scanning large posting lists again or reinitializing them for each ID.
-        @db.execute("CREATE VIRTUAL TABLE IF NOT EXISTS temp.search_excerpts USING fts5(content, tokenize='sqlite_tokenizer_ar disable_stopwords')")
-        @db.execute("DELETE FROM search_excerpts")
-        values = ids.flat_map { |id| [id, rows.fetch(id).fetch("content")] }
-        @db.execute("INSERT INTO search_excerpts(rowid, content) VALUES #{Array.new(ids.size, '(?, ?)').join(', ')}", values)
-        excerpts = @db.execute(<<~SQL, [match]).to_h { |row| row.values_at("rowid", "excerpt") }
-          SELECT rowid, snippet(search_excerpts, 0, '', '', '…', 42) AS excerpt
-          FROM search_excerpts WHERE search_excerpts MATCH ?
+        ids.map { |id| rows.fetch(id) }
+      end
+
+      def library_pages(base, terms, match, page)
+        offset = (page - 1) * PAGE_SIZE
+        count = match.empty? ? 0 : @db.get_first_value("SELECT count(*) FROM (SELECT 1 #{base} ORDER BY pages_fts.rowid LIMIT ?)", [*terms, COUNT_LIMIT + 1])
+        exact = count <= COUNT_LIMIT
+        rows = count.zero? ? [] : @db.execute(<<~SQL, [*terms, PAGE_SIZE + 1, offset])
+          SELECT p.id, p.file_id, p.number, p.content, b.data,
+            snippet(pages_fts, 0, '', '', '…', 42) AS excerpt
+          #{base} ORDER BY pages_fts.rowid LIMIT ? OFFSET ?
         SQL
-        ids.map { |id| rows.fetch(id).merge("excerpt" => excerpts.fetch(id)) }
+        more = rows.size > PAGE_SIZE
+        rows = rows.first(PAGE_SIZE) if more
+        count, exact = offset + rows.size, true if rows.any? && !more
+        result(rows, page:, count: exact ? count : [COUNT_LIMIT, offset + rows.size].max, exact:, more:, order: "library")
+      end
+
+      def result(rows, page:, count:, exact:, more:, order:, ranking: nil)
+        { "pages" => rows.map { |row| row.merge("book" => JSON.parse(row.delete("data"))) },
+          "pagination" => { "count" => count, "count_is_exact" => exact, "current_page" => page,
+            "total_pages" => exact ? [count.fdiv(PAGE_SIZE).ceil, 1].max : nil, "next_page" => more ? page + 1 : nil },
+          "order" => order, "ranking" => ranking }
       end
     end
   end

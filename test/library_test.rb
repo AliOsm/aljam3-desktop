@@ -37,8 +37,9 @@ class LibraryTest < StoreTestCase
   end
 
   def test_offline_sort_preference_does_not_change_the_online_api_request
-    assert_equal :online, @library.search("العلم", order: "library").source
+    assert_equal :online, @library.search("العلم", order: "library", pool_size: 20_000).source
     refute @api.calls.last.last.key?(:order)
+    refute @api.calls.last.last.key?(:pool_size)
     @api.error = Aljam3::ConnectionError.new("Offline")
     assert_equal "library", @library.search("العلم", order: "library").data.fetch("order")
     assert_equal "relevance", @library.search("العلم").data.fetch("order")

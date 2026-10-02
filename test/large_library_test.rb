@@ -36,7 +36,7 @@ class LargeLibraryTest < StoreTestCase
     upgraded&.close
   end
 
-  def test_relevance_search_ranks_every_match_and_paginates_without_gaps
+  def test_relevance_search_ranks_the_complete_pool_and_paginates_without_gaps
     @store.prepare_download(book)
     rows = Array.new(1_100) { |index| { "id" => index + 1, "number" => index + 1, "content" => "العلم #{'تمهيد ' * 30}" } }
     rows << { "id" => 2_000, "number" => 1_101, "content" => "العلم" }
@@ -45,9 +45,9 @@ class LargeLibraryTest < StoreTestCase
     result = @store.search("العلم")
     assert_equal "relevance", result.fetch("order")
     assert_equal 2_000, result.fetch("pages").first.fetch("id"), "Best result is beyond the bounded count probe"
-    refute result.dig("pagination", "count_is_exact")
-    assert_equal 1_000, result.dig("pagination", "count")
-    assert_nil result.dig("pagination", "total_pages")
+    assert result.dig("pagination", "count_is_exact")
+    assert_equal 1_101, result.dig("pagination", "count")
+    assert_equal 92, result.dig("pagination", "total_pages")
 
     expected = @store.instance_variable_get(:@db).execute(<<~SQL, [Aljam3::Text.match_query("العلم")]).map { |row| row.fetch("rowid") }
       SELECT rowid FROM pages_fts WHERE pages_fts MATCH ? ORDER BY bm25(pages_fts), rowid
