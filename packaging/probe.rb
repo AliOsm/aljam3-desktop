@@ -24,7 +24,7 @@ end
 load File.join(root, "app/app.rb")
 app = Shoes.APPS.first
 step = 0
-pdf_bounds = pdf_pixels = nil
+pdf_rect = pdf_bounds = pdf_pixels = nil
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 app.every(0.1) do
   begin
@@ -62,7 +62,12 @@ app.every(0.1) do
       automation.wait_frames
       automation.snapshot(File.join(output, "reader.png"), scale: 2)
       bounds = automation.rect_of!(image.linkable_id)
-      pdf_bounds = [bounds.x, bounds.y, bounds.w, bounds.h].map { |value| (value * 2).round }
+      pdf_rect = [bounds.x, bounds.y, bounds.w, bounds.h]
+      # Fractional image edges blend with the pane background. Compare complete
+      # image pixels, excluding the edge coverage that legitimately changes theme.
+      left, top = [bounds.x, bounds.y].map { |value| (value * 2).ceil }
+      right, bottom = [bounds.x + bounds.w, bounds.y + bounds.h].map { |value| (value * 2).floor }
+      pdf_bounds = [left, top, right - left, bottom - top]
       pdf_pixels = ChunkyPNG::Image.from_file(File.join(output, "reader.png")).crop(*pdf_bounds).pixels
       app.toggle_theme
       step = 2
@@ -72,6 +77,8 @@ app.every(0.1) do
       raise "Theme was not saved" unless store.preference("theme") == "dark"
       automation.wait_frames
       automation.snapshot(File.join(output, "reader-dark.png"), scale: 2)
+      bounds = automation.rect_of!(app.instance_variable_get(:@page_image).linkable_id)
+      raise "PDF moved after switching themes" unless [bounds.x, bounds.y, bounds.w, bounds.h] == pdf_rect
       dark_pixels = ChunkyPNG::Image.from_file(File.join(output, "reader-dark.png")).crop(*pdf_bounds).pixels
       raise "PDF changed after switching themes" unless dark_pixels == pdf_pixels
       app.open_book_search
