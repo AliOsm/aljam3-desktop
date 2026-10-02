@@ -1,0 +1,32 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+require "fileutils"
+require "tmpdir"
+require "open3"
+require "timeout"
+require "json"
+
+root = File.expand_path("..", __dir__)
+output = File.join(root, ".cache/preview/parity")
+FileUtils.mkdir_p(output)
+FileUtils.rm_f(File.join(output, "passed.json"))
+Dir.mktmpdir("aljam3-ui-") do |scratch|
+  env = {
+    "HOME" => scratch, "BUNDLE_GEMFILE" => File.join(root, "Gemfile"),
+    "ALJAM3_DATA_DIR" => File.join(scratch, "data"), "ALJAM3_VERIFY_OUTPUT" => output,
+    "ALJAM3_API_URL" => "https://aljam3.com", "SCARPE_NATIVE_HEADLESS" => "1",
+    "SCARPE_NATIVE_BIN" => File.join(root, "vendor/scarpe/native/target/release/scarpe-native"),
+    "PATH" => "#{root}/vendor/scarpe/spec/support/fakebin:#{ENV.fetch('PATH')}",
+    "SPEC_TRAP_FILE" => File.join(scratch, "trapped.txt"), "SPEC_CLIPBOARD_FILE" => File.join(scratch, "clipboard.txt")
+  }
+  text, status = Timeout.timeout(120) do
+    Open3.capture2e(env, RbConfig.ruby, "-I#{root}/vendor/scarpe/lib", File.join(root, "vendor/scarpe/exe/scarpe"),
+      "--native", File.join(root, "test/support/ui_probe.rb"))
+  end
+  puts text unless text.empty?
+  report = File.join(output, "passed.json")
+  abort "Native UI verification failed; see #{output}." unless status.success? && File.file?(report)
+  puts File.read(report)
+end

@@ -33,7 +33,7 @@ class LibraryTest < StoreTestCase
     result = @library.search("العلم", category: 2, page: 3)
     assert_equal :online, result.source
     assert_empty result.data.fetch("pages")
-    assert_equal [["العلم", { category: 2, page: 3, book_id: nil }]], @api.calls
+    assert_equal [["العلم", { category: 2, author: nil, library: nil, page: 3, book_id: nil }]], @api.calls
   end
 
   def test_connection_failure_searches_downloaded_books_and_next_search_retries_api
@@ -73,5 +73,18 @@ class LibraryTest < StoreTestCase
     assert_equal :offline, result.source
     assert_equal [1], result.data.fetch("books").map { |item| item.fetch("id") }
     assert_equal 2, @library.browse.data.fetch("books").length
+  end
+
+  def test_all_text_filters_are_preserved_when_falling_back_to_sqlite
+    other = book(2).merge("author" => { "id" => 8, "name" => "مؤلف آخر" })
+    @store.prepare_download(other)
+    @store.add_pages(20, pages(2))
+    @store.complete_download(2)
+    @api.error = Aljam3::ConnectionError.new("Offline")
+
+    result = @library.search("العلم", category: 2, author: 4, library: 3)
+    assert_equal [1], result.data.fetch("pages").map { |hit| hit.dig("book", "id") }.uniq
+    assert_empty @library.search("العلم", category: 2, author: 4, library: 9).data.fetch("pages")
+    assert_equal [2], @library.browse(author: 8).data.fetch("books").map { |item| item.fetch("id") }
   end
 end

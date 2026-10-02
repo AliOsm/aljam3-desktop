@@ -14,15 +14,33 @@ module Aljam3
     end
 
     def categories = get("categories").fetch("categories")
+    def libraries = get("libraries").fetch("libraries")
     def book(id) = get("books/#{Integer(id)}", "expand[]" => "files")
 
-    def books(query: "", category: nil, page: 1)
-      path = category ? "categories/#{Integer(category)}" : "books"
-      get(path, "q" => query, "page" => page, "limit" => 12, "expand[]" => "books")
+    def authors(query: "", page: 1)
+      get("authors", "q" => query, "page" => page, "limit" => 20)
     end
 
-    def search(query, page: 1, category: nil, book_id: nil)
-      get("search", "q" => query, "page" => page, "limit" => 12, "categories[]" => category, "books[]" => book_id)
+    def books(query: "", category: nil, author: nil, library: nil, page: 1)
+      scopes = { categories: category, authors: author, libraries: library }.compact
+      raise ArgumentError, "Title browsing accepts one scope at a time." if scopes.length > 1
+
+      path = scopes.empty? ? "books" : "#{scopes.keys.first}/#{Integer(scopes.values.first)}"
+      data = get(path, "q" => query, "page" => page, "limit" => 12, "expand[]" => "books")
+      unless scopes.empty?
+        key = { categories: "category", authors: "author", libraries: "library" }.fetch(scopes.keys.first)
+        data.fetch("books").each { |book| book[key] = data.slice("id", "name", "books_count", "link") }
+      end
+      data
+    end
+
+    def search(query, page: 1, category: nil, author: nil, library: nil, book_id: nil)
+      get("search", "q" => query, "page" => page, "limit" => 12,
+        "categories[]" => category, "authors[]" => author, "library" => library, "books[]" => book_id)
+    end
+
+    def page(file_id, number)
+      get("files/#{Integer(file_id)}", "expand[]" => "pages", "limit" => 1, "page" => Integer(number)).fetch("pages").first
     end
 
     def each_page_batch(file_id)

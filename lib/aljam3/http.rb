@@ -24,7 +24,7 @@ module Aljam3
       request(url, headers: { "Accept" => "application/json" }) { |response| response.body }
     end
 
-    def download(url, destination, &progress)
+    def download(url, destination, validate_pdf: true, &progress)
       FileUtils.mkdir_p(File.dirname(destination))
       temporary = "#{destination}.part"
       request(url, headers: { "Accept-Encoding" => "identity" }, timeout: 30) do |response|
@@ -44,7 +44,9 @@ module Aljam3
         end
         raise ConnectionError, "The download ended before the complete file arrived." if expected && received != expected
       end
-      raise ResponseError.new(422), "The download is not a PDF." unless File.binread(temporary, 1024).include?("%PDF-")
+      if validate_pdf && !File.binread(temporary, 1024).include?("%PDF-")
+        raise ResponseError.new(422), "The download is not a PDF."
+      end
 
       File.rename(temporary, destination)
       destination

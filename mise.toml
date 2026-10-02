@@ -40,3 +40,7 @@ run = "bundle exec ruby bin/peek"
 [tasks.smoke]
 description = "Verify a real book download, offline search, and PDF rendering"
 run = "bundle exec ruby bin/smoke"
+
+[tasks.verify-ui]
+description = "Check online/offline reading, dialogs, RTL layout, and themes in the headless native app"
+run = "bundle exec ruby bin/verify-ui"

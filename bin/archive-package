@@ -3,9 +3,12 @@
 
 require "fileutils"
 require "digest"
+require "json"
 root = File.expand_path("..", __dir__)
 windows = Gem.win_platform?
-archive = File.join(root, "dist", "Aljam3-0.1.0-#{windows ? 'windows-x64' : 'macos-arm64'}.zip")
+resources = windows ? "Aljam3/resources" : "Aljam3.app/Contents/Resources"
+build = JSON.parse(File.read(File.join(root, "dist", resources, "build.json")))
+archive = File.join(root, "dist", "Aljam3-#{build.fetch('version')}-#{build.fetch('target')}.zip")
 FileUtils.rm_f(archive)
 command = if windows
   ["7z", "a", "-tzip", archive, "Aljam3"]

@@ -57,13 +57,17 @@ module Aljam3
       @lock.synchronize { @db.execute("SELECT id FROM books WHERE downloaded_at IS NOT NULL").map { |row| row.fetch("id") } }
     end
 
-    def catalog(query: "", category: nil, page: 1, downloaded: false)
+    def catalog(query: "", category: nil, author: nil, library: nil, page: 1, downloaded: false)
       where = ["search_title LIKE ? ESCAPE '\\'"]
       terms = ["%#{Text.normalize(query).gsub(/[\\%_]/) { |char| "\\#{char}" }}%"]
       where << "downloaded_at IS NOT NULL" if downloaded
       if category
         where << "category_id = ?"
         terms << category
+      end
+      { author:, library: }.compact.each do |key, value|
+        where << "json_extract(data, '$.#{key}.id') = ?"
+        terms << value
       end
       @lock.synchronize do
         count = @db.get_first_value("SELECT count(*) FROM books WHERE #{where.join(' AND ')}", terms)
@@ -72,7 +76,18 @@ module Aljam3
       end
     end
 
-    def search(query, page: 1, category: nil, book_id: nil)
+    def authors(query: "", page: 1)
+      rows = @lock.synchronize do
+        @db.execute("SELECT DISTINCT json_extract(data, '$.author') AS data FROM books WHERE downloaded_at IS NOT NULL")
+      end
+      authors = rows.filter_map { |row| JSON.parse(row.fetch("data")) if row["data"] }
+      authors = (preference("authors", []) + authors).uniq { |author| author.fetch("id") } if query.strip.empty?
+      authors.select! { |author| Text.normalize(Text.plain(author.fetch("name"))).include?(Text.normalize(query)) }
+      authors.sort_by! { |author| Text.plain(author.fetch("name")) }
+      { "authors" => authors.slice((page - 1) * PAGE_SIZE, PAGE_SIZE) || [], "pagination" => pagination(authors.length, page) }
+    end
+
+    def search(query, page: 1, category: nil, author: nil, library: nil, book_id: nil)
       match = Text.match_query(query)
       return { "pages" => [], "pagination" => pagination(0, page) } if match.empty?
 
@@ -86,6 +101,10 @@ module Aljam3
       if book_id
         conditions += " AND b.id = ?"
         terms << book_id
+      end
+      { author:, library: }.compact.each do |key, value|
+        conditions += " AND json_extract(b.data, '$.#{key}.id') = ?"
+        terms << value
       end
       @lock.synchronize do
         count = @db.get_first_value("SELECT count(*) #{joins} #{conditions}", terms)

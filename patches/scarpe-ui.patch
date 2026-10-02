@@ -1,16 +1,128 @@
+diff --git a/lacci/lib/shoes/drawables/button.rb b/lacci/lib/shoes/drawables/button.rb
+index a8ec5b6..72932f4 100644
+--- a/lacci/lib/shoes/drawables/button.rb
++++ b/lacci/lib/shoes/drawables/button.rb
+@@ -5,6 +5,7 @@ class Shoes
+     include Shoes::Focusable
+ 
+     shoes_styles :text, :width, :height, :top, :left, :color, :padding_top, :padding_bottom, :text_color, :size, :font_size, :tooltip, :icon, :icon_pos, :font, :stroke
++    shoes_styles :variant, :border_color, :disabled_color
+     shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
+     shoes_events :click
+ 
 diff --git a/lacci/lib/shoes/drawables/edit_line.rb b/lacci/lib/shoes/drawables/edit_line.rb
-index 081a65f..06d420b 100644
+index 081a65f..8bdbe05 100644
 --- a/lacci/lib/shoes/drawables/edit_line.rb
 +++ b/lacci/lib/shoes/drawables/edit_line.rb
-@@ -4,7 +4,7 @@ class Shoes
+@@ -4,8 +4,8 @@ class Shoes
    class EditLine < Shoes::Drawable
      include Shoes::Focusable
  
 -    shoes_styles :text, :width, :font, :tooltip, :stroke, :secret
+-    shoes_styles :fill, :border_color # the box and its edge, in the page's colours (ledger G17)
 +    shoes_styles :text, :width, :font, :tooltip, :stroke, :secret, :align
-     shoes_styles :fill, :border_color # the box and its edge, in the page's colours (ledger G17)
++    shoes_styles :fill, :border_color, :disabled_color # the box and its edge, in the page's colours (ledger G17)
      shoes_style :change # the handler (manual 1123-1128, ledger G10)
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
+     shoes_events :change, :finish
+diff --git a/native/src/a11y.rs b/native/src/a11y.rs
+index 33cb211..2a82c07 100644
+--- a/native/src/a11y.rs
++++ b/native/src/a11y.rs
+@@ -192,7 +192,7 @@ impl Builder<'_> {
+             Kind::Para | Kind::TextDrawable => self.text_block(id),
+             Kind::Button => {
+                 let mut n = Node::new(Role::Button);
+-                n.set_label(node.props.text("text").unwrap_or_default());
++                n.set_label(node.props.text("text").filter(|t| !t.trim().is_empty()).or_else(|| tooltip(node)).unwrap_or_default());
+                 works(&mut n, node, &[Action::Click, Action::Focus]);
+                 Some(n)
+             }
+@@ -330,6 +330,11 @@ impl Builder<'_> {
+         let text = self.view.fields.get(&node.id).map(|f| f.text()).or_else(|| node.props.text("text")).unwrap_or_default();
+         n.set_value(if secret { text.chars().map(|_| text_field::BULLET).collect() } else { text });
+         n.set_labelled_by(self.label_beside(before).into_iter().collect::<Vec<_>>());
++        if self.label_beside(before).is_none() {
++            if let Some(label) = tooltip(node) {
++                n.set_label(label);
++            }
++        }
+         if readonly(node) {
+             n.set_read_only();
+             works(&mut n, node, &[Action::Click, Action::Focus]);
+diff --git a/native/src/elements/button.rs b/native/src/elements/button.rs
+index 813abb5..fbc2cf9 100644
+--- a/native/src/elements/button.rs
++++ b/native/src/elements/button.rs
+@@ -1,9 +1,10 @@
+ //! button: a rounded push button with a soft gradient, border and shadow, and
+ //! Shoes 3.3's optional `icon:` beside its label (`icon_pos:` left, right, top, bottom).
+ 
+-use super::image::{self, ImageCache};
+-use super::{focus_ring, text_on, Label, WidgetState, CONTROL_TEXT_SIZE};
+ use std::path::Path;
++
++use super::image::{self, ImageCache};
++use super::{focus_ring, focus_ring_in, text_on, Label, WidgetState, CONTROL_TEXT_SIZE};
+ use crate::doc::Node;
+ use crate::input::{Key, KeyInput, Named};
+ use crate::layout::{LBox, Rect, TextBox};
+@@ -140,22 +141,40 @@ pub fn paint(
+ ) {
+     let (bx, r) = (lbox.rect, face(lbox.rect));
+     let clip = lbox.clip;
+-    if state.focused {
+-        focus_ring(canvas, r, RADIUS, clip);
+-    }
+-    canvas.fill_rounded(Rect::new(bx.x, bx.y + 0.5, bx.w, bx.h - 0.5), RADIUS + 0.5, Color::rgba(0, 0, 0, 14), clip);
+-    canvas.fill_rounded(Rect::new(r.x, r.y + 1.0, r.w, r.h), RADIUS, Color::rgba(0, 0, 0, 22), clip);
+-    let (top, bottom) = match surface(node) {
+-        Some(c) => {
+-            let shade = if state.pressed { 0.82 } else if state.hovered { 1.04 } else { 1.0 };
+-            (tint(c, shade * 1.06), tint(c, shade * 0.96))
++    let flat = matches!(node.props.str("variant"), Some("solid" | "outline" | "ghost"));
++    if flat {
++        let variant = node.props.str("variant").unwrap();
++        let color = node.props.color("color").unwrap_or(Color::WHITE);
++        let fill = if variant == "ghost" && color.is_invisible() {
++            label_color(node).with_alpha(if state.pressed { 24 } else if state.hovered { 12 } else { 0 })
++        } else {
++            tint(color, if state.pressed { 0.92 } else if state.hovered { 0.97 } else { 1.0 })
++        };
++        if state.focused {
++            focus_ring_in(canvas, r, RADIUS, node.props.color("stroke").unwrap_or(super::ACCENT), clip);
+         }
+-        None if state.pressed => (Color::rgb(0xdc, 0xdc, 0xe2), Color::rgb(0xd0, 0xd0, 0xd8)),
+-        None if state.hovered => (Color::WHITE, Color::rgb(0xf2, 0xf2, 0xf6)),
+-        None => (Color::WHITE, Color::rgb(0xee, 0xee, 0xf1)),
+-    };
+-    canvas.fill_gradient(r, RADIUS, top, bottom, clip);
+-    canvas.stroke_rounded(r, RADIUS, Color::rgba(0, 0, 0, 38), 1.0, clip);
++        canvas.fill_rounded(r, RADIUS, fill, clip);
++        if variant == "outline" {
++            canvas.stroke_rounded(r, RADIUS, node.props.color("border_color").unwrap_or(super::FIELD_BORDER), 1.0, clip);
++        }
++    } else {
++        if state.focused {
++            focus_ring(canvas, r, RADIUS, clip);
++        }
++        canvas.fill_rounded(Rect::new(bx.x, bx.y + 0.5, bx.w, bx.h - 0.5), RADIUS + 0.5, Color::rgba(0, 0, 0, 14), clip);
++        canvas.fill_rounded(Rect::new(r.x, r.y + 1.0, r.w, r.h), RADIUS, Color::rgba(0, 0, 0, 22), clip);
++        let (top, bottom) = match surface(node) {
++            Some(c) => {
++                let shade = if state.pressed { 0.82 } else if state.hovered { 1.04 } else { 1.0 };
++                (tint(c, shade * 1.06), tint(c, shade * 0.96))
++            }
++            None if state.pressed => (Color::rgb(0xdc, 0xdc, 0xe2), Color::rgb(0xd0, 0xd0, 0xd8)),
++            None if state.hovered => (Color::WHITE, Color::rgb(0xf2, 0xf2, 0xf6)),
++            None => (Color::WHITE, Color::rgb(0xee, 0xee, 0xf1)),
++        };
++        canvas.fill_gradient(r, RADIUS, top, bottom, clip);
++        canvas.stroke_rounded(r, RADIUS, Color::rgba(0, 0, 0, 38), 1.0, clip);
++    }
+     let inner = Rect::new(r.x + 2.0, r.y, r.w - 4.0, r.h);
+     let inner_clip = clip.and_then(|c| c.intersect(&inner)).or(Some(inner));
+     if let Some(tb) = label {
 diff --git a/native/src/elements/edit_line.rs b/native/src/elements/edit_line.rs
 index d3498f8..ed45fcc 100644
 --- a/native/src/elements/edit_line.rs
@@ -24,6 +136,23 @@ index d3498f8..ed45fcc 100644
      if field.secret {
          let shaped = text.shape(&RichText::plain(&field.bullets(), TextStyle::new(field.size, field.color)), None);
          draw_shaped(canvas, text, &shaped, x, y, clip, None);
+diff --git a/native/src/elements/mod.rs b/native/src/elements/mod.rs
+index ea03df5..0f3df64 100644
+--- a/native/src/elements/mod.rs
++++ b/native/src/elements/mod.rs
+@@ -112,7 +112,11 @@ pub fn paint(
+     }
+     if disabled(node) {
+         let r = lbox.rect;
+-        canvas.fill_rect(Rect::new(r.x - 4.0, r.y - 4.0, r.w + 8.0, r.h + 8.0), Color::rgba(255, 255, 255, 140), lbox.clip);
++        if let Some(color) = node.props.color("disabled_color") {
++            canvas.fill_rounded(r, 6.0, color.with_alpha(140), lbox.clip);
++        } else {
++            canvas.fill_rect(Rect::new(r.x - 4.0, r.y - 4.0, r.w + 8.0, r.h + 8.0), Color::rgba(255, 255, 255, 140), lbox.clip);
++        }
+     }
+ }
+ 
 diff --git a/native/src/elements/text_field.rs b/native/src/elements/text_field.rs
 index 941a35d..cb953fe 100644
 --- a/native/src/elements/text_field.rs
@@ -128,6 +257,83 @@ index 941a35d..cb953fe 100644
 +    };
 +    field
  }
+diff --git a/native/tests/a11y.rs b/native/tests/a11y.rs
+index 46ea95e..d3a3c82 100644
+--- a/native/tests/a11y.rs
++++ b/native/tests/a11y.rs
+@@ -543,3 +543,19 @@ fn a_window_scale_turns_bounds_into_device_pixels() {
+     let (b2, b1) = (bounds(&at_2x), bounds(&at_1x));
+     assert_eq!(b2, b1.iter().map(|v| v * 2.0).collect::<Vec<_>>(), "AccessKit counts device pixels");
+ }
++
++#[test]
++fn icon_only_buttons_use_their_tooltip_as_an_accessible_name() {
++    let mut h = Harness::new();
++    h.feed(&app(200, 100, &[create(3, "Button", 2, json!({"text":"", "variant":"ghost", "tooltip":"Copy page"}))]));
++    assert_eq!(one(&mut h, "button")["name"], json!("Copy page"));
++    let (evs, _) = act(&mut h, &json!(3), "click", None);
++    assert!(named(&evs, "click").iter().any(|e| e.1 == json!(3)));
++}
++
++#[test]
++fn a_field_without_a_visible_label_uses_its_tooltip() {
++    let mut h = Harness::new();
++    h.feed(&app(200, 100, &[create(3, "EditLine", 2, json!({"text":"", "tooltip":"Search books"}))]));
++    assert_eq!(one(&mut h, "text_input")["name"], json!("Search books"));
++}
+diff --git a/native/tests/protocol.rs b/native/tests/protocol.rs
+index be297fe..4ec152b 100644
+--- a/native/tests/protocol.rs
++++ b/native/tests/protocol.rs
+@@ -1015,3 +1015,48 @@ fn a_span_named_again_after_its_para_went_still_shows() {
+         .collect::<String>());
+     assert_eq!(h.node(|n| n["id"] == 9)["text"], json!("Again kept"));
+ }
++
++#[test]
++fn flat_button_variants_paint_their_surface_and_still_activate_with_keys() {
++    for variant in ["solid", "outline", "ghost"] {
++        let mut h = Harness::new();
++        h.feed(&app(200, 100, &[
++            create(3, "Button", 2, json!({"text":"", "variant":variant, "color":"#ae4721", "border_color":"#ede6dc", "left":20, "top":20, "width":80, "height":36})),
++        ]));
++        let top = h.value(json!({"op":"pixel", "x":40, "y":26}));
++        let bottom = h.value(json!({"op":"pixel", "x":40, "y":47}));
++        assert_eq!(top, json!([174, 71, 33, 255]), "{variant} uses its exact surface color");
++        assert_eq!(bottom, top, "{variant} has no legacy gradient");
++        h.value(json!({"op":"key", "key":"tab"}));
++        let (msgs, _) = h.req(json!({"op":"key", "key":"enter"}));
++        assert!(named(&events(&msgs), "click").iter().any(|e| e.1 == json!(3)));
++    }
++}
++
++#[test]
++fn ghost_buttons_are_clear_until_hover_and_disabled_buttons_cannot_activate() {
++    let mut h = Harness::new();
++    h.feed(&app(200, 100, &[
++        create(3, "Button", 2, json!({"text":"", "variant":"ghost", "color":"transparent", "left":20, "top":20, "width":80, "height":36})),
++    ]));
++    let outside = h.value(json!({"op":"pixel", "x":120, "y":40}));
++    assert_eq!(h.value(json!({"op":"pixel", "x":40, "y":40})), outside);
++    h.value(json!({"op":"mouse", "action":"move", "x":40, "y":40}));
++    assert_ne!(h.value(json!({"op":"pixel", "x":40, "y":40})), outside, "hover is visible");
++    h.feed(&format!("{}\n{}\n", json!({"t":"props","id":3,"props":{"state":"disabled"}}), json!({"t":"flush"})));
++    let (msgs, _) = h.req(json!({"op":"click", "target":{"id":3}}));
++    assert!(named(&events(&msgs), "click").is_empty());
++}
++
++#[test]
++fn disabled_controls_can_dim_into_a_dark_surface_without_a_white_box() {
++    for kind in ["Button", "EditLine"] {
++        let mut h = Harness::new();
++        h.feed(&app(200, 100, &[
++            create(3, kind, 2, json!({"text":"", "variant":"ghost", "state":"disabled", "color":"#2c2828", "fill":"#2c2828", "disabled_color":"#2c2828", "left":20, "top":20, "width":80, "height":36})),
++        ]));
++        assert_eq!(h.value(json!({"op":"pixel", "x":40, "y":40})), json!([44, 40, 40, 255]));
++        let (msgs, _) = h.req(json!({"op":"click", "target":{"id":3}}));
++        assert!(named(&events(&msgs), "click").is_empty());
++    }
++}
 diff --git a/native/tests/text_input.rs b/native/tests/text_input.rs
 index c20739e..7c5855d 100644
 --- a/native/tests/text_input.rs

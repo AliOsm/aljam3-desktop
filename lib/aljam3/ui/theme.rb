@@ -1,20 +1,59 @@
 # frozen_string_literal: true
 
+require "open3"
+
 module Aljam3
   module UI
-    # Light theme from ieasybooks/aljam3-web-app, be4bb9f39ad9.
-    # The web app's OKLCH tokens are converted to sRGB for Scarpe.
-    PAPER = "#ffffff"
-    INK = "#4e3f3b"
-    MUTED = "#827b78"
-    PRIMARY = "#ae4721"
-    ACCENT = "#f5e9e1"
-    SURFACE = "#f9f8f8"
-    LINE = "#ede6dc"
     CARD_RADIUS = 6
-
     FONT = "Noto Naskh Arabic UI"
     HEADING_FONT = "Cairo"
     READING_FONT = "Kitab"
+
+    module Theme
+      # Both palettes are Aljam3's OKLCH tokens converted to sRGB.
+      PALETTES = {
+        light: { paper: "#ffffff", card_color: "#ffffff", ink: "#4e3f3b", muted: "#827b78",
+                 primary: "#ae4721", accent: "#f5e9e1", surface: "#f9f8f8", line_color: "#ede6dc" },
+        dark: { paper: "#1e1b1a", card_color: "#2c2828", ink: "#ffffff", muted: "#b6b2b0",
+                primary: "#e16e4a", accent: "#284d53", surface: "#2c2828", line_color: "#4a4543" }
+      }.freeze
+
+      PALETTES.fetch(:light).each_key do |name|
+        define_method(name) { PALETTES.fetch(@theme || :light).fetch(name) }
+      end
+
+      def system_theme
+        command = if RUBY_PLATFORM.include?("darwin")
+          ["defaults", "read", "-g", "AppleInterfaceStyle"]
+        elsif RUBY_PLATFORM.match?(/mingw|mswin/)
+          ["reg", "query", 'HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize', "/v", "AppsUseLightTheme"]
+        else
+          ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"]
+        end
+        value, status = Open3.capture2(*command, err: File::NULL)
+        status.success? && (value.match?(/dark/i) || value.match?(/AppsUseLightTheme\s+REG_DWORD\s+0x0/)) ? :dark : :light
+      rescue Errno::ENOENT
+        :light
+      end
+
+      def apply_theme
+        style(Shoes::Para, font: FONT, size: 16, stroke: ink, margin: 0, align: "right")
+        style(Shoes::Button, font: FONT, size: 15, height: 36)
+        style(Shoes::EditLine, font: "#{FONT} 17", height: 40, stroke: ink, fill: card_color, border_color: line_color)
+        style(Shoes::Link, stroke: ink, underline: "none")
+      end
+
+      def toggle_theme
+        @theme = @theme == :dark ? :light : :dark
+        @store.save_preference("theme", @theme.to_s)
+        apply_theme
+        draw_window
+      end
+
+      def asset_path(kind, name)
+        suffix = @theme == :dark ? "-dark" : ""
+        File.join(ROOT, "assets", kind, "#{name}#{suffix}.png")
+      end
+    end
   end
 end

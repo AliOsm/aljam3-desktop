@@ -2,7 +2,7 @@
 
 An Arabic desktop library built with Ruby and Scarpe's native renderer. Browse [aljam3.com](https://aljam3.com), download books, and read and search them without an internet connection.
 
-The interface follows [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app)'s light design system: terracotta primary color, warm neutral borders, top navigation, and bordered book cards. Its logo, Noto Naskh Arabic UI, Cairo, and Kitab fonts are bundled locally; see [asset provenance](assets/README.md).
+The interface follows [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app)'s light and dark design systems: terracotta primary colors, warm neutral surfaces, top navigation, and bordered book cards. Its logo, Noto Naskh Arabic UI, Cairo, and Kitab fonts are bundled locally; see [asset provenance](assets/README.md).
 
 ## Run
 
@@ -22,14 +22,18 @@ The dependency releases cover Linux x64/arm64 with glibc, macOS Apple silicon, a
 
 ## Using the library
 
-- **المكتبة**: browse books, filter by category, or search titles and page text.
-- **تنزيل الكتاب**: save every PDF volume and its searchable page text. Progress appears under **التنزيلات**. Failed downloads can be retried.
-- **كتبي المحمّلة**: browse and filter the books stored on this device.
-- **قراءة / عرض الصفحة**: open a book or a search result with its text on the left and original PDF on the right. **جنبًا إلى جنب**, **PDF**, and **النص** select the reading view. Both panes follow the same page and volume, scroll independently, and work offline. The PDF initially fits the whole page. Zoom or drag a larger page, change volumes, or jump using Arabic, Persian, or Western page numbers. Reading position is saved per book. **رجوع** restores the previous results and scroll position.
-- **Text controls**: change the font size independently of PDF zoom, toggle **تشكيل**, or copy the displayed text with the copy icon. The icon confirms a successful copy. Layout, text size, and tashkeel preferences are remembered.
-- **بحث في الكتاب**: search within the open book using the API, with SQLite fallback when offline. Ctrl-F (Cmd-F on macOS) opens book search; Escape returns to the reader. In the library, the same shortcut focuses the main search input.
+- **الرئيسية / التصنيفات / المؤلفون / الكتب**: discover libraries and categories, browse authors and their books, or search the catalog. Category and author names on book cards are links.
+- **Search**: switch between **النصوص**, **العناوين**, and **المؤلفون**. The filter sheet offers library, category, and author selection. Text search combines all three; the current API supports only one scope at a time for title browsing. Author-name search uses the authors endpoint. Results load more as you scroll and excerpts can be expanded.
+- **قراءة / عرض الصفحة**: read online immediately, without adding the whole book to your offline library. Text loads one page at a time; the original PDF loads for the selected volume in the background. Online search responses omit volume IDs, so the reader verifies the page ID against the book's volumes before opening a result.
+- **تنزيل الكتاب**: a separate action saves every PDF volume and its searchable page text. Progress appears under **التنزيلات**. Failed downloads can be retried. **كتبي المحمّلة** lists completed downloads.
+- **Reader**: text is on the **right** and the PDF on the **left**, matching the Arabic web UI. The shared toolbar selects text, PDF, or both panes. Change the text size, toggle tashkeel, copy text, fit/zoom/pan the PDF, save a page image as PNG, or copy a link to the current web page. The download dialog also exports individual PDF/TXT/DOCX files.
+- **Navigation**: jump to pages using Arabic, Persian, or Western digits, or choose a volume from the file popover. The book's reading position and reader preferences are saved. Returning to the catalog restores the results and scroll position.
+- **بحث في الكتاب**: search in a dialog over the reader using the API, with SQLite fallback for downloaded books. Ctrl-F (Cmd-F on macOS) opens it; Escape closes it. In the library, the shortcut focuses the main search input.
+- **Appearance**: the initial theme follows the operating system where available. The sun/moon button switches between Aljam3's light and dark palettes and saves your choice. Document scans retain their original colors.
 
-PDF pages are rendered inside Scarpe with PDFium. Text comes from the API and remains available alongside the original PDF. This reader provides page images and a text pane; it does not provide PDF annotations or text selection directly on the page image.
+PDF pages are rendered inside Scarpe with PDFium. Online reading uses a temporary cache of up to three PDF volumes and 50 text pages; these never enter the offline search index. The cache is removed when the app closes normally. Explicit downloads remain available offline.
+
+The interface is currently Arabic-only. Web features still outside this implementation include popular-book carousels, image cropping/copying to the clipboard, and account UI. The API does not expose the web homepage's curated/popular lists. PDF annotations and direct text selection on the rendered PDF image are not supported.
 
 ## Online and offline search
 
@@ -37,7 +41,7 @@ Every library search tries the API first. A connection failure switches that req
 
 Offline full-text search uses SQLite FTS5 with [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar): Arabic normalization, light stemming, and Arabic/Persian digit folding. Common words are retained. Query words are safely quoted, prefix-matched, and combined with AND; advanced Lucene query syntax is not implemented locally. SQLite ranks results and produces excerpts around matching text. Online and offline rankings can differ.
 
-Previously browsed catalog entries and categories are cached. Offline browsing can show that cached catalog, but offline title and content searches only return downloaded books. The app does not mirror the entire remote catalog.
+Previously browsed catalog entries, categories, libraries, and author metadata are cached. Offline browsing can show that cached catalog, but offline title and content searches only return downloaded books. The app does not mirror the entire remote catalog.
 
 Downloads use temporary files, fetch text in batches, and validate PDF responses and page counts before publishing a book as available offline. Partial books never appear in offline search. Retrying an interrupted download starts that book again. API calls are spaced to respect the documented 60 requests/minute limit within this app process.
 
@@ -48,6 +52,7 @@ mise run test      # Minitest; no internet or display needed
 mise run test-native # native input, buttons, keyboard, accessibility, and rendering
 mise run smoke    # live catalog, sample book, offline search, PDF rendering
 mise run peek     # native screenshot and layout, without opening a window
+mise run verify-ui # live online/offline reading and native UI integration checks
 ```
 
 The smoke check downloads book 1 if it is not already under `.cache/smoke`. It then simulates an unreachable API to verify SQLite fallback and renders a real PDF page. To repeat the actual download, use an empty smoke directory.
@@ -62,7 +67,7 @@ ALJAM3_DATA_DIR="$PWD/.cache/smoke" ALJAM3_API_URL=http://127.0.0.1:1 \
   mise run peek -- --wait 2 --shot .cache/offline.png
 ```
 
-Tests cover API preference and reconnection, offline-only download filtering, Arabic search, index migration, failed-download cleanup, HTTP failures, and mapping search results to the correct volume and saved reading position.
+Tests cover API preference and reconnection, combined offline filters, Arabic search, index migration, failed-download cleanup, HTTP failures, and exact volume/page resolution. The live headless UI check starts with an empty scratch library, verifies online reading without downloading, exercises RTL panes and dialogs at 800 × 700, then downloads the book and verifies offline search. It saves screenshots under `.cache/preview/parity/`.
 
 ## Code layout
 
@@ -72,23 +77,21 @@ Tests cover API preference and reconnection, offline-only download filtering, Ar
 | `lib/aljam3/api.rb`, `http.rb` | API requests, throttling, and streaming HTTP downloads |
 | `lib/aljam3/library.rb` | API-first queries and local fallback |
 | `lib/aljam3/store.rb`, `schema.sql`, `migrations/` | Catalog, pages, FTS index, and preferences |
-| `lib/aljam3/downloader.rb` | Complete-book download lifecycle |
+| `lib/aljam3/downloader.rb`, `reading.rb` | Complete-book downloads and separate temporary online reading |
 | `lib/aljam3/pdf.rb` | Small PDFium FFI binding and bounded render cache |
 | `lib/aljam3/worker.rb` | Background work with callbacks delivered on the UI thread |
 
-Scarpe is pinned in `bin/setup`. [The source patch](patches/scarpe-input-alignment.patch) adds `align: "left" / "center" / "right"` to its native `EditLine`. Search and list filters use right alignment; Arabic shaping and bidirectional text remain handled by the native text engine. Text, caret, selection, and mouse coordinates share the same alignment, and long queries scroll horizontally. Setup applies the patch once and refuses conflicting changes; rerunning it is safe. The patch includes native regression tests and can be removed when the feature is available upstream.
+Scarpe is pinned in `bin/setup`. The [UI source patch](patches/scarpe-ui.patch) adds right-aligned native inputs, flat button variants, theme-aware disabled controls, and accessible names for icon buttons and unlabelled search fields. Arabic shaping, caret movement, selection, and mouse coordinates remain native. The patch combines the earlier input/button patches and includes native regression checks; setup applies it idempotently and refuses conflicting source changes. There are no runtime monkey patches or webviews.
 
-The Gemfile uses Lacci and Scarpe components directly from that checkout. No webview or local web server is needed.
-
-[The button patch](patches/scarpe-button-variants.patch) adds flat solid, outline, and ghost variants to the native button renderer, preserving keyboard, hover, focus, and disabled behavior. Icon buttons use their tooltip as an accessible name. Both source patches include native regression checks and apply idempotently during setup; there are no runtime monkey patches or simulated controls.
+The Gemfile uses Lacci and Scarpe directly from that checkout. No local web server is needed.
 
 ## Desktop test packages
 
 Test files are shared directly or downloaded from private build artifacts. Publishing a release is a separate step that requires an explicit request. These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
-- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.0-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
-- **Windows x64 installer:** run `Aljam3-0.1.0-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
-- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.0-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
+- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.1-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
+- **Windows x64 installer:** run `Aljam3-0.1.1-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
+- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.1-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
 
 The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
 
