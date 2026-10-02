@@ -1,0 +1,384 @@
+{
+  "label": "full-scale-cold-start-final",
+  "requested_pages": 37610673,
+  "runs": 1,
+  "source_books": 63535,
+  "ruby": "3.4.7",
+  "sqlite": "3.53.2",
+  "samples": {
+    "libraries": [
+      {
+        "name": "prophet-mosque",
+        "books": 48718,
+        "pages": 23494725,
+        "index_sha256": "c4775f76e0b050110247b65c8b2ec7933204ec95e79ee8726111f8f4c72f5bc9"
+      },
+      {
+        "name": "shamela-waqfeya",
+        "books": 4667,
+        "pages": 5137778,
+        "index_sha256": "4de1541c58592fbee381c09ba8c44b61eb56d44235c735ab09165b3fdff45a00"
+      },
+      {
+        "name": "waqfeya",
+        "books": 10150,
+        "pages": 8978170,
+        "index_sha256": "174419e488e144fbfc8bec7e0db41a3e074681cda03d928b6e13d1852b8cdfa1"
+      }
+    ],
+    "samples": [
+      {
+        "library": "prophet-mosque",
+        "category": "أصول التفسير",
+        "title": "مباحث في التفسير الموضوعي - مسلم",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/1%D9%80%20212.1%20%D8%A3%D8%B5%D9%88%D9%84%20%D8%A7%D9%84%D8%AA%D9%81%D8%B3%D9%8A%D8%B1/00373%D9%80%20%D9%85%D8%A8%D8%A7%D8%AD%D8%AB%20%D9%81%D9%8A%20%D8%A7%D9%84%D8%AA%D9%81%D8%B3%D9%8A%D8%B1%20%D8%A7%D9%84%D9%85%D9%88%D8%B6%D9%88%D8%B9%D9%8A%20-%20%D9%85%D8%B3%D9%84%D9%85%20---%20%D8%AF.%D9%85%D8%B5%D8%B7%D9%81%D9%89%20%D9%85%D8%B3%D9%84%D9%85.PDF/KTB_0063433.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/663be45aa6c3464b.txt",
+        "pages": 373,
+        "bytes": 857452,
+        "sha256": "7c618327ba5d8b7d57eb790a6329c65314265f659f4084cd512298b41ade69a3"
+      },
+      {
+        "library": "prophet-mosque",
+        "category": "الفقه العام",
+        "title": "تيسير الفقه غير ملون",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/4%D9%80%20217.0%20%D8%A7%D9%84%D9%81%D9%82%D9%87%20%D8%A7%D9%84%D8%B9%D8%A7%D9%85/00466%D9%80%20%D8%AA%D9%8A%D8%B3%D9%8A%D8%B1%20%D8%A7%D9%84%D9%81%D9%82%D9%87%20%D8%BA%D9%8A%D8%B1%20%D9%85%D9%84%D9%88%D9%86%20---%20%D8%B5%D8%A7%D9%84%D8%AC%20%D8%BA%D8%A7%D9%86%D9%85%20%D8%A7%D9%84%D8%B3%D8%AF%D9%84%D8%A7%D9%86.PDF/KTB_0136158.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/243eebdae3b56d75.txt",
+        "pages": 466,
+        "bytes": 807868,
+        "sha256": "a3e74e6f2ec6609eba9ad36385e7d0e9a134cf8e1c004087f8487f107d10a9d7"
+      },
+      {
+        "library": "prophet-mosque",
+        "category": "الفتاوى",
+        "title": "فتاوى النوازل - السمرقندي",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/4%D9%80%20217.9%20%D8%A7%D9%84%D9%81%D8%AA%D8%A7%D9%88%D9%89/00461%D9%80%20%D9%81%D8%AA%D8%A7%D9%88%D9%89%20%D8%A7%D9%84%D9%86%D9%88%D8%A7%D8%B2%D9%84%20-%20%D8%A7%D9%84%D8%B3%D9%85%D8%B1%D9%82%D9%86%D8%AF%D9%8A%20---%20%D9%86%D8%B5%D8%B1%20%D8%A8%D9%86%20%D8%A5%D8%A8%D8%B1%D8%A7%D9%87%D9%8A%D9%85%20%D8%A7%D9%84%D8%B3%D9%85%D8%B1%D9%82%D9%86%D8%AF%D9%8A%20%D8%A7%D9%84%D8%AD%D9%86%D9%81%D9%8A%20%D8%A7%D8%A8%D9%88%20%D8%A7%D9%84%D9%84%D9%8A%D8%AB.PDF/KTB_0078403.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/ac5b8083c33e635a.txt",
+        "pages": 461,
+        "bytes": 1791392,
+        "sha256": "677e1fb8065a2c5fcae8e553dd00aeafc5d902f56850baeed1b5877a746377af"
+      },
+      {
+        "library": "prophet-mosque",
+        "category": "الطب",
+        "title": "المرشد أو الفصول - الرازي",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/8%D9%80%20610.0%20%D8%A7%D9%84%D8%B7%D8%A8/00224%D9%80%20%D8%A7%D9%84%D9%85%D8%B1%D8%B4%D8%AF%20%D8%A3%D9%88%20%D8%A7%D9%84%D9%81%D8%B5%D9%88%D9%84%20-%20%D8%A7%D9%84%D8%B1%D8%A7%D8%B2%D9%8A%20---%20%D8%A3%D8%A8%D9%8A%20%D8%A8%D9%83%D8%B1%20%D9%85%D8%AD%D9%85%D8%AF%20%D8%B2%D9%83%D8%B1%D9%8A%D8%A7%20%D8%A7%D9%84%D8%B1%D8%A7%D8%B2%D9%89.PDF/KTB_0023577.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/80a1e0eaa92903ec.txt",
+        "pages": 224,
+        "bytes": 439698,
+        "sha256": "c9d70d824c85cce6ba0c1891913a7892df7461635bed884829f5257c9c593e73"
+      },
+      {
+        "library": "prophet-mosque",
+        "category": "المكتبات وطرق البحث",
+        "title": "المكتبات في عهد الملك عبد العزيز - سالم",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/7%D9%80%20020.0%20%D8%A7%D9%84%D9%85%D9%83%D8%AA%D8%A8%D8%A7%D8%AA%20%D9%88%D8%B7%D8%B1%D9%82%20%D8%A7%D9%84%D8%A8%D8%AD%D8%AB/00348%D9%80%20%D8%A7%D9%84%D9%85%D9%83%D8%AA%D8%A8%D8%A7%D8%AA%20%D9%81%D9%8A%20%D8%B9%D9%87%D8%AF%20%D8%A7%D9%84%D9%85%D9%84%D9%83%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D8%B9%D8%B2%D9%8A%D8%B2%20-%20%D8%B3%D8%A7%D9%84%D9%85%20---%20%D8%B3%D8%A7%D9%84%D9%85%20%D8%A8%D9%86%20%D9%85%D8%AD%D9%85%D8%AF%20%D8%B3%D8%A7%D9%84%D9%85.PDF/KTB_0063587.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/033244f442fee942.txt",
+        "pages": 348,
+        "bytes": 724910,
+        "sha256": "c121034cd9b1cdcf74d03ba3f7118d151d8d8a4f689827b5b68583ddceca0732"
+      },
+      {
+        "library": "prophet-mosque",
+        "category": "السياسة الشرعية",
+        "title": "القضاء العرفي في مجتمع الامارات",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/4%D9%80%20216.9%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B4%D8%B1%D8%B9%D9%8A%D8%A9/00208%D9%80%20%D8%A7%D9%84%D9%82%D8%B6%D8%A7%D8%A1%20%D8%A7%D9%84%D8%B9%D8%B1%D9%81%D9%8A%20%D9%81%D9%8A%20%D9%85%D8%AC%D8%AA%D9%85%D8%B9%20%D8%A7%D9%84%D8%A7%D9%85%D8%A7%D8%B1%D8%A7%D8%AA%20---%20%D9%85%D8%AD%D9%85%D8%AF%20%D8%A5%D8%A8%D8%B1%D8%A7%D9%87%D9%8A%D9%85%20%D9%85%D9%86%D8%B5%D9%88%D8%B1.PDF/KTB_0111558.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/983020e8193e21b1.txt",
+        "pages": 208,
+        "bytes": 425193,
+        "sha256": "02a40bc8d0e47719554f180e9af1765d55f7a7369c44158d3dfa036f1dabe61b"
+      },
+      {
+        "library": "prophet-mosque",
+        "category": "الزراعة",
+        "title": "معجم الهندسة الزراعية",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/8%D9%80%20630.0%20%D8%A7%D9%84%D8%B2%D8%B1%D8%A7%D8%B9%D8%A9/00446%D9%80%20%D9%85%D8%B9%D8%AC%D9%85%20%D8%A7%D9%84%D9%87%D9%86%D8%AF%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B2%D8%B1%D8%A7%D8%B9%D9%8A%D8%A9%20---%20%D9%85%D8%AD%D9%85%D8%AF%20%D8%B9%D8%A8%D8%AF%D8%A7%D9%84%D9%85%D8%AC%D9%8A%D8%AF%20%D9%86%D8%B5%D8%A7%D8%B1.PDF/KTB_0051415.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/09b9f9bb97938231.txt",
+        "pages": 446,
+        "bytes": 919122,
+        "sha256": "1eb21b537fe1568ebc587474b0e988413f7b5e743f3fcb869eea5571a8b60e21"
+      },
+      {
+        "library": "prophet-mosque",
+        "category": "تاريخ مكة المكرمة",
+        "title": "حكم الإلحاد والظلم في المسجد الحرام بين الإرادة والتنفيذ - عبد الرحمن",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/prophet-mosque-library/resolve/main/txt/6%D9%80%20956.1%20%D8%AA%D8%A7%D8%B1%D9%8A%D8%AE%20%D9%85%D9%83%D8%A9%20%D8%A7%D9%84%D9%85%D9%83%D8%B1%D9%85%D8%A9/00178%D9%80%20%D8%AD%D9%83%D9%85%20%D8%A7%D9%84%D8%A5%D9%84%D8%AD%D8%A7%D8%AF%20%D9%88%D8%A7%D9%84%D8%B8%D9%84%D9%85%20%D9%81%D9%8A%20%D8%A7%D9%84%D9%85%D8%B3%D8%AC%D8%AF%20%D8%A7%D9%84%D8%AD%D8%B1%D8%A7%D9%85%20%D8%A8%D9%8A%D9%86%20%D8%A7%D9%84%D8%A5%D8%B1%D8%A7%D8%AF%D8%A9%20%D9%88%D8%A7%D9%84%D8%AA%D9%86%D9%81%D9%8A%D8%B0%20-%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20---%20%D9%85%D8%AD%D9%85%D8%AF%20%D8%A8%D9%86%20%D8%B3%D8%B9%D8%AF%20%D8%A8%D9%86%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86.PDF/KTB_0085127.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/60893b83349fe3dc.txt",
+        "pages": 178,
+        "bytes": 203403,
+        "sha256": "71821a5c840e22c40b873aa8368a4df5ec12c7120bb701c505c4a399f4b830d9"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "الدعوة وأحوال المسلمين",
+        "title": "فتاوى الأئمة في النوازل المدلهمة - القحطاني - ط الأوفياء",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D8%A7%D9%84%D8%AF%D8%B9%D9%88%D8%A9%20%D9%88%D8%A3%D8%AD%D9%88%D8%A7%D9%84%20%D8%A7%D9%84%D9%85%D8%B3%D9%84%D9%85%D9%8A%D9%86/%D9%81%D8%AA%D8%A7%D9%88%D9%89%20%D8%A7%D9%84%D8%A3%D8%A6%D9%85%D8%A9%20%D9%81%D9%8A%20%D8%A7%D9%84%D9%86%D9%88%D8%A7%D8%B2%D9%84%20%D8%A7%D9%84%D9%85%D8%AF%D9%84%D9%87%D9%85%D8%A9%20-%20%D8%A7%D9%84%D9%82%D8%AD%D8%B7%D8%A7%D9%86%D9%8A%20-%20%D8%B7%20%D8%A7%D9%84%D8%A3%D9%88%D9%81%D9%8A%D8%A7%D8%A1/87586.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/a6cd8719c49e6496.txt",
+        "pages": 423,
+        "bytes": 817356,
+        "sha256": "704fda97a566672cb3d38f34af40b8f60ca9075d91cfabff0ee08c1a2cd3ad6b"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "العقيدة",
+        "title": "الفرق بين الفرق وبيان الفرقة الناجية منهم - البغدادي - ط الآفاق الجديدة",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D8%A7%D9%84%D8%B9%D9%82%D9%8A%D8%AF%D8%A9/%D8%A7%D9%84%D9%81%D8%B1%D9%82%20%D8%A8%D9%8A%D9%86%20%D8%A7%D9%84%D9%81%D8%B1%D9%82%20%D9%88%D8%A8%D9%8A%D8%A7%D9%86%20%D8%A7%D9%84%D9%81%D8%B1%D9%82%D8%A9%20%D8%A7%D9%84%D9%86%D8%A7%D8%AC%D9%8A%D8%A9%20%D9%85%D9%86%D9%87%D9%85%20-%20%D8%A7%D9%84%D8%A8%D8%BA%D8%AF%D8%A7%D8%AF%D9%8A%20-%20%D8%B7%20%D8%A7%D9%84%D8%A2%D9%81%D8%A7%D9%82%20%D8%A7%D9%84%D8%AC%D8%AF%D9%8A%D8%AF%D8%A9/fbfbfnmp.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/e31df8bd1637a805.txt",
+        "pages": 10,
+        "bytes": 8250,
+        "sha256": "12b33d505e335eb553866d2eef552251b785f62137f5cdb16c8ee696a1d840da"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "السيرة والشمائل",
+        "title": "ما شاع ولم يثبت في السيرة النبوية - العوشن - ط طيبة",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D8%A7%D9%84%D8%B3%D9%8A%D8%B1%D8%A9%20%D9%88%D8%A7%D9%84%D8%B4%D9%85%D8%A7%D8%A6%D9%84/%D9%85%D8%A7%20%D8%B4%D8%A7%D8%B9%20%D9%88%D9%84%D9%85%20%D9%8A%D8%AB%D8%A8%D8%AA%20%D9%81%D9%8A%20%D8%A7%D9%84%D8%B3%D9%8A%D8%B1%D8%A9%20%D8%A7%D9%84%D9%86%D8%A8%D9%88%D9%8A%D8%A9%20-%20%D8%A7%D9%84%D8%B9%D9%88%D8%B4%D9%86%20-%20%D8%B7%20%D8%B7%D9%8A%D8%A8%D8%A9/126433s.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/e1192e20ec81320e.txt",
+        "pages": 245,
+        "bytes": 497498,
+        "sha256": "1b298bcff21c2b4c12a251a602975169366ec0fc82dd56f021f172602f8cb0a0"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "التراجم والطبقات",
+        "title": "معجم الشيوخ - الصيداوي - ت تدمري - ط الرسالة",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D8%A7%D9%84%D8%AA%D8%B1%D8%A7%D8%AC%D9%85%20%D9%88%D8%A7%D9%84%D8%B7%D8%A8%D9%82%D8%A7%D8%AA/%D9%85%D8%B9%D8%AC%D9%85%20%D8%A7%D9%84%D8%B4%D9%8A%D9%88%D8%AE%20-%20%D8%A7%D9%84%D8%B5%D9%8A%D8%AF%D8%A7%D9%88%D9%8A%20-%20%D8%AA%20%D8%AA%D8%AF%D9%85%D8%B1%D9%8A%20-%20%D8%B7%20%D8%A7%D9%84%D8%B1%D8%B3%D8%A7%D9%84%D8%A9/8600.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/330fc2192347c2ab.txt",
+        "pages": 550,
+        "bytes": 1197967,
+        "sha256": "7bfe3de2f3dbc3cf3c4fd197b0896190c6d533e9fcb0d3989e945141daeb2da5"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "الفرق والردود",
+        "title": "دلائل الأثر على تحريم التمثيل بالشعر - التويجري",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D8%A7%D9%84%D9%81%D8%B1%D9%82%20%D9%88%D8%A7%D9%84%D8%B1%D8%AF%D9%88%D8%AF/%D8%AF%D9%84%D8%A7%D8%A6%D9%84%20%D8%A7%D9%84%D8%A3%D8%AB%D8%B1%20%D8%B9%D9%84%D9%89%20%D8%AA%D8%AD%D8%B1%D9%8A%D9%85%20%D8%A7%D9%84%D8%AA%D9%85%D8%AB%D9%8A%D9%84%20%D8%A8%D8%A7%D9%84%D8%B4%D8%B9%D8%B1%20-%20%D8%A7%D9%84%D8%AA%D9%88%D9%8A%D8%AC%D8%B1%D9%8A/41530.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/f7ceed3ce5b2d629.txt",
+        "pages": 154,
+        "bytes": 261506,
+        "sha256": "4b955f1678686c971127e68888caae6d4366ae220f52b9d01c2f72ebba6af889"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "فقه حنبلي",
+        "title": "زاد المستقنع في اختصار المقنع - الحجاوي - ت عسكر - ط مدار الوطن",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D9%81%D9%82%D9%87%20%D8%AD%D9%86%D8%A8%D9%84%D9%8A/%D8%B2%D8%A7%D8%AF%20%D8%A7%D9%84%D9%85%D8%B3%D8%AA%D9%82%D9%86%D8%B9%20%D9%81%D9%8A%20%D8%A7%D8%AE%D8%AA%D8%B5%D8%A7%D8%B1%20%D8%A7%D9%84%D9%85%D9%82%D9%86%D8%B9%20-%20%D8%A7%D9%84%D8%AD%D8%AC%D8%A7%D9%88%D9%8A%20-%20%D8%AA%20%D8%B9%D8%B3%D9%83%D8%B1%20-%20%D8%B7%20%D9%85%D8%AF%D8%A7%D8%B1%20%D8%A7%D9%84%D9%88%D8%B7%D9%86/64576.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/694bd07a450611d2.txt",
+        "pages": 303,
+        "bytes": 667872,
+        "sha256": "012f17d0fa8f873a015de0da9201f56a99f03d9bdcc657dd32efbab0685e7848"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "الأدب والبلاغة",
+        "title": "الموشى أو الظرف والظرفاء - الوشاء",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D8%A7%D9%84%D8%A3%D8%AF%D8%A8%20%D9%88%D8%A7%D9%84%D8%A8%D9%84%D8%A7%D8%BA%D8%A9/%D8%A7%D9%84%D9%85%D9%88%D8%B4%D9%89%20%D8%A3%D9%88%20%D8%A7%D9%84%D8%B8%D8%B1%D9%81%20%D9%88%D8%A7%D9%84%D8%B8%D8%B1%D9%81%D8%A7%D8%A1%20-%20%D8%A7%D9%84%D9%88%D8%B4%D8%A7%D8%A1/80210p.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/1d21fc8367b8829e.txt",
+        "pages": 25,
+        "bytes": 50815,
+        "sha256": "cd1765edcd960bad028f62240d86d08a1c3d5b4757bcf9b3bb994b1bd78f4d1c"
+      },
+      {
+        "library": "shamela-waqfeya",
+        "category": "متون الحديث",
+        "title": "مسند الإمام أبي حنيفة - أبو نعيم - ت الفاريابي - ط الكوثر",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/shamela-waqfeya-library/resolve/main/txt/%D9%85%D8%AA%D9%88%D9%86%20%D8%A7%D9%84%D8%AD%D8%AF%D9%8A%D8%AB/%D9%85%D8%B3%D9%86%D8%AF%20%D8%A7%D9%84%D8%A5%D9%85%D8%A7%D9%85%20%D8%A3%D8%A8%D9%8A%20%D8%AD%D9%86%D9%8A%D9%81%D8%A9%20-%20%D8%A3%D8%A8%D9%88%20%D9%86%D8%B9%D9%8A%D9%85%20-%20%D8%AA%20%D8%A7%D9%84%D9%81%D8%A7%D8%B1%D9%8A%D8%A7%D8%A8%D9%8A%20-%20%D8%B7%20%D8%A7%D9%84%D9%83%D9%88%D8%AB%D8%B1/12912.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/337e5bc756a611eb.txt",
+        "pages": 305,
+        "bytes": 484593,
+        "sha256": "1fd441b10158e526fb2021aae2d4ae35a2d71288ecd89671a0ce0dce03c33c90"
+      },
+      {
+        "library": "waqfeya",
+        "category": "مصطلح الحديث",
+        "title": "قطف الأزهار المتناثرة في الأخبار المتواترة",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/2%D9%80%20213.1%20%28356%29%20%D9%85%D8%B5%D8%B7%D9%84%D8%AD%20%D8%A7%D9%84%D8%AD%D8%AF%D9%8A%D8%AB/00312%D9%80%20%D9%82%D8%B7%D9%81%20%D8%A7%D9%84%D8%A3%D8%B2%D9%87%D8%A7%D8%B1%20%D8%A7%D9%84%D9%85%D8%AA%D9%86%D8%A7%D8%AB%D8%B1%D8%A9%20%D9%81%D9%8A%20%D8%A7%D9%84%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20%D8%A7%D9%84%D9%85%D8%AA%D9%88%D8%A7%D8%AA%D8%B1%D8%A9%20---%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D8%B1%D8%AD%D9%85%D9%86%20%D8%A7%D9%84%D8%B3%D9%8A%D9%88%D8%B7%D9%8A%20%D8%AC%D9%84%D8%A7%D9%84%20%D8%A7%D9%84%D8%AF%D9%8A%D9%86.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/f89ca1171e646d35.txt",
+        "pages": 312,
+        "bytes": 559902,
+        "sha256": "77a7ecaf3c7e7c440521232f5c0b4300626c897893fc363da8545b6b5ae9851d"
+      },
+      {
+        "library": "waqfeya",
+        "category": "الفقه العام",
+        "title": "البصمة الوراثية وأثرها على الأحكام الفقهية دراسة فقهية مقارنة",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/4%D9%80%20217.0%20%28686%29%20%D8%A7%D9%84%D9%81%D9%82%D9%87%20%D8%A7%D9%84%D8%B9%D8%A7%D9%85/00544%D9%80%20%D8%A7%D9%84%D8%A8%D8%B5%D9%85%D8%A9%20%D8%A7%D9%84%D9%88%D8%B1%D8%A7%D8%AB%D9%8A%D8%A9%20%D9%88%D8%A3%D8%AB%D8%B1%D9%87%D8%A7%20%D8%B9%D9%84%D9%89%20%D8%A7%D9%84%D8%A3%D8%AD%D9%83%D8%A7%D9%85%20%D8%A7%D9%84%D9%81%D9%82%D9%87%D9%8A%D8%A9%20%D8%AF%D8%B1%D8%A7%D8%B3%D8%A9%20%D9%81%D9%82%D9%87%D9%8A%D8%A9%20%D9%85%D9%82%D8%A7%D8%B1%D9%86%D8%A9%20---%20%D8%AE%D9%84%D9%8A%D9%81%D8%A9%20%D8%B9%D9%84%D9%8A%20%D8%A7%D9%84%D9%83%D8%B9%D8%A8%D9%8A.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/7d404ce58d7b120b.txt",
+        "pages": 544,
+        "bytes": 1318851,
+        "sha256": "5b1eb25cc31fb54dfcb08d02f3c72abab53e196c90ace9dfc3de365cdc5f5adf"
+      },
+      {
+        "library": "waqfeya",
+        "category": "المعاجم والقواميس العربية",
+        "title": "المعاجم العربية موضوعات وألفاظا",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/5%D9%80%20413.0%20%28108%29%20%D8%A7%D9%84%D9%85%D8%B9%D8%A7%D8%AC%D9%85%20%D9%88%D8%A7%D9%84%D9%82%D9%88%D8%A7%D9%85%D9%8A%D8%B3%20%D8%A7%D9%84%D8%B9%D8%B1%D8%A8%D9%8A%D8%A9/00192%D9%80%20%D8%A7%D9%84%D9%85%D8%B9%D8%A7%D8%AC%D9%85%20%D8%A7%D9%84%D8%B9%D8%B1%D8%A8%D9%8A%D8%A9%20%D9%85%D9%88%D8%B6%D9%88%D8%B9%D8%A7%D8%AA%20%D9%88%D8%A3%D9%84%D9%81%D8%A7%D8%B8%D8%A7%20---%20%D9%81%D9%88%D8%B2%D9%8A%20%D9%8A%D9%88%D8%B3%D9%81%20%D8%A7%D9%84%D9%87%D8%A7%D8%A8%D8%B7.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/a6f60d3dcd96926d.txt",
+        "pages": 192,
+        "bytes": 342009,
+        "sha256": "86ea2546dd6bedf5962e943ff99cd6c1883f0c52ae6d319aa7520f1ebe6f14ab"
+      },
+      {
+        "library": "waqfeya",
+        "category": "السياسة الشرعية",
+        "title": "مسألة في الكنائس ومعه ترجمة شيخ الإسلام ومعه قائمة ببعض مخطوطات شيخ الإسلام",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/4%D9%80%20216.9%20%28212%29%20%D8%A7%D9%84%D8%B3%D9%8A%D8%A7%D8%B3%D8%A9%20%D8%A7%D9%84%D8%B4%D8%B1%D8%B9%D9%8A%D8%A9/00172%D9%80%20%D9%85%D8%B3%D8%A3%D9%84%D8%A9%20%D9%81%D9%8A%20%D8%A7%D9%84%D9%83%D9%86%D8%A7%D8%A6%D8%B3%20%D9%88%D9%85%D8%B9%D9%87%20%D8%AA%D8%B1%D8%AC%D9%85%D8%A9%20%D8%B4%D9%8A%D8%AE%20%D8%A7%D9%84%D8%A5%D8%B3%D9%84%D8%A7%D9%85%20%D9%88%D9%85%D8%B9%D9%87%20%D9%82%D8%A7%D8%A6%D9%85%D8%A9%20%D8%A8%D8%A8%D8%B9%D8%B6%20%D9%85%D8%AE%D8%B7%D9%88%D8%B7%D8%A7%D8%AA%20%D8%B4%D9%8A%D8%AE%20%D8%A7%D9%84%D8%A5%D8%B3%D9%84%D8%A7%D9%85%20---%20%D8%A3%D8%AD%D9%85%D8%AF%20%D8%A8%D9%86%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D8%AD%D9%84%D9%8A%D9%85%20%D8%A8%D9%86%20%D8%AA%D9%8A%D9%85%D9%8A%D8%A9%20%D8%A7%D9%84%D8%AD%D8%B1%D8%A7%D9%86%D9%8A.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/c82c4ddde633603f.txt",
+        "pages": 172,
+        "bytes": 372708,
+        "sha256": "6b62fdbae4c78f1912a08f9eebdb86f9af5bf1b6287c7f304c861085ecaa0676"
+      },
+      {
+        "library": "waqfeya",
+        "category": "التراجم والأعلام",
+        "title": "شوقي أو صداقة أربعين سنة (مصورة من ط. الحلبي)",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/6%D9%80%20920.0%20%28601%29%20%D8%A7%D9%84%D8%AA%D8%B1%D8%A7%D8%AC%D9%85%20%D9%88%D8%A7%D9%84%D8%A3%D8%B9%D9%84%D8%A7%D9%85/00354%D9%80%20%D8%B4%D9%88%D9%82%D9%8A%20%D8%A3%D9%88%20%D8%B5%D8%AF%D8%A7%D9%82%D8%A9%20%D8%A3%D8%B1%D8%A8%D8%B9%D9%8A%D9%86%20%D8%B3%D9%86%D8%A9%20%28%D9%85%D8%B5%D9%88%D8%B1%D8%A9%20%D9%85%D9%86%20%D8%B7.%20%D8%A7%D9%84%D8%AD%D9%84%D8%A8%D9%8A%29%20---%20%D8%B4%D9%83%D9%8A%D8%A8%20%D8%A3%D8%B1%D8%B3%D9%84%D8%A7%D9%86.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/247843cae03ba858.txt",
+        "pages": 354,
+        "bytes": 868618,
+        "sha256": "ea9581a07bf98203e72c337d10a5123922a4fa0a90eb94a32cb1d4627f7f17f3"
+      },
+      {
+        "library": "waqfeya",
+        "category": "دواوين الشعر",
+        "title": "الألمعيات ديوان شعر",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/5%D9%80%20810.0%20%28153%29%20%D8%AF%D9%88%D8%A7%D9%88%D9%8A%D9%86%20%D8%A7%D9%84%D8%B4%D8%B9%D8%B1/00164%D9%80%20%D8%A7%D9%84%D8%A3%D9%84%D9%85%D8%B9%D9%8A%D8%A7%D8%AA%20%D8%AF%D9%8A%D9%88%D8%A7%D9%86%20%D8%B4%D8%B9%D8%B1%20---%20%D8%B2%D8%A7%D9%87%D8%B1%20%D8%A8%D9%86%20%D8%B9%D9%88%D8%A7%D8%B6%20%D8%A7%D9%84%D8%A3%D9%84%D9%85%D8%B9%D9%8A.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/ce178fa45744b295.txt",
+        "pages": 164,
+        "bytes": 153974,
+        "sha256": "109141a302cfbc5799609931a3d63f9b6052e0c27d817584db0c89a1b44cf7fa"
+      },
+      {
+        "library": "waqfeya",
+        "category": "باقي مجموعات الحديث",
+        "title": "الجزء فيه أحاديث أبي الزبير عن غير جابر",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/2%D9%80%20213.7%20%28577%29%20%D8%A8%D8%A7%D9%82%D9%8A%20%D9%85%D8%AC%D9%85%D9%88%D8%B9%D8%A7%D8%AA%20%D8%A7%D9%84%D8%AD%D8%AF%D9%8A%D8%AB/00256%D9%80%20%D8%A7%D9%84%D8%AC%D8%B2%D8%A1%20%D9%81%D9%8A%D9%87%20%D8%A3%D8%AD%D8%A7%D8%AF%D9%8A%D8%AB%20%D8%A3%D8%A8%D9%8A%20%D8%A7%D9%84%D8%B2%D8%A8%D9%8A%D8%B1%20%D8%B9%D9%86%20%D8%BA%D9%8A%D8%B1%20%D8%AC%D8%A7%D8%A8%D8%B1%20---%20%D8%B9%D8%A8%D8%AF%20%D8%A7%D9%84%D9%84%D9%87%20%D8%A8%D9%86%20%D8%AC%D8%B9%D9%81%D8%B1%20%D8%A8%D9%86%20%D8%AD%D9%8A%D8%A7%D9%86%20%D8%A7%D9%84%D8%A3%D8%B5%D8%A8%D9%87%D8%A7%D9%86%D9%8A.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/f1ece7da37bd69ed.txt",
+        "pages": 256,
+        "bytes": 625680,
+        "sha256": "de17b2dd2c173bf28730a483151bcbdac642bc396d0893ba550a0ade6168a1bc"
+      },
+      {
+        "library": "waqfeya",
+        "category": "التاريخ الإسلامي",
+        "title": "أخبار الراضي بالله والمتقي لله أو تاريخ الدولة العباسية",
+        "url": "https://huggingface.co/datasets/ieasybooks-org/waqfeya-library/resolve/main/txt/6%D9%80%20956.0%20%28260%29%20%D8%A7%D9%84%D8%AA%D8%A7%D8%B1%D9%8A%D8%AE%20%D8%A7%D9%84%D8%A5%D8%B3%D9%84%D8%A7%D9%85%D9%8A/00334%D9%80%20%D8%A3%D8%AE%D8%A8%D8%A7%D8%B1%20%D8%A7%D9%84%D8%B1%D8%A7%D8%B6%D9%8A%20%D8%A8%D8%A7%D9%84%D9%84%D9%87%20%D9%88%D8%A7%D9%84%D9%85%D8%AA%D9%82%D9%8A%20%D9%84%D9%84%D9%87%20%D8%A3%D9%88%20%D8%AA%D8%A7%D8%B1%D9%8A%D8%AE%20%D8%A7%D9%84%D8%AF%D9%88%D9%84%D8%A9%20%D8%A7%D9%84%D8%B9%D8%A8%D8%A7%D8%B3%D9%8A%D8%A9%20---%20%D9%85%D8%AD%D9%85%D8%AF%20%D8%A8%D9%86%20%D9%8A%D8%AD%D9%8A%20%D8%A7%D9%84%D8%B5%D9%88%D9%84%D9%8A.PDF/%D8%A7%D9%84%D9%83%D8%AA%D8%A7%D8%A8.txt",
+        "path": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/source/20f2111799bbc24b.txt",
+        "pages": 318,
+        "bytes": 575332,
+        "sha256": "eeb4fd889aa18a13283b50ebb7c54119d1429e426d04853a27f1ab448376a823"
+      }
+    ]
+  },
+  "measurements": {
+    "catalog": {
+      "first_ms": 4.45,
+      "median_ms": 4.45,
+      "max_ms": 4.45
+    },
+    "catalog_filtered": {
+      "first_ms": 2.48,
+      "median_ms": 2.48,
+      "max_ms": 2.48
+    },
+    "catalog_deep": {
+      "first_ms": 46.69,
+      "median_ms": 46.69,
+      "max_ms": 46.69
+    },
+    "authors": {
+      "first_ms": 32.52,
+      "median_ms": 32.52,
+      "max_ms": 32.52
+    },
+    "downloads": {
+      "first_ms": 64.37,
+      "median_ms": 64.37,
+      "max_ms": 64.37
+    },
+    "downloads_size": {
+      "first_ms": 13.78,
+      "median_ms": 13.78,
+      "max_ms": 13.78
+    },
+    "downloads_count": {
+      "first_ms": 12.0,
+      "median_ms": 12.0,
+      "max_ms": 12.0
+    },
+    "common_word": {
+      "first_ms": 27939.41,
+      "median_ms": 27939.41,
+      "max_ms": 27939.41
+    },
+    "cached_next_page": {
+      "first_ms": 0.93,
+      "median_ms": 0.93,
+      "max_ms": 0.93
+    },
+    "common_prefix": {
+      "first_ms": 30590.34,
+      "median_ms": 30590.34,
+      "max_ms": 30590.34
+    },
+    "multiple_words": {
+      "first_ms": 8837.21,
+      "median_ms": 8837.21,
+      "max_ms": 8837.21
+    },
+    "rare_word": {
+      "first_ms": 414.0,
+      "median_ms": 414.0,
+      "max_ms": 414.0
+    },
+    "no_match": {
+      "first_ms": 4.62,
+      "median_ms": 4.62,
+      "max_ms": 4.62
+    },
+    "filtered_common": {
+      "first_ms": 38245.58,
+      "median_ms": 38245.58,
+      "max_ms": 38245.58
+    },
+    "book_search": {
+      "first_ms": 1045.28,
+      "median_ms": 1045.28,
+      "max_ms": 1045.28
+    },
+    "search_page_100": {
+      "first_ms": 23468.56,
+      "median_ms": 23468.56,
+      "max_ms": 23468.56
+    },
+    "library_order": {
+      "first_ms": 24.01,
+      "median_ms": 24.01,
+      "max_ms": 24.01
+    },
+    "read_page": {
+      "first_ms": 0.15,
+      "median_ms": 0.15,
+      "max_ms": 0.15
+    }
+  },
+  "token_cache": null,
+  "cache": "Linux DONTNEED requested before opening the fixture",
+  "sqlite_temporary_directory": "/home/alifadel/repositories/aljam3-desktop/.cache/benchmark/full/tmp",
+  "fixture": "Sampled real OCR repeated deterministically, with a unique numeric suffix on every page",
+  "recorded_at": "2026-10-02T18:57:54Z",
+  "actual_pages": 37610673,
+  "actual_books": 63535,
+  "completed_books": 63535,
+  "sqlite_page_size": 16384,
+  "sqlite_freelist_pages": 236,
+  "database_bytes": 127539724288,
+  "peak_total_rss_kib": 345472,
+  "heartbeat_max_ms": 91.54,
+  "peak_rss_kib": 161364,
+  "indexed_matches": {
+    "الله": 27842923,
+    "في": 33384748,
+    "العلم العمل": 1642237,
+    "الزمخشري": 106989
+  }
+}

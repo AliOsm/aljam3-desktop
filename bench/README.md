@@ -33,7 +33,7 @@ For a separate Linux cold-start trial, close other connections to the fixture an
 - `indexing.rb` compares the previous per-row inserts with production bulk inserts, 8/64 MiB writer caches, and different FTS merge settings, using fresh SSD scratch databases and 100,000 real sample pages. It does not use the token cache below.
 - The 100,000-page storage trial used 298.6 MB at 4 KiB SQLite pages, 253.9 MB at 8 KiB, and 233.7 MB at 16 KiB (page text and page-number index). New app databases use 16 KiB; existing libraries retain their page size.
 
-Measurements on an Intel i5-8500, 16 GiB RAM, SSD, Ruby 3.4.7, and SQLite 3.53.2 showed these warm medians at 1,000,000 pages / 63,535 books. Raw reports: [baseline](results/baseline-1m.json), [first optimization](results/optimized-1m.json), [final query plans](results/optimized-final-1m.json).
+An earlier checkpoint on an Intel i5-8500, 16 GiB RAM, SSD, Ruby 3.4.7, and SQLite 3.53.2 showed these warm medians at 1,000,000 pages / 63,535 books. These precede the final excerpt improvement described below. Raw reports: [baseline](results/baseline-1m.json), [first optimization](results/optimized-1m.json), [one-million-page checkpoint](results/optimized-final-1m.json).
 
 | Operation | Original | Optimized |
 |---|---:|---:|
@@ -58,7 +58,57 @@ A combined 2/3/4-character prefix index increased FTS data from 594 MB to 1,716 
 
 The final [SSD indexing trial](results/indexing-ssd.json) took 50.31 seconds for the previous per-row inserts and 33.24 seconds for bulk insertion of the same 100,000 pages: about 34% less time. Both produced 74,043 matches and the same leading results. The app now binds up to 500 pages into each insert statement, retaining the surrounding transaction, duplicate handling, and file bounds. A failed batch rolls back before retrying. These timings exclude HTTP transfer and worker IPC, and the full fixture was being generated concurrently. Larger writer caches and a higher merge threshold did not improve this trial enough to adopt them. Earlier indexing microbenchmarks used `/tmp`, which is RAM-backed on this host; the final comparison uses SSD files and supersedes those timings.
 
-The full-size measurement is in progress; the one-million-page table above is not evidence of completed full-corpus verification.
+## Completed full-size measurements
+
+On October 2, 2026, the fixture reached **63,535 completed books and 37,610,673 pages**. The text, metadata, and search database occupied **127,539,724,288 bytes (127.54 GB / 118.78 GiB)**, with 16 KiB SQLite pages. PDF files are excluded. The schema contained only the application's tables and indexes.
+
+The final runs used app code `9aa112f` on the same Linux machine, with fixture generation stopped and a fresh Ruby process. Other workstation services remained running. Reports: [three-run measurements](results/full-scale.json), [cold-start sequence](results/full-scale-cold-start.json), and [correctness verification](results/verification-full.json).
+
+| Operation | Repeated-run median | Cache-eviction trial |
+|---|---:|---:|
+| Catalog page 1 | 2.37 ms | 4.45 ms |
+| Catalog page 5000 | 5.97 ms | 46.69 ms |
+| Downloaded authors | 14.38 ms | 32.52 ms |
+| Downloads screen, 12 entries | 15.99 ms | 64.37 ms |
+| `الله`, relevance | 23.61 s | 27.94 s |
+| `في`, relevance | 29.73 s | 30.59 s |
+| `العلم العمل`, relevance | 8.23 s | 8.84 s |
+| `الزمخشري`, relevance | 285.91 ms | 414.00 ms |
+| No matching pages | 0.44 ms | 4.62 ms |
+| `الله`, author filter | 33.04 s | 38.25 s |
+| `الله`, one book | 999.30 ms | 1045.28 ms |
+| Relevance page 100 | 23.41 s | 23.47 s |
+| Next cached relevance page | 0.70 ms | 0.93 ms |
+| `الله`, optional library order | 23.29 ms | 24.01 ms |
+| Page-text lookup | 0.05 ms | 0.15 ms |
+
+The cache-eviction request happened once, before metadata checks. Later queries reused OS caches; this column does not represent a cold cache for every operation. The author scope contains 634 catalog entries under the source's unspecified-author label. Book/page associations and lengths remain synthetic as described above.
+
+The repeated run sampled **362 MiB** combined parent/query-worker RSS and an **84.21 ms** maximum Ruby heartbeat gap; the cold-start sequence sampled 337 MiB and 91.54 ms. These include the benchmark driver's catalog allocations and exclude the native renderer and PDFs. They are not native frame-rate measurements.
+
+The correctness run passed SQLite's `quick_check`, page-count and ID-range checks, 32 sampled page-content comparisons, and independent expected match counts: **27,842,923** for `الله`, **33,384,748** for `في`, **1,642,237** for `العلم العمل`, **106,989** for `الزمخشري`, and zero for the unmatched query. It also checked three book scopes per query and six result pages in both orders, crossing the five-page cache boundary. Cancellation took **2.76 ms**; 20 repeated page-text lookups during a broad search had a maximum latency of **1.13 ms**. The full integrity command also checks FTS structures and can take tens of minutes at this size.
+
+SQLite handled this fixture while browsing, page reads, and cached result pages remained fast. Exhaustive relevance ranking for common terms still takes tens of seconds. Relevance remains the default and considers every matching candidate; library order remains available. These measurements establish performance and consistency on a full-size repeated-OCR fixture, not human relevance quality or performance on the complete unique corpus.
+
+## Excerpts distributed across the library
+
+Repeated text can concentrate the best-ranked pages into a small range of IDs. A separate test selected 61 matching pages spread across the entire database, then compared the previous bounded FTS scan with the production excerpt helper. Both plans ran sequentially after the full verification and timing runs. Medians over three repetitions:
+
+| Query | Previous excerpt scan | Selected-page excerpts |
+|---|---:|---:|
+| `الله` | 2870.80 ms | 50.96 ms |
+| `في` | 3505.10 ms | 53.59 ms |
+| `الله الرحمن` | 1007.44 ms | 49.11 ms |
+| `العلم العمل` | 2192.57 ms | 51.30 ms |
+
+These measure only text/excerpt retrieval, excluding ranking. All selected IDs and excerpt SHA-256 hashes matched across the two plans. The temporary FTS table holds only the selected pages and uses the original Arabic tokenizer. Global ranking remains on the full index. Direct point lookups in the large FTS index were rejected because prefix initialization could repeat for each selected page and become much slower for multiword queries.
+
+Reports: [previous scan](results/excerpts-scan-full.json) and [production helper](results/excerpts-optimized-full.json). Reproduce with the completed fixture:
+
+```sh
+mise exec -- bundle exec ruby bench/excerpts.rb scan
+mise exec -- bundle exec ruby bench/excerpts.rb current
+```
 
 ## Optional fixture-generation accelerator
 
