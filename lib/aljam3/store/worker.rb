@@ -52,10 +52,11 @@ module Aljam3
 
       def start
         ruby = if (bundle = ENV["ALJAM3_BUNDLE_ROOT"])
-          File.join(bundle, "ruby/bin.real", Gem.win_platform? ? "rubyw.exe" : "ruby")
+          File.join(bundle, Gem.win_platform? ? "ruby/bin.real/rubyw.exe" : "ruby/bin/ruby")
         else
           Gem.win_platform? ? RbConfig.ruby.sub(/ruby\.exe\z/i, "rubyw.exe") : RbConfig.ruby
         end
+        # The macOS launcher configures Ruby's relocated standard library.
         # Portable Ruby launchers reset GEM_HOME/GEM_PATH. Pass the resolved
         # paths as arguments so the worker uses exactly the app's gem locations.
         env = { "RUBYOPT" => nil, "BUNDLER_SETUP" => nil, "BUNDLE_GEMFILE" => nil, "BUNDLE_BIN_PATH" => nil }
