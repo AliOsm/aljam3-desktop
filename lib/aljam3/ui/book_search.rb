@@ -50,6 +50,7 @@ module Aljam3
         return if query.empty?
 
         @editing_field = nil
+        @dialog[:scroll], @dialog_results = 0, nil
         @book_search[:pool_size] = Store::Search::POOL_SIZE if @book_search[:searched_query] != query
         @book_search[:searched_query] = query
         @book_search[:pool_size] += Store::Search::POOL_SIZE if expand

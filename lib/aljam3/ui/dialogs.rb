@@ -5,6 +5,8 @@ module Aljam3
     module Dialogs
       def open_dialog(type, nested: false, **data)
         @editing_field = nil
+        @dialog[:scroll] = @dialog_results.scroll_top if @dialog && @dialog_results
+        @dialog_results = nil
         @dialog_scroll ||= { results: @results&.scroll_top || 0, text: @text_surface&.scroll_top || 0, pdf: @pdf_surface&.scroll_top || 0 }
         @dialog_stack ||= []
         @dialog_stack << @dialog if nested && @dialog
@@ -21,6 +23,7 @@ module Aljam3
         was_search = closed&.dig(:type) == :book_search
         @store.cancel_search if was_search
         @dialog = @dialog_stack&.pop
+        @dialog_results = nil
         @book_search[:busy] = false if was_search
         @dialog_scroll = nil if block_given? && !@dialog
         yield if block_given?

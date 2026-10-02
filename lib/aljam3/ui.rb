@@ -106,6 +106,7 @@ module Aljam3
     end
 
     def draw_window
+      @dialog[:scroll] = @dialog_results.scroll_top if @dialog && @dialog_results
       scroll = @dialog_scroll&.fetch(:results) || @results&.scroll_top || 0
       text_scroll = @dialog_scroll&.fetch(:text) || @text_surface&.scroll_top || 0
       pdf_scroll = @dialog_scroll&.fetch(:pdf) || @pdf_surface&.scroll_top || 0

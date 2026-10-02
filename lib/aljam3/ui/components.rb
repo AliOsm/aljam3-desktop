@@ -8,9 +8,14 @@ module Aljam3
       end
 
       def scroll_area(**styles, &block)
-        stack(width: 1.0, direction: "rtl", scroll: !@dialog, **styles) do
+        area = stack(width: 1.0, direction: "rtl", scroll: !@dialog, **styles) do
           stack(margin: [14, 0, 0, 16], &block)
         end
+        if @drawing_dialog
+          @dialog_results = area
+          area.scroll_top = @dialog.fetch(:scroll, 0)
+        end
+        area
       end
 
       def separator(**styles)

@@ -76,6 +76,13 @@ app.every(0.1) do
       raise "Online book search failed" unless result.source == :online && result.data.fetch("pages").any?
       raise "Reader remains interactive under dialog" unless app.instance_variable_get(:@page_field).state == "disabled"
       shot.call("book-search")
+      app.instance_variable_get(:@dialog_results).scroll_top = 180
+      automation.wait_frames
+      app.draw_window
+      automation.wait_frames
+      raise "Dialog results lost their scroll position" unless app.instance_variable_get(:@dialog_results).scroll_top == 180
+      app.instance_variable_get(:@dialog_results).scroll_top = 0
+      automation.wait_frames
       hit = result.data.fetch("pages").first
       button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "عرض الصفحة" }
       raise "Search result action missing" unless button
@@ -279,7 +286,7 @@ app.every(0.1) do
       raise "Bookmarks lost after removal" if store.bookmarks(1).empty?
       raise "Reading history lost after removal" if store.recent_books.empty?
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true,
-        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_sheet_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope bounded_pagination immediate_cached_catalog remove_download_preserves_history typing_during_background_refresh field_blur anchored_popup popup_focus_return reader_header page_validation enter_arabic_digits] }))
+        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_sheet_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope bounded_pagination immediate_cached_catalog remove_download_preserves_history typing_during_background_refresh field_blur anchored_popup popup_focus_return reader_header page_validation enter_arabic_digits dialog_scroll_preserved] }))
       app.close
     end
   rescue StandardError => error
