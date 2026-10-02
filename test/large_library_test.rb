@@ -113,6 +113,16 @@ class LargeLibraryTest < StoreTestCase
     assert_equal 40, @store.next_download
   end
 
+  def test_failed_page_batch_rolls_back_before_retrying
+    @store.prepare_download(book)
+    rows = Array.new(600) { |index| { "id" => index + 1, "number" => index + 1, "content" => "العلم" } }
+    assert_raises(RuntimeError) { @store.add_pages(10, rows + [{ "id" => 601, "number" => 601 }]) }
+    assert_equal 0, @store.page_count(10)
+    @store.add_pages(10, rows)
+    @store.complete_download(1)
+    assert_equal 600, @store.search("العلم").dig("pagination", "count")
+  end
+
   def test_blocked_indexer_does_not_block_reads_and_can_be_cancelled_and_restarted
     @store.prepare_download(book)
     db = @store.instance_variable_get(:@db)

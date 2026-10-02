@@ -1,6 +1,6 @@
 # Library scale measurements
 
-These scripts use disposable databases under `.cache/benchmark`. They never need the user's downloaded PDFs or app data directory.
+Generation and performance benchmarks use disposable databases under `.cache/benchmark`; small correctness verifiers also use temporary directories. They never need the user's downloaded PDFs or app data directory. Performance runs place SQLite temporary files beside their fixtures, on the SSD used for the measurements.
 
 ## Workload
 
@@ -24,10 +24,12 @@ Creation can take hours. It commits completed books incrementally, can resume th
 
 Measurements use the actual `Store` and its worker processes. Each timed search evicts the small result cache first without restarting the worker; the cache-hit measurement is reported separately. OS/database cache state is not forced cold. Three repetitions report first, median, and maximum latency. Linux runs also sample combined parent/child RSS and a 20 ms Ruby heartbeat. The heartbeat demonstrates process isolation, not native frame-rate performance. Native interactions are checked separately with `mise run verify-ui` and the packaged runtime probes.
 
+For a separate Linux cold-start trial, close other connections to the fixture and add `--evict-cache --label cold-start`. This requests `POSIX_FADV_DONTNEED` for that database before opening it; it does not clear global caches or affect other files. Metadata checks precede the first search, and later searches reuse OS caches, so this is not a cold-cache measurement of every operation. The kernel may retain pinned pages despite the request.
+
 ## Experiments
 
 - `prefix.rb [database] [prefix-lengths]` adds `trial_fts` to a **disposable fixture**, rebuilds it, compares ranking and index size, and leaves it for further inspection. Do not reuse an existing trial table with different prefix lengths.
-- `indexing.rb` compares normal Arabic indexing with 8/64 MiB writer caches and different FTS merge settings, using fresh scratch databases and 100,000 real sample pages. It does not use the token cache below.
+- `indexing.rb` compares the previous per-row inserts with production bulk inserts, 8/64 MiB writer caches, and different FTS merge settings, using fresh SSD scratch databases and 100,000 real sample pages. It does not use the token cache below.
 - The 100,000-page storage trial used 298.6 MB at 4 KiB SQLite pages, 253.9 MB at 8 KiB, and 233.7 MB at 16 KiB (page text and page-number index). New app databases use 16 KiB; existing libraries retain their page size.
 
 Measurements on an Intel i5-8500, 16 GiB RAM, SSD, Ruby 3.4.7, and SQLite 3.53.2 showed these warm medians at 1,000,000 pages / 63,535 books. Raw reports: [baseline](results/baseline-1m.json), [first optimization](results/optimized-1m.json), [final query plans](results/optimized-final-1m.json).
@@ -51,13 +53,15 @@ This fixture has 740,305 matches for `الله`, 887,630 for `في`, 43,678 for 
 
 For dense unfiltered searches, explicit `ORDER BY bm25(), rowid` retains the best IDs while scoring every match, then fetches their text and excerpts in one bounded FTS scan. This avoids the FTS rank cursor's complete internal sort. A density estimate from the count probe chooses the query plan only, never the candidate set. Sparse or scoped searches keep the rank cursor, which avoids a second prefix scan. If any indexed book is incomplete, filtering remains inside the ranked query. Both plans run in a single read transaction; completing or removing a download invalidates cached results and density metadata.
 
-A combined 2/3/4-character prefix index increased FTS data from 594 MB to 1,716 MB while improving broad ranked queries by approximately 15–20%; it was rejected. A subsequent two-character-only index used 1,038 MB and reduced the ranked SQL query within a book from 264 to 29 ms, with identical IDs and ordering. The app adopts this smaller option, which indexes normalized short stems such as the one produced for `الله`. Increasing the writer cache from 8 to 64 MiB had little effect (36.66 vs 36.47 seconds per 100,000 pages). Increasing the merge threshold also offered only a small improvement in that trial. These observations should not be treated as universal tuning rules.
+A combined 2/3/4-character prefix index increased FTS data from 594 MB to 1,716 MB while improving broad ranked queries by approximately 15–20%; it was rejected. A subsequent two-character-only index used 1,038 MB and reduced the ranked SQL query within a book from 264 to 29 ms, with identical IDs and ordering. The app adopts this smaller option, which indexes normalized short stems such as the one produced for `الله`.
+
+The final [SSD indexing trial](results/indexing-ssd.json) took 50.31 seconds for the previous per-row inserts and 33.24 seconds for bulk insertion of the same 100,000 pages: about 34% less time. Both produced 74,043 matches and the same leading results. The app now binds up to 500 pages into each insert statement, retaining the surrounding transaction, duplicate handling, and file bounds. A failed batch rolls back before retrying. These timings exclude HTTP transfer and worker IPC, and the full fixture was being generated concurrently. Larger writer caches and a higher merge threshold did not improve this trial enough to adopt them. Earlier indexing microbenchmarks used `/tmp`, which is RAM-backed on this host; the final comparison uses SSD files and supersedes those timings.
 
 The full-size measurement is in progress; the one-million-page table above is not evidence of completed full-corpus verification.
 
 ## Optional fixture-generation accelerator
 
-`token_cache.cc` is a benchmark-only SQLite extension that caches the upstream Arabic tokenizer's output for repeated sample text. The numeric suffix is still analyzed normally; query and snippet analysis always use the real tokenizer. It is never included in the app or used to report normal indexing throughput. With this option, `bulk_pages.rb` also generates repeated content through SQL, using the normal insert trigger, one transaction per book, a 64 MiB writer cache, and `synchronous=NORMAL`. These generation settings do not change the production app's settings.
+`token_cache.cc` is a benchmark-only SQLite extension that caches the upstream Arabic tokenizer's output for repeated sample text. The numeric suffix is still analyzed normally; query and snippet analysis always use the real tokenizer. It is never included in the app or used to report normal indexing throughput. With this option, `bulk_pages.rb` also generates repeated content through SQL, using the normal insert trigger, one transaction per book, a 256 MiB writer cache, a 16,384-page WAL checkpoint threshold, and `synchronous=NORMAL`. These generation settings do not change the production app's settings.
 
 On Linux, with C++17 and SQLite development headers available:
 

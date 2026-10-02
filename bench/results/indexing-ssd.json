@@ -1,0 +1,48 @@
+{
+  "recorded_at": "2026-10-02T16:54:51.161478+00:00",
+  "hardware": "Intel i5-8500, 16 GiB RAM, SSD",
+  "ruby": "3.4.7",
+  "sqlite": "3.53.2",
+  "storage": "SSD scratch directories under .cache/benchmark/tmp; WAL and normal production durability settings",
+  "background_load": "The full-library fixture was being generated concurrently",
+  "tokenizer": "Unmodified sqlite-tokenizer-ar 0.1.13; no token cache",
+  "runs_per_configuration": 1,
+  "measurements": [
+    {
+      "method": "previous",
+      "cache_mib": 8,
+      "automerge": 4,
+      "pages": 100000,
+      "seconds": 50.311150992056355,
+      "pages_per_second": 1987.6309332654512,
+      "matches": 74043
+    },
+    {
+      "method": "bulk",
+      "cache_mib": 8,
+      "automerge": 4,
+      "pages": 100000,
+      "seconds": 33.2397583599668,
+      "pages_per_second": 3008.4454561028847,
+      "matches": 74043
+    },
+    {
+      "method": "bulk",
+      "cache_mib": 64,
+      "automerge": 4,
+      "pages": 100000,
+      "seconds": 36.83981193997897,
+      "pages_per_second": 2714.4546818785166,
+      "matches": 74043
+    },
+    {
+      "method": "bulk",
+      "cache_mib": 64,
+      "automerge": 8,
+      "pages": 100000,
+      "seconds": 34.62200634391047,
+      "pages_per_second": 2888.3363663755035,
+      "matches": 74043
+    }
+  ]
+}

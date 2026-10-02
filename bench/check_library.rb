@@ -5,6 +5,9 @@ require "tmpdir"
 require "timeout"
 
 path = ARGV.fetch(0, ".cache/benchmark/full/library.sqlite3")
+temporary = File.join(File.dirname(File.expand_path(path)), "tmp")
+FileUtils.mkdir_p(temporary)
+ENV["SQLITE_TMPDIR"] = temporary
 manifest = JSON.parse(File.read(".cache/benchmark/source/manifest.json"))
 books = JSON.parse(File.read(".cache/benchmark/source/catalog.json"))
 texts = manifest.fetch("samples").flat_map { |sample| File.read(sample.fetch("path")).split(/\r?\nPAGE_SEPARATOR\r?\n/, -1) }
@@ -14,7 +17,8 @@ db = store.instance_variable_get(:@db)
 target = store.preference("benchmark:pages")
 raise "Not a marked benchmark fixture" unless target
 raise "Fixture is incomplete" unless db.get_first_value("SELECT count(*) FROM pages") == target
-raise "Books are incomplete" unless store.downloaded_ids.size == books.size
+raise "Books are incomplete" unless store.downloaded_ids == books.map { |book| book.fetch("id") }.to_set
+raise "Page IDs are incomplete" unless db.get_first_value("SELECT min(id) FROM pages") == 1 && db.get_first_value("SELECT max(id) FROM pages") == target
 report = { pages: target, books: books.size, sampled_pages: [], queries: {}, recorded_at: Time.now.utc.iso8601 }
 $stdout.sync = true
 

@@ -16,14 +16,24 @@ OptionParser.new do |parser|
   parser.on("--prepare") { options[:prepare] = true }
   parser.on("--runs N", Integer) { |value| options[:runs] = value }
   parser.on("--token-cache PATH") { |value| options[:token_cache] = File.expand_path(value) }
+  parser.on("--evict-cache") { options[:evict_cache] = true }
 end.parse!
 abort "Page and run counts must be positive" unless options[:pages].positive? && options[:runs].positive?
+temporary = File.join(File.dirname(File.expand_path(options[:path])), "tmp")
+FileUtils.mkdir_p(temporary)
+ENV["SQLITE_TMPDIR"] = temporary
+if options[:evict_cache]
+  abort "Cache eviction is for read-only Linux benchmarks" if options[:prepare] || !RUBY_PLATFORM.include?("linux")
+  File.open(options[:path], "rb") { |file| file.advise(:dontneed) }
+end
 clock = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
 source = File.expand_path("../.cache/benchmark/source", __dir__)
 manifest = JSON.parse(File.read(File.join(source, "manifest.json")))
 books = JSON.parse(File.read(File.join(source, "catalog.json")))
-report = { label: options[:label], requested_pages: options[:pages], source_books: books.size, ruby: RUBY_VERSION,
+report = { label: options[:label], requested_pages: options[:pages], runs: options[:runs], source_books: books.size, ruby: RUBY_VERSION,
   sqlite: SQLite3::SQLITE_VERSION, samples: manifest, measurements: {}, token_cache: options[:token_cache],
+  cache: options[:evict_cache] ? "Linux DONTNEED requested before opening the fixture" : "Uncontrolled OS cache",
+  sqlite_temporary_directory: temporary,
   fixture: "Sampled real OCR repeated deterministically, with a unique numeric suffix on every page", recorded_at: Time.now.utc.iso8601 }
 if options[:prepare] && options[:token_cache]
   ENV["ALJAM3_BENCH_TOKENIZER"] = ENV.fetch("SQLITE_TOKENIZER_AR_EXTENSION")
@@ -47,8 +57,8 @@ if options[:prepare]
   if options[:token_cache]
     bulk = BulkPages.new(db, texts)
     # Disposable fixture only. Normal app indexing is measured by indexing.rb.
-    db.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA cache_size = -65536;")
-    report[:fixture_acceleration] = { bulk_sql: true, synchronous: "NORMAL", writer_cache_mib: 64, batch: "one book" }
+    db.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA cache_size = -262144; PRAGMA wal_autocheckpoint = 16384;")
+    report[:fixture_acceleration] = { bulk_sql: true, synchronous: "NORMAL", writer_cache_mib: 256, checkpoint_pages: 16384, batch: "one book" }
   end
   started = clock.call
   count = 0

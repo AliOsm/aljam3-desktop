@@ -152,8 +152,10 @@ module Aljam3
 
       @lock.synchronize do
         @db.transaction do
-          @db.prepare("INSERT OR IGNORE INTO pages(id, file_id, number, content) VALUES (?, ?, ?, ?)") do |statement|
-            pages.each { |page| statement.execute(page.fetch("id"), file_id, page.fetch("number"), page.fetch("content")) }
+          pages.each_slice(500) do |batch|
+            placeholders = Array.new(batch.size, "(?, ?, ?, ?)").join(", ")
+            values = batch.flat_map { |page| [page.fetch("id"), file_id, page.fetch("number"), page.fetch("content")] }
+            @db.execute("INSERT OR IGNORE INTO pages(id, file_id, number, content) VALUES #{placeholders}", values)
           end
           unless pages.empty?
             first, last = pages.map { |page| page.fetch("id") }.minmax
