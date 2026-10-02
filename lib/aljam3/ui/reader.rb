@@ -178,7 +178,7 @@ module Aljam3
         @pdf_pane = stack(left: 16, top:, width:, height:) do
           background surface, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
-          @pdf_surface = stack(width: 1.0, height:, scroll: !@dialog)
+          @pdf_surface = stack(width: 1.0, height:, scroll: !@dialog, direction: "rtl")
         end
         draw_pdf_image
       end
