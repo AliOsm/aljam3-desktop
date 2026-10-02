@@ -3,6 +3,30 @@
 module Aljam3
   module UI
     module Components
+      def page_controls(page:, previous:, following:, &change)
+        return unless previous || following
+
+        flow(height: 48, margin_top: 12) do
+          action("التالي", width: 100, state: following ? nil : "disabled", margin_right: 12) { change.call(page + 1) }
+          para "صفحة #{page}", width: 100, size: 14, stroke: muted, margin_top: 10
+          action("السابق", width: 100, state: previous ? nil : "disabled") { change.call(page - 1) }
+        end
+      end
+
+      def result_count(data)
+        pagination = data.fetch("pagination")
+        count = pagination.fetch("count")
+        pagination["count_is_exact"] == false ? "أكثر من #{count} نتيجة" : "#{count} نتيجة"
+      end
+
+      def following_page(data)
+        pagination = data.fetch("pagination")
+        return pagination["next_page"] if pagination.key?("next_page")
+
+        current = pagination.fetch("current_page")
+        current + 1 if current < pagination.fetch("total_pages")
+      end
+
       def action(label, icon: nil, variant: :outline, selected: false, **styles, &block)
         color = selected ? accent : { solid: primary, outline: card_color, ghost: "transparent" }.fetch(variant)
         styles[:icon] = asset_path("icons", icon, theme: variant == :solid && !selected ? :dark : @theme) if icon

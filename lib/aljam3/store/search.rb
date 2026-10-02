@@ -1,0 +1,67 @@
+# frozen_string_literal: true
+
+module Aljam3
+  class Store
+    class Search
+      COUNT_LIMIT = 1000
+      CACHE_PAGES = 5
+      JOIN = "FROM pages_fts JOIN pages p ON p.id = pages_fts.rowid JOIN files f ON f.id = p.file_id JOIN books b ON b.id = f.book_id"
+
+      def initialize(db)
+        @db = db
+      end
+
+      def call(query, page: 1, order: "relevance", category: nil, author: nil, library: nil, book_id: nil)
+        match = Text.match_query(query)
+        page = [Integer(page), 1].max
+        raise ArgumentError, "Unknown search order" unless %w[library relevance].include?(order.to_s)
+
+        scopes = { "b.category_id" => category, "b.author_id" => author, "b.library_id" => library, "b.id" => book_id }.compact
+        first_page = ((page - 1) / CACHE_PAGES) * CACHE_PAGES + 1
+        key = [@db.get_first_value("PRAGMA data_version"), match, order.to_s, scopes, first_page]
+        if @cache_key != key
+          @cache = fetch(match, scopes, order.to_s, first_page)
+          @cache_key = key
+        end
+        rows = @cache.fetch(:rows)
+        offset = (page - first_page) * PAGE_SIZE
+        more = rows.size > offset + PAGE_SIZE
+        count, exact = @cache.values_at(:count, :exact)
+        count = [count, (first_page - 1) * PAGE_SIZE + rows.size - 1].max if !exact && rows.any?
+        { "pages" => rows.slice(offset, PAGE_SIZE) || [], "pagination" => { "count" => count, "count_is_exact" => exact,
+          "current_page" => page, "total_pages" => exact ? [(count.fdiv(PAGE_SIZE)).ceil, 1].max : nil,
+          "next_page" => more ? page + 1 : nil }, "order" => order.to_s }
+      end
+
+      private
+
+      def fetch(match, scopes, order, first_page)
+        conditions = ["pages_fts MATCH ?", "b.downloaded_at IS NOT NULL", *scopes.keys.map { |column| "#{column} = ?" }]
+        terms = [match, *scopes.values]
+        unless scopes.empty?
+          bounds = @db.get_first_row("SELECT min(f.first_page_id) AS first, max(f.last_page_id) AS last FROM files f JOIN books b ON b.id=f.book_id WHERE b.downloaded_at IS NOT NULL AND #{scopes.keys.map { |column| "#{column} = ?" }.join(' AND ')}", scopes.values)
+          conditions.concat(["pages_fts.rowid >= ?", "pages_fts.rowid <= ?"])
+          terms.concat([bounds["first"] || 0, bounds["last"] || -1])
+        end
+        base = "#{JOIN} WHERE #{conditions.join(' AND ')}"
+        offset = (first_page - 1) * PAGE_SIZE
+        ids = match.empty? ? [] : @db.execute("SELECT p.id #{base} ORDER BY pages_fts.rowid LIMIT ?", [*terms, COUNT_LIMIT + 1]).map { |row| row.fetch("id") }
+        exact = ids.length <= COUNT_LIMIT
+        count = [ids.length, COUNT_LIMIT].min
+        columns = "p.id, p.file_id, p.number, p.content, snippet(pages_fts, 0, '', '', '…', 42) AS excerpt, b.data"
+        rows = if ids.empty?
+          []
+        elsif order == "relevance"
+          @db.execute("SELECT #{columns} #{base} ORDER BY rank LIMIT ? OFFSET ?", [*terms, CACHE_PAGES * PAGE_SIZE + 1, offset])
+        else
+          @db.execute("SELECT #{columns} #{base} ORDER BY pages_fts.rowid LIMIT ? OFFSET ?", [*terms, CACHE_PAGES * PAGE_SIZE + 1, offset])
+        end
+        if rows.any? && rows.length < CACHE_PAGES * PAGE_SIZE + 1
+          count, exact = offset + rows.length, true
+        end
+        hits = rows.map { |row| row.merge("book" => JSON.parse(row.delete("data"))) }
+        { rows: hits, count:, exact: }
+      end
+    end
+  end
+end

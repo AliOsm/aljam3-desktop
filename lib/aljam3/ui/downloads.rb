@@ -8,7 +8,7 @@ module Aljam3
       def availability_label(book)
         return "متاح دون اتصال" if @downloaded_ids.include?(book.fetch("id"))
 
-        case @downloads.dig(book.fetch("id"), :status)
+        case @download_queue.entry(book.fetch("id"))&.fetch(:status)
         when :queued then "في قائمة التنزيل"
         when :downloading then "قيد التنزيل"
         when :paused, :pausing then "التنزيل متوقف مؤقتًا"
@@ -32,7 +32,7 @@ module Aljam3
 
       def draw_downloads
         para "التنزيلات والمساحة", font: HEADING_FONT, size: 24
-        para "#{@downloaded_ids.length} كتاب متاح دون اتصال · #{format_bytes(@downloader.disk_usage)} من ملفات الكتب.",
+        para "#{@downloaded_ids.length} كتاب متاح دون اتصال · PDF: #{format_bytes(@store.download_bytes)} · النص والفهرس: #{format_bytes(@store.database_bytes)}",
           size: 15, stroke: muted, margin_top: 8
         flow(top: 70, width: 1.0, height: 36) do
           action("كتبي المحمّلة", width: 140, margin_right: 12) { navigate(:saved) }
@@ -45,21 +45,21 @@ module Aljam3
         tabs({ done: "المكتملة", active: "غير المكتملة", all: "الكل" }, selected: @download_filter || :all,
           left: @main_width - 288, top: 70, width: 288) do |filter|
           @download_filter = filter
+          @download_page = 1
           @results = nil
           draw_window
         end
         para @storage_feedback || "يمكنك إيقاف التنزيل ومتابعته. يُحفظ تقدمك عند إغلاق التطبيق.", top: 122, size: 14, stroke: muted
         @results = stack(top: 166, width: 1.0, height: @content_height - 166, scroll: !@dialog) do
-          entries = @downloads.dup
-          @downloaded_ids.each do |id|
-            entries[id] ||= { book: @store.book(id), status: :done, fraction: 1, message: "متاح دون اتصال", bytes: @downloader.disk_usage(id) }
-          end
-          entries.select! { |_, entry| @download_filter == :done ? entry[:status] == :done : entry[:status] != :done } if %i[done active].include?(@download_filter)
+          page, filter = @download_page || 1, @download_filter || :all
+          count = @store.download_count(filter:)
+          @download_page = page = [page, [(count.fdiv(Store::PAGE_SIZE)).ceil, 1].max].min
+          entries = @download_queue.entries(page:, filter:)
           if entries.empty?
             empty_state("لا توجد تنزيلات هنا", "نزّل الكتاب مرة واحدة لتقرأ النص وPDF وتبحث فيه دون اتصال.",
               icon: "download", action_label: "تصفح الكتب") { navigate(:browse) }
           end
-          entries.sort_by { |_, entry| entry[:status] == :done ? 1 : 0 }.each do |id, download|
+          entries.each do |id, download|
             if download[:status] == :done
               completed_download_row(id, download)
               next
@@ -74,6 +74,10 @@ module Aljam3
                 flow(height: 52, margin_top: 12) { download_actions(id, download) }
               end
             end
+          end
+          page_controls(page:, previous: page > 1, following: page * Store::PAGE_SIZE < count) do |number|
+            @download_page, @results = number, nil
+            draw_window
           end
         end
       end
@@ -111,21 +115,28 @@ module Aljam3
       def draw_remove_download
         book = @dialog.fetch(:book)
         para Text.plain(book.fetch("title")), size: 19
-        para "سيُحذف PDF والنص المحفوظ لتحرير #{format_bytes(@downloader.disk_usage(book.fetch('id')))}. تبقى مواضع القراءة والفواصل محفوظة، ويمكنك تنزيل الكتاب مجددًا.",
+        para "سيُحذف PDF والنص المحفوظ. حجم ملفات PDF: #{format_bytes(@store.download(book.fetch('id'))&.fetch(:bytes))}. تبقى مواضع القراءة والفواصل محفوظة، ويمكنك تنزيل الكتاب مجددًا.",
           size: 16, stroke: muted, margin_top: 16
         para @dialog[:error].to_s, size: 14, stroke: primary, margin_top: 12
-        action("إزالة النسخة", top: @content_height - 48, width: 142, variant: :solid) do
-          begin
-            @download_queue.remove(book.fetch("id"))
-            @downloaded_ids = @store.downloaded_ids
-            close_dialog
-            request_catalog if @screen == :saved
-          rescue StandardError => error
-            @dialog[:error] = error_message(error)
-            draw_window
+        action(@dialog[:busy] ? "جارٍ الإزالة…" : "إزالة النسخة", top: @content_height - 48, width: 142,
+          variant: :solid, state: @dialog[:busy] ? "disabled" : nil) do
+          dialog = @dialog
+          dialog[:busy] = true
+          draw_window
+          @export_worker.submit(-> { @download_queue.remove(book.fetch("id")) }) do |_result, error|
+            @downloaded_ids = @store.downloaded_ids unless error
+            next unless @dialog.equal?(dialog)
+
+            if error
+              @dialog.merge!(busy: false, error: error_message(error))
+              draw_window
+            else
+              close_dialog
+              request_catalog if @screen == :saved
+            end
           end
         end
-        action("احتفاظ بالكتاب", top: @content_height - 48, left: 154, width: 144) { close_dialog }
+        action("احتفاظ بالكتاب", top: @content_height - 48, left: 154, width: 144, state: @dialog[:busy] ? "disabled" : nil) { close_dialog }
       end
     end
   end

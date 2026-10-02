@@ -29,10 +29,10 @@ module Aljam3
       @network_worker, @render_worker, @page_worker, @export_worker = Array.new(4) { Worker.new }
       @workers = [@network_worker, @render_worker, @page_worker, @export_worker]
       @download_queue = Downloads.new(store: @store, downloader: @downloader)
-      @downloads = @download_queue.entries
       @downloaded_ids = @store.downloaded_ids
       @categories, @libraries = @store.preference("categories", []), @store.preference("libraries", [])
       @screen, @mode, @query = :home, :content, ""
+      @search_order = :relevance
       @search_scope, @connection = :all, @api.connection
       @filters, @expanded = {}, {}
       @request_number, @render_number, @page_request = 0, 0, 0
@@ -84,7 +84,7 @@ module Aljam3
       end
       draw_window if redraw && !@split_drag
       @progress_views.each do |id, view|
-        next unless (download = @downloads[id])
+        next unless (download = @download_queue.entry(id))
 
         view.fetch(:bar).fraction = download.fetch(:fraction)
         view.fetch(:label).text = download_message(download)
@@ -92,11 +92,6 @@ module Aljam3
       if @viewport != [width, height]
         draw_window
         render_pdf if reader_pdf?
-      end
-      catalog = %i[browse saved authors].include?(@screen) || (@screen == :home && !@query.empty?)
-      if catalog && !@dialog && !@error && @results && @result && !@busy && !@loading_more && @results.scroll_max > 0 &&
-          @results.scroll_top >= @results.scroll_max - 160 && next_result_page
-        request_catalog(page: next_result_page, append: true)
       end
     end
 
@@ -159,6 +154,7 @@ module Aljam3
     end
 
     def navigate(screen, filters: {}, label: nil)
+      @store.cancel_search
       @screen, @query, @mode = screen, "", screen == :authors ? :authors : :content
       @search_scope = screen == :saved ? :downloaded : :all
       @result = @results = @error = @dialog = @dialog_scroll = nil
@@ -167,32 +163,32 @@ module Aljam3
       @request_number += 1
       @render_number += 1
       @page_request += 1
-      @busy = @loading_more = false
+      @busy = false
       %i[browse saved authors].include?(screen) ? request_catalog : draw_window
     end
 
-    def request_catalog(page: 1, append: false)
+    def request_catalog(page: 1)
+      @store.cancel_search if @busy
       @request_number += 1
       request_number = @request_number
       query, screen, mode, filters = @query.strip, @screen, @mode, @filters.dup
       downloaded = @search_scope == :downloaded
-      if append
-        @loading_more = true
-      else
-        @busy, @error, @result, @results = true, nil, nil, nil
-        @expanded = {}
-        if query.empty? && mode != :authors
-          data = @store.catalog(**filters, downloaded:)
-          @result = Result.new(data, downloaded ? :downloaded : :cached, nil) unless data.fetch("books").empty?
-          @source = @result.source if @result
-        end
-        draw_window
+      order = @search_order
+      @busy, @error, @result, @results = true, nil, nil, nil
+      @expanded = {}
+      if query.empty? && mode != :authors
+        data = @store.catalog(**filters, page:, downloaded:)
+        @result = Result.new(data, downloaded ? :downloaded : :cached, nil) unless data.fetch("books").empty?
+        @source = @result.source if @result
       end
+      draw_window
       work = -> do
+        next unless @request_number == request_number
+
         if mode == :authors || screen == :authors
           @library.authors(query:, page:, downloaded:)
         elsif mode == :content && (!query.empty? || !filters.empty?)
-          @library.search(query, **filters, page:, downloaded:)
+          @library.search(query, **filters, page:, downloaded:, order:)
         else
           @library.browse(query:, **filters, page:, downloaded:)
         end
@@ -200,15 +196,10 @@ module Aljam3
       @network_worker.submit(work) do |result, error|
         next unless @request_number == request_number && @screen == screen
 
-        @busy = @loading_more = false
+        @busy = false
         if error
           @error = error_message(error)
         else
-          if append && @result&.source == result.source
-            key = result_key(result)
-            data = result.data.merge(key => (@result.data.fetch(key) + result.data.fetch(key)).uniq { |item| item.fetch("id") })
-            result = Result.new(data, result.source, result.notice)
-          end
           @result, @source = result, result.source
         end
         draw_window
@@ -217,11 +208,7 @@ module Aljam3
 
     def result_key(result = @result) = %w[pages authors books].find { |key| result.data.key?(key) }
 
-    def next_result_page
-      pagination = @result.data.fetch("pagination")
-      current = pagination.fetch("current_page")
-      current + 1 if current < pagination.fetch("total_pages")
-    end
+    def next_result_page = following_page(@result.data)
 
     def source_label
       return @result ? "المحفوظ على جهازك · جارٍ التحديث…" : "جارٍ البحث…" if @busy

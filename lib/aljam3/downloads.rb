@@ -3,33 +3,25 @@
 require_relative "worker"
 
 module Aljam3
-  # UI-thread state, a single background transfer, and a durable queue in SQLite.
+  # SQLite owns the queue. Only the current transfer lives in memory.
   class Downloads
-    attr_reader :entries
-
     def initialize(store:, downloader:)
       @store, @downloader = store, downloader
-      @worker, @progress = Worker.new, Queue.new
-      @entries = store.downloads
-      @entries.to_a.each do |id, entry|
-        if entry[:status] == :cancelling
-          finish_stop(id, :cancelled)
-          next
-        end
-        entry[:status] = :paused if entry[:status] == :pausing
-        entry[:status] = @store.downloaded?(id) ? :done : :queued if entry[:status] == :downloading
-        persist(id)
-      end
+      @worker, @cleanup, @progress = Worker.new, Worker.new, Queue.new
+      @store.recover_downloads.each { |id| finish_stop(id, :cancelled) }
     end
+
+    def entries(**options) = @store.downloads(**options)
+    def entry(id) = @active == id ? @entry : @store.download(id)
 
     def enqueue(book)
       id = book.fetch("id")
-      return if @store.downloaded?(id) || %i[queued downloading pausing cancelling].include?(@entries.dig(id, :status))
+      previous = entry(id)
+      return if @store.downloaded?(id) || %i[queued downloading pausing cancelling].include?(previous&.fetch(:status))
 
       @store.cache_books([book])
-      @entries[id] = { fraction: 0, queued_at: Time.now.utc.iso8601(6), **(@entries[id] || {}),
-        book:, status: :queued, message: "في قائمة الانتظار" }
-      persist(id)
+      @store.save_download(id, { fraction: 0, queued_at: Time.now.utc.iso8601(6), **(previous || {}),
+        book:, status: :queued, message: "في قائمة الانتظار" })
     end
 
     def pause(id) = stop(id, :paused)
@@ -39,7 +31,6 @@ module Aljam3
       raise "Wait for the transfer to stop." if @active == id
 
       @downloader.remove(id)
-      @entries.delete(id)
       @store.forget_download(id)
     end
 
@@ -48,17 +39,24 @@ module Aljam3
       @changed = false
       until @progress.empty?
         id, fraction, message, bytes, total = @progress.pop
-        next unless @entries.dig(id, :status) == :downloading
+        next unless id == @active && @entry[:status] == :downloading
 
-        @entries.fetch(id).merge!(fraction:, message:, bytes:, total:)
-        persist(id)
+        @entry.merge!(fraction:, message:, bytes:, total:)
+        @progress_dirty = true
+      end
+      now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+      if @progress_dirty && now - @progress_saved_at >= 1
+        persist
+        @progress_dirty, @progress_saved_at = false, now
       end
       @worker.drain
+      @cleanup.drain
       start_next unless @active
       @changed
     end
 
     def close
+      @closing = true
       if @active
         pending_stop = @stop
         @stop ||= :paused
@@ -66,53 +64,57 @@ module Aljam3
         if pending_stop
           finish_stop(@active, pending_stop)
         else
-          @entries.fetch(@active)[:status] = :queued
-          persist(@active)
+          @entry[:status] = :queued
+          persist
         end
       else
         @worker.close
       end
+      @cleanup.close
     end
 
     private
 
-    def persist(id) = @store.save_download(id, @entries.fetch(id))
+    def persist = @store.save_download(@active, @entry)
 
     def stop(id, state)
       if @active == id
         @stop = state
-        @entries.fetch(id).merge!(status: state == :paused ? :pausing : :cancelling, message: "جارٍ إيقاف التنزيل…")
+        @entry.merge!(status: state == :paused ? :pausing : :cancelling, message: "جارٍ إيقاف التنزيل…")
+        persist
       else
         finish_stop(id, state)
       end
-      persist(id) if @entries.key?(id)
     end
 
     def finish_stop(id, state)
       if state == :cancelled
-        @downloader.cancel(id)
-        @entries.delete(id)
-        @store.forget_download(id)
+        @store.save_download(id, entry(id).merge(status: :cancelling, message: "جارٍ إلغاء التنزيل…"))
+        return if @closing
+
+        @cleanup.submit(-> { @downloader.cancel(id); @store.forget_download(id) }) do |_result, error|
+          @store.save_download(id, entry(id).merge(status: :failed, message: "تعذّر إلغاء التنزيل. حاول مرة أخرى.")) if error
+          @changed = true
+        end
       else
-        @entries.fetch(id).merge!(status: :paused, message: "متوقف مؤقتًا · يمكنك المتابعة لاحقًا")
-        persist(id)
+        @store.save_download(id, entry(id).merge(status: :paused, message: "متوقف مؤقتًا · يمكنك المتابعة لاحقًا"))
       end
     end
 
     def start_next
-      id = @entries.find { |_, entry| entry[:status] == :queued }&.first
+      id = @store.next_download
       return unless id
 
+      @entry = @store.download(id).merge(status: :downloading, message: "جارٍ تجهيز الكتاب…")
       @active, @stop = id, nil
-      @entries.fetch(id).merge!(status: :downloading, message: "جارٍ تجهيز الكتاب…")
-      persist(id)
+      @progress_dirty, @progress_saved_at = false, 0
+      persist
       @changed = true
       check = -> { raise DownloadStopped if @stop }
       @worker.submit(-> { @downloader.call(id, check:) { |*progress| @progress << [id, *progress] } }) do |_book, error|
         if @store.downloaded?(id)
-          bytes = @downloader.disk_usage(id)
-          @entries.fetch(id).merge!(status: :done, fraction: 1, message: "اكتمل · متاح دون اتصال", bytes:, total: bytes)
-          persist(id)
+          @entry.merge!(status: :done, fraction: 1, message: "اكتمل · متاح دون اتصال")
+          persist
         elsif @stop
           finish_stop(id, @stop)
         else
@@ -121,10 +123,11 @@ module Aljam3
                     when Errno::ENOSPC then "المساحة غير كافية. حرّر مساحة ثم تابع التنزيل."
                     else "تعذّر إكمال التنزيل. أعد المحاولة أو ألغِ التنزيل للبدء من جديد."
                     end
-          @entries.fetch(id).merge!(status: :failed, message:)
-          persist(id)
+          @entry.merge!(status: :failed, message:)
+          persist
         end
-        @active = nil
+        @active = @entry = nil
+        @progress_dirty = false
         @changed = true
       end
     end

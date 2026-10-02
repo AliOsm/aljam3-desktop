@@ -53,7 +53,7 @@ module Aljam3
       end
       check.call
       File.rename(staging, destination) unless staging == destination
-      @store.complete_download(book_id)
+      @store.complete_download(book_id, bytes: files.sum { |file| File.size(File.join(destination, "#{file.fetch('id')}.pdf")) })
       book
     end
 

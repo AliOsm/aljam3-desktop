@@ -9,6 +9,7 @@ step = 0
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 hit = nil
 library_id = nil
+first_search_ids = nil
 app.every(0.1) do
   begin
     raise "UI verification timed out at step #{step}" if Process.clock_gettime(Process::CLOCK_MONOTONIC) - started > 105
@@ -113,13 +114,13 @@ app.every(0.1) do
       app.navigate(:downloads)
       button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "إيقاف مؤقت" }
       automation.click({ id: button.fetch(:id) })
-      raise "Pause action failed" unless app.instance_variable_get(:@downloads).dig(1, :status) == :paused
+      raise "Pause action failed" unless app.instance_variable_get(:@download_queue).entry(1)&.fetch(:status) == :paused
       shot.call("downloads-paused")
       button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "متابعة التنزيل" }
       automation.click({ id: button.fetch(:id) })
       step = 8
     when 8
-      next unless app.instance_variable_get(:@downloads).dig(1, :status) == :done
+      next unless app.instance_variable_get(:@download_queue).entry(1)&.fetch(:status) == :done
 
       offline = Aljam3::API.new(base_url: "http://127.0.0.1:1", interval: 0)
       app.instance_variable_set(:@api, offline)
@@ -200,6 +201,31 @@ app.every(0.1) do
       result = app.instance_variable_get(:@result)
       raise "Downloaded scope failed" unless result.source == :downloaded && result.data.fetch("pages").any?
       shot.call("downloaded-search")
+      first_search_ids = result.data.fetch("pages").map { |row| row.fetch("id") }
+      automation.wait_frames
+      app.instance_variable_get(:@results).scroll_top = app.instance_variable_get(:@results).scroll_max
+      automation.wait_frames
+      button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "التالي" }
+      automation.click({ id: button.fetch(:id) })
+      step = 13
+    when 13
+      next if app.instance_variable_get(:@busy)
+
+      result = app.instance_variable_get(:@result).data
+      raise "Pagination did not advance" unless result.dig("pagination", "current_page") == 2
+      raise "Results accumulated across pages" if result.fetch("pages").length > Aljam3::Store::PAGE_SIZE
+      raise "Result pages overlap" unless (first_search_ids & result.fetch("pages").map { |row| row.fetch("id") }).empty?
+      automation.wait_frames
+      app.instance_variable_get(:@results).scroll_top = app.instance_variable_get(:@results).scroll_max
+      automation.wait_frames
+      button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "السابق" }
+      automation.click({ id: button.fetch(:id) })
+      step = 14
+    when 14
+      next if app.instance_variable_get(:@busy)
+
+      result = app.instance_variable_get(:@result).data
+      raise "Previous page changed" unless result.fetch("pages").map { |row| row.fetch("id") } == first_search_ids
       app.navigate(:browse)
       raise "Cached catalog not shown immediately" unless app.instance_variable_get(:@result)&.source == :cached
       raise "Catalog not refreshing in background" unless app.instance_variable_get(:@busy)
@@ -207,12 +233,17 @@ app.every(0.1) do
       shot.call("remove-download")
       button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "إزالة النسخة" }
       automation.click({ id: button.fetch(:id) })
+      step = 15
+    when 15
+      next if app.instance_variable_get(:@dialog)&.dig(:busy)
+      raise "Removal failed: #{app.instance_variable_get(:@dialog).inspect}" if app.instance_variable_get(:@dialog)
+
       raise "Removed book still available offline" if store.downloaded?(1)
       raise "Removed book still in search" unless store.search("العلم").fetch("pages").empty?
       raise "Bookmarks lost after removal" if store.bookmarks(1).empty?
       raise "Reading history lost after removal" if store.recent_books.empty?
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true,
-        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_sheet_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope immediate_cached_catalog remove_download_preserves_history] }))
+        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_sheet_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope bounded_pagination immediate_cached_catalog remove_download_preserves_history] }))
       app.close
     end
   rescue StandardError => error

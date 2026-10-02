@@ -13,6 +13,7 @@ module Aljam3
 
       def close_dialog
         was_search = @dialog&.dig(:type) == :book_search
+        @store.cancel_search if was_search
         @dialog = @dialog_stack&.pop
         @book_search[:busy] = false if was_search
         draw_window

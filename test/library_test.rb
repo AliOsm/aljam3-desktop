@@ -36,6 +36,14 @@ class LibraryTest < StoreTestCase
     assert_equal [["العلم", { category: 2, author: nil, library: nil, page: 3, book_id: nil }]], @api.calls
   end
 
+  def test_offline_sort_preference_does_not_change_the_online_api_request
+    assert_equal :online, @library.search("العلم", order: "library").source
+    refute @api.calls.last.last.key?(:order)
+    @api.error = Aljam3::ConnectionError.new("Offline")
+    assert_equal "library", @library.search("العلم", order: "library").data.fetch("order")
+    assert_equal "relevance", @library.search("العلم").data.fetch("order")
+  end
+
   def test_explicit_downloaded_scope_never_calls_the_api
     @store.cache_books([book(2)])
     result = @library.search("العلم", downloaded: true)

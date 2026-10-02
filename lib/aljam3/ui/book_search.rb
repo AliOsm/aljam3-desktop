@@ -20,7 +20,7 @@ module Aljam3
           @book_query_field.finish = proc { request_book_search }
         end
         result = @book_search[:result]
-        label = result ? "#{result.data.fetch('pagination').fetch('count')} نتيجة · #{result.source == :online ? 'متصل بالجامع' : 'في الكتاب المحمّل'}" : Text.plain(@reader.fetch(:book).fetch("title"))
+        label = result ? "#{result_count(result.data)} · #{result.source == :online ? 'متصل بالجامع' : 'في الكتاب المحمّل'}" : Text.plain(@reader.fetch(:book).fetch("title"))
         para label, top: 58, size: 14, stroke: muted
         stack(top: 90, width: 1.0, height: @content_height - 90, scroll: true) do
           if @book_search[:busy]
@@ -32,8 +32,8 @@ module Aljam3
             if result.data.fetch("pages").empty?
               empty_state("لا توجد نتائج", "جرّب كلمات أخرى في هذا الكتاب.", icon: "search")
             end
-            current, total = result.data.fetch("pagination").values_at("current_page", "total_pages")
-            action("عرض المزيد", width: 1.0) { request_book_search(page: current + 1) } if current < total
+            page = result.data.fetch("pagination").fetch("current_page")
+            page_controls(page:, previous: page > 1, following: following_page(result.data)) { |number| request_book_search(page: number) }
           else
             empty_state("ابحث في صفحات الكتاب", "اكتب كلمة أو عبارة. يعمل البحث أيضًا في كتبك المحمّلة دون اتصال.", icon: "search")
           end
@@ -44,16 +44,17 @@ module Aljam3
         query = @book_search.fetch(:query).strip
         return if query.empty?
 
+        @store.cancel_search if @book_search[:busy]
         dialog = @dialog
         book_id = @book_search.fetch(:book_id)
-        @book_search.merge!(busy: true, error: nil)
+        request_number = (@book_search[:request_number] || 0) + 1
+        @book_search.merge!(busy: true, error: nil, request_number:)
         draw_window
-        @network_worker.submit(-> { @library.search(query, book_id:, page:) }) do |result, error|
-          next unless @dialog.equal?(dialog) && @book_search.fetch(:query).strip == query
+        @network_worker.submit(-> {
+          @library.search(query, book_id:, page:) if @dialog.equal?(dialog) && @book_search[:request_number] == request_number
+        }) do |result, error|
+          next unless @dialog.equal?(dialog) && @book_search[:request_number] == request_number && @book_search.fetch(:query).strip == query
 
-          if page > 1 && result && @book_search[:result]&.source == result.source
-            result = Result.new(result.data.merge("pages" => @book_search[:result].data.fetch("pages") + result.data.fetch("pages")), result.source, result.notice)
-          end
           @book_search.merge!(busy: false, result:, error: error && error_message(error))
           draw_window
         end

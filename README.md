@@ -24,7 +24,7 @@ The dependency releases cover Linux x64/arm64 with glibc, macOS Apple silicon, a
 
 - **الرئيسية / التصنيفات / المؤلفون / الكتب**: discover libraries and categories, browse authors and their books, or search the catalog. Category and author names on book cards are links.
 - **تابع القراءة**: the home screen resumes your latest book and lists recent reading. Positions, progress, and bookmarks survive restarting the app and removing downloaded copies.
-- **Search**: switch between **النصوص**, **العناوين**, and **المؤلفون**. The filter sheet offers library, category, and author selection. Text search combines all three; the current API supports only one scope at a time for title browsing. Author-name search uses the authors endpoint. Results load more as you scroll and excerpts can be expanded.
+- **Search**: switch between **النصوص**, **العناوين**, and **المؤلفون**. The filter sheet offers library, category, and author selection. Text search combines all three; the current API supports only one scope at a time for title browsing. Author-name search uses the authors endpoint. Previous/next controls keep each screen to one page of results, and excerpts can be expanded.
 - **قراءة / عرض الصفحة**: read online without downloading a whole volume. Text loads one page at a time; PDFium seeks through HTTP byte ranges to fetch the PDF structures and page content it needs. There is no background full-PDF download. Online search responses omit volume IDs, so the reader verifies the page ID against the book's volumes before opening a result.
 - **تنزيل الكتاب**: saves every PDF volume and its searchable page text. The download queue survives closing the app. Pause, resume, retry, or cancel transfers under **التنزيلات والمساحة**, with sizes and progress. Filter unfinished or completed downloads, remove a downloaded copy, or clear temporary page images to reclaim space.
 - **Reader**: text is on the **right** and the PDF on the **left**, matching the Arabic web UI. Drag the divider to choose their widths. The toolbar selects text, PDF, or both panes. Reading options hold text size, the web app's tashkeel control, and split presets. The tools menu groups bookmarks, PDF/TXT/DOCX exports, sharing, saving a page image, and keyboard help. Copy text and fit/zoom/pan the PDF as before.
@@ -42,6 +42,10 @@ The interface is currently Arabic-only. Web features still outside this implemen
 **كل المكتبة** searches the API first. A connection failure switches that request to SQLite over **completed downloads only**. The next search tries the API again, so reconnecting needs no manual toggle. **كتبي المحمّلة** explicitly searches only SQLite, even online. HTTP errors also permit local results, with a distinct service-unavailable label. An empty successful API response stays empty.
 
 Offline full-text search uses SQLite FTS5 with [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar): Arabic normalization, light stemming, and Arabic/Persian digit folding. Common words are retained. Query words are safely quoted, prefix-matched, and combined with AND; advanced Lucene query syntax is not implemented locally. SQLite ranks results and produces excerpts around matching text. Online and offline rankings can differ.
+
+Relevance is the offline default. The optional library order changes ordering only; both allow access to all matching pages. Counts above 1,000 are initially shown as lower bounds, not exact totals. This bounds counting work without limiting the candidates considered for relevance. A two-character prefix index accelerates common short Arabic stems without changing matching or scoring. Five result pages are cached at a time until the database changes. Search and indexing run in separate Ruby processes because the SQLite binding holds Ruby's VM lock during SQL execution. Replacing an in-progress search cancels it; page reads use an independent connection. No search transaction remains open between requests.
+
+Downloads are queued in SQLite and listed in pages of 12. The app keeps only the current transfer in memory, and storage totals use saved PDF sizes rather than walking the book directories. Catalog filters and downloaded-author lookups have dedicated indexes. New databases use 16 KiB pages to pack OCR text more tightly; upgrades preserve the existing page size and do not vacuum a user's entire library. See `bench/` for reproducible scale measurements.
 
 Previously browsed catalog entries, categories, libraries, and author metadata are cached. Browsing immediately shows cached books while refreshing in the background. Availability labels distinguish online books from complete downloads; the connection strip reports the last API request's status and offers reconnection. Offline browsing can show the cached catalog, but offline title and content searches only return downloaded books. The app does not mirror the entire remote catalog.
 
@@ -91,9 +95,9 @@ The Gemfile uses Lacci and Scarpe directly from that checkout. No local web serv
 
 Test files are shared directly or downloaded from private build artifacts. Publishing a release is a separate step that requires an explicit request. These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
-- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.3-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
-- **Windows x64 installer:** run `Aljam3-0.1.3-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
-- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.3-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
+- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.4-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
+- **Windows x64 installer:** run `Aljam3-0.1.4-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
+- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.4-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
 
 The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
 
@@ -129,7 +133,7 @@ Each directory contains `library.sqlite3`, `books/<book-id>/<file-id>.pdf`, and 
 
 Startup logs are at `~/Library/Logs/Aljam3/launcher.log` on macOS and `%LOCALAPPDATA%/Aljam3/launcher.log` on Windows.
 
-Database migrations run transactionally. Older libraries gain Arabic search, recent reading, bookmarks, and the persistent queue while preserving downloaded books and reading positions.
+Database migrations run transactionally. Older libraries gain Arabic search, recent reading, bookmarks, and the persistent queue while preserving downloaded books and reading positions. The 0.1.4 upgrade rebuilds the search index once to add short-prefix indexing; an already large library will take longer on its first launch after upgrading.
 
 ## Sources and attribution
 

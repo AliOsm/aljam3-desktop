@@ -22,7 +22,13 @@ module Aljam3
             tabs(modes, selected: @mode, width: 272) { |mode| switch_search_mode(mode) }
           end
         end
-        para catalog_count, top: 214, size: 14, stroke: muted
+        para catalog_count, left: 282, width: @main_width - 282, top: 214, size: 14, stroke: muted
+        if @result && result_key == "pages" && @source != :online
+          tabs({ library: "ترتيب المكتبة", relevance: "الأكثر صلة" }, selected: @search_order, width: 266, left: 0, top: 206) do |order|
+            @search_order = order
+            request_catalog
+          end
+        end
         @results = stack(top: 244, width: 1.0, height: [@content_height - 244, 100].max, scroll: !@dialog) do
           if @busy && !@result
             empty_state("جارٍ البحث…", "نبحث في المكتبة عن النتائج.", icon: "search")
@@ -41,10 +47,9 @@ module Aljam3
                 else book_row(item)
                 end
               end
-              if next_result_page
-                action("عرض المزيد", width: 1.0, margin_bottom: 12) { request_catalog(page: next_result_page, append: true) }
-              end
             end
+            page = @result.data.fetch("pagination").fetch("current_page")
+            page_controls(page:, previous: page > 1, following: next_result_page) { |number| request_catalog(page: number) }
           end
         end
       end
@@ -79,9 +84,8 @@ module Aljam3
       def catalog_count
         return "" if @error || !@result
 
-        count = @result.data.fetch("pagination").fetch("count")
         scope = %i[offline local].include?(@source) && !@query.empty? ? " · في الكتب المحمّلة" : ""
-        "#{count} نتيجة#{scope}"
+        "#{result_count(@result.data)}#{scope}"
       end
 
       def card
@@ -138,7 +142,7 @@ module Aljam3
               state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book, hit:, query:) }
             if @downloaded_ids.include?(book.fetch("id"))
               icon_button("trash-2", "إزالة النسخة المحمّلة", height: 34) { confirm_remove_download(book) }
-            elsif @downloads.key?(book.fetch("id"))
+            elsif @download_queue.entry(book.fetch("id"))
               icon_button("download", "إدارة التنزيل", height: 34) { navigate(:downloads) }
             else
               icon_button("download", "تنزيل الكتاب", height: 34) { queue_download(book) }
