@@ -1,0 +1,2 @@
+# Patches retain their required context prefixes and LF line endings on every host.
+*.patch text eol=lf whitespace=-blank-at-eol
