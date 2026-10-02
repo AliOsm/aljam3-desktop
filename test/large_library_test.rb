@@ -82,6 +82,17 @@ class LargeLibraryTest < StoreTestCase
     assert_equal [2], @store.search("علم").fetch("pages").map { |hit| hit.dig("book", "id") }.uniq
   end
 
+  def test_partial_books_never_enter_ranked_results_and_completion_invalidates_the_cache
+    install_book
+    @store.prepare_download(book(2))
+    @store.add_pages(20, [{ "id" => 2_000, "number" => 1, "content" => "العلم" }])
+    assert_equal [1], @store.search("العلم").fetch("pages").map { |hit| hit.dig("book", "id") }.uniq
+    @store.complete_download(2)
+    assert_equal 2_000, @store.search("العلم").fetch("pages").first.fetch("id")
+    @store.discard_download(2)
+    assert_equal [1], @store.search("العلم").fetch("pages").map { |hit| hit.dig("book", "id") }.uniq
+  end
+
   def test_downloads_are_paginated_and_legacy_completed_books_are_included
     @store.cache_books((1..40).map { |id| book(id) })
     (1..39).each { |id| @store.complete_download(id, bytes: 100) }

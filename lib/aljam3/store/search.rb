@@ -18,7 +18,9 @@ module Aljam3
 
         scopes = { "b.category_id" => category, "b.author_id" => author, "b.library_id" => library, "b.id" => book_id }.compact
         first_page = ((page - 1) / CACHE_PAGES) * CACHE_PAGES + 1
-        key = [@db.get_first_value("PRAGMA data_version"), match, order.to_s, scopes, first_page]
+        version = @db.get_first_value("PRAGMA data_version")
+        @index_summary = nil if @cache_key && @cache_key.first != version
+        key = [version, match, order.to_s, scopes, first_page]
         if @cache_key != key
           @cache = fetch(match, scopes, order.to_s, first_page)
           @cache_key = key
@@ -51,6 +53,8 @@ module Aljam3
         columns = "p.id, p.file_id, p.number, p.content, snippet(pages_fts, 0, '', '', '…', 42) AS excerpt, b.data"
         rows = if ids.empty?
           []
+        elsif order == "relevance" && scopes.empty? && dense_complete_index?(ids)
+          ranked_pages(match, offset)
         elsif order == "relevance"
           @db.execute("SELECT #{columns} #{base} ORDER BY rank LIMIT ? OFFSET ?", [*terms, CACHE_PAGES * PAGE_SIZE + 1, offset])
         else
@@ -61,6 +65,44 @@ module Aljam3
         end
         hits = rows.map { |row| row.merge("book" => JSON.parse(row.delete("data"))) }
         { rows: hits, count:, exact: }
+      end
+
+      def dense_complete_index?(ids)
+        return false if ids.size <= COUNT_LIMIT
+
+        @index_summary ||= @db.get_first_row(<<~SQL)
+          SELECT min(f.first_page_id) AS first, max(f.last_page_id) AS last,
+            sum(json_extract(f.data, '$.pages_count')) AS pages,
+            max(b.downloaded_at IS NULL) AS incomplete
+          FROM files f JOIN books b ON b.id = f.book_id WHERE f.first_page_id IS NOT NULL
+        SQL
+        return false if @index_summary["incomplete"] == 1 || @index_summary["pages"].to_i.zero?
+
+        # Estimate density from the count probe, adjusted for gaps in API IDs.
+        # Sparse matches use the FTS sort to avoid a second prefix scan. Both
+        # plans rank every match; the estimate affects performance only.
+        library_density = @index_summary["pages"].fdiv(@index_summary["last"] - @index_summary["first"] + 1)
+        (ids.size - 1).fdiv(ids.last - ids.first) >= library_density / 8
+      end
+
+      def ranked_pages(match, offset)
+        # Explicit BM25 lets SQLite keep only the best rows while scoring every
+        # match. ORDER BY rank instead sorts all matches inside the FTS cursor.
+        # Without incomplete books or filters, metadata joins can follow ranking.
+        ids = @db.execute(<<~SQL, [match, CACHE_PAGES * PAGE_SIZE + 1, offset]).map { |row| row.fetch("id") }
+          SELECT rowid AS id
+          FROM pages_fts WHERE pages_fts MATCH ? ORDER BY bm25(pages_fts), rowid LIMIT ? OFFSET ?
+        SQL
+        return [] if ids.empty?
+
+        # Unary + keeps this a single bounded FTS scan, avoiding a separate
+        # initialization of the prefix query for each requested excerpt.
+        rows = @db.execute(<<~SQL, [match, *ids.minmax, JSON.generate(ids)]).to_h { |row| [row.fetch("id"), row] }
+          SELECT p.id, p.file_id, p.number, p.content, b.data, snippet(pages_fts, 0, '', '', '…', 42) AS excerpt
+          #{JOIN} WHERE pages_fts MATCH ? AND pages_fts.rowid BETWEEN ? AND ?
+          AND +pages_fts.rowid IN (SELECT value FROM json_each(?))
+        SQL
+        ids.map { |id| rows.fetch(id) }
       end
     end
   end

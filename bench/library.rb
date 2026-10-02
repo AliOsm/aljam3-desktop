@@ -6,6 +6,7 @@ require "optparse"
 require "fileutils"
 require "shellwords"
 require_relative "../lib/aljam3"
+require_relative "bulk_pages"
 
 options = { pages: 1_000_000, path: ".cache/benchmark/library.sqlite3", label: "baseline", prepare: false, runs: 3 }
 OptionParser.new do |parser|
@@ -43,6 +44,12 @@ if options[:prepare]
   texts = manifest.fetch("samples").flat_map { |sample| File.read(sample.fetch("path")).split(/\r?\nPAGE_SEPARATOR\r?\n/, -1) }
   report[:sample_pages] = texts.size
   report[:sample_average_bytes] = texts.sum(&:bytesize).fdiv(texts.size)
+  if options[:token_cache]
+    bulk = BulkPages.new(db, texts)
+    # Disposable fixture only. Normal app indexing is measured by indexing.rb.
+    db.execute_batch("PRAGMA synchronous = NORMAL; PRAGMA cache_size = -65536;")
+    report[:fixture_acceleration] = { bulk_sql: true, synchronous: "NORMAL", writer_cache_mib: 64, batch: "one book" }
+  end
   started = clock.call
   count = 0
   books.each_with_index do |book, index|
@@ -53,7 +60,11 @@ if options[:prepare]
     next if store.downloaded?(book.fetch("id")) && (count += pages)
 
     store.prepare_download(book)
-    pages.times.each_slice(500) do |batch|
+    pages.times.each_slice(bulk ? [pages, 500].max : 500) do |batch|
+      if bulk
+        bulk.add(file_id, count, batch)
+        next
+      end
       rows = batch.map do |number|
         id = count + number + 1
         { "id" => id, "number" => number + 1, "content" => "#{texts[(id * 7919) % texts.size]}\n#{id}" }
