@@ -14,12 +14,16 @@ module Aljam3
 
       def initialize(path)
         @path, @lock, @state = path, Mutex.new, Mutex.new
+        @generation = 0
       end
 
-      def call(method, *arguments, **options)
+      def generation = @state.synchronize { @generation }
+
+      def call(method, *arguments, generation: self.generation, **options)
         @lock.synchronize do
           streams = @state.synchronize do
             raise Cancelled, "The library worker is closed." if @closed
+            raise Cancelled, "The library operation was cancelled." if generation && generation != @generation
             @streams ||= start
           end
           received = false
@@ -45,7 +49,7 @@ module Aljam3
         end
       end
 
-      def cancel = @state.synchronize { stop }
+      def cancel = @state.synchronize { @generation += 1; stop }
       def close = @state.synchronize { @closed = true; stop }
 
       private

@@ -19,7 +19,8 @@ module Aljam3
         scopes = { "b.category_id" => category, "b.author_id" => author, "b.library_id" => library, "b.id" => book_id }.compact
         first_page = ((page - 1) / CACHE_PAGES) * CACHE_PAGES + 1
         version = @db.get_first_value("PRAGMA data_version")
-        @index_summary = nil if @cache_key && @cache_key.first != version
+        @index_summary = nil if @data_version != version
+        @data_version = version
         key = [version, match, order.to_s, scopes, first_page]
         if @cache_key != key
           @cache = fetch(match, scopes, order.to_s, first_page)

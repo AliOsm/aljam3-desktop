@@ -54,15 +54,16 @@ module Aljam3
 
     def search(query, category: nil, author: nil, library: nil, page: 1, book_id: nil, downloaded: false, order: "relevance")
       options = { category:, author:, library:, page:, book_id: }
-      return Result.new(@store.search(query, **options, order:), :downloaded, nil) if downloaded
+      generation = @store.search_generation
+      return Result.new(@store.search(query, **options, order:, generation:), :downloaded, nil) if downloaded
 
       data = @api.search(query, **options)
       @store.cache_books(data.fetch("pages").map { |hit| hit.fetch("book") }.uniq { |book| book.fetch("id") })
       Result.new(data, :online, nil)
     rescue ConnectionError
-      Result.new(@store.search(query, **options, order:), :offline, :connection)
+      Result.new(@store.search(query, **options, order:, generation:), :offline, :connection)
     rescue ResponseError => error
-      Result.new(@store.search(query, **options, order:), :local, error.status)
+      Result.new(@store.search(query, **options, order:, generation:), :local, error.status)
     end
   end
 end

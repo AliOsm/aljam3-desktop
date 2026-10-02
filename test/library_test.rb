@@ -73,6 +73,29 @@ class LibraryTest < StoreTestCase
     assert_equal 2, result.data.fetch("pages").length
   end
 
+  def test_cancelled_api_request_cannot_start_an_offline_search_after_it_fails
+    entered, finish = Queue.new, Queue.new
+    pending = nil
+    @api.define_singleton_method(:search) do |*|
+      entered << true
+      raise finish.pop
+    end
+    [Aljam3::ConnectionError.new("Offline"), Aljam3::ResponseError.new(503)].each do |error|
+      pending = Thread.new do
+        @library.search("العلم")
+      rescue Aljam3::Store::Worker::Cancelled
+        :cancelled
+      end
+      entered.pop
+      @store.cancel_search
+      finish << error
+      assert_equal :cancelled, pending.value
+      assert_equal 2, @library.search("العلم", downloaded: true).data.fetch("pages").size
+    end
+  ensure
+    pending&.kill&.join
+  end
+
   def test_book_search_keeps_its_scope_online_and_offline
     install_book(2)
     assert_equal :online, @library.search("العلم", book_id: 2).source

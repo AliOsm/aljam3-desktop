@@ -83,7 +83,12 @@ class LargeLibraryTest < StoreTestCase
   end
 
   def test_partial_books_never_enter_ranked_results_and_completion_invalidates_the_cache
-    install_book
+    @store.prepare_download(book)
+    @store.add_pages(10, Array.new(1_101) do |index|
+      { "id" => index + 1, "number" => index + 1, "content" => "العلم #{'تمهيد ' * 30}" }
+    end)
+    @store.complete_download(1)
+    assert_equal [1], @store.search("العلم").fetch("pages").map { |hit| hit.dig("book", "id") }.uniq
     @store.prepare_download(book(2))
     @store.add_pages(20, [{ "id" => 2_000, "number" => 1, "content" => "العلم" }])
     assert_equal [1], @store.search("العلم").fetch("pages").map { |hit| hit.dig("book", "id") }.uniq

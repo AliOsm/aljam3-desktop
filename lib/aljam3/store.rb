@@ -118,8 +118,10 @@ module Aljam3
       @lock.synchronize { @db.transaction { write_authors(authors) } }
     end
 
-    def search(query, **options)
-      return @queries.call(:search, query, **options) if @queries
+    def search_generation = @queries&.generation
+
+    def search(query, generation: search_generation, **options)
+      return @queries.call(:search, query, generation:, **options) if @queries
 
       @reader.call { |db| db.transaction { (@search ||= Search.new(db)).call(query, **options) } }
     end
