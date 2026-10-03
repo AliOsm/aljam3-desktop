@@ -56,3 +56,7 @@ run = "ruby bench/prepare.rb"
 [tasks.benchmark]
 description = "Measure the disposable library database (see bench/README.md)"
 run = "bundle exec ruby bench/library.rb"
+
+[tasks.benchmark-pdf]
+description = "Measure cold PDF page seeks without downloading the whole book"
+run = "bundle exec ruby bench/pdf_seeking.rb"

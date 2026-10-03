@@ -22,8 +22,10 @@ begin
   file = store.files(1).first
   image = Aljam3::PDF.new(cache: File.join(directory, "renders")).render(downloader.pdf_path(1, file.fetch("id")), page: 10, width: 1000)
   streaming = StreamingVerification.call(file:, local_path: downloader.pdf_path(1, file.fetch("id")))
+  distant_pages = StreamingVerification.distant_pages(api:)
   puts "PASS: live catalog, complete book download, connection failure → SQLite search, PDF rendering, and seeking over HTTP ranges."
   puts "Online PDF: #{JSON.generate(streaming)}"
+  puts "Cold distant pages (1 MiB budget each): #{JSON.generate(distant_pages)}"
   puts "Book: #{book.fetch('title')}"
   puts "Offline results: #{result.data.fetch('pagination').fetch('count')}"
   puts "PDF image: #{image.path} (#{image.width} × #{image.height})"

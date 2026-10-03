@@ -18,6 +18,7 @@ begin
   downloader.call(1)
   file = store.files(1).first
   streaming = StreamingVerification.call(file:, local_path: downloader.pdf_path(1, file.fetch("id")))
+  distant_pages = StreamingVerification.distant_pages(api:)
   store.save_preference("theme", "light")
 ensure
   store.close
@@ -140,8 +141,8 @@ app.every(0.1) do
       automation.snapshot(File.join(output, "downloads.png"), scale: 2)
       alignment = AlignmentVerification.new(app, automation, output: File.join(output, "alignment")).call
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
-        platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:, alignment:,
-        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache] }))
+        platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:, distant_pages:, alignment:,
+        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache pdf_distant_page_budget] }))
       app.close
     end
   rescue StandardError => error

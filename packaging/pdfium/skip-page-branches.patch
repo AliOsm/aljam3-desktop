@@ -1,0 +1,57 @@
+diff --git a/core/fpdfapi/parser/cpdf_document.cpp b/core/fpdfapi/parser/cpdf_document.cpp
+index b70120b..2b06e35 100644
+--- a/core/fpdfapi/parser/cpdf_document.cpp
++++ b/core/fpdfapi/parser/cpdf_document.cpp
+@@ -309,6 +309,14 @@ RetainPtr<CPDF_Dictionary> CPDF_Document::TraversePDFPages(int iPage,
+     } else {
+       // If the vector has size level+1, the child is not in yet
+       if (tree_traversal_.size() == level + 1) {
++        // A remote stream should not fetch every earlier page dictionary just
++        // to locate this page. Skip complete, unvisited page-tree branches.
++        const int count = pKid->GetIntegerFor("Count");
++        if (count > 0 && count < *nPagesToGo) {
++          *nPagesToGo -= count;
++          tree_traversal_[level].child_index++;
++          continue;
++        }
+         tree_traversal_.emplace_back(std::move(pKid));
+       }
+       // Now tree_traversal_[level+1] should exist and be equal to pKid.
+@@ -383,7 +391,7 @@ RetainPtr<const CPDF_Dictionary> CPDF_Document::GetPageDictionary(int iPage) {
+     return nullptr;
+   }
+ 
+-  if (tree_traversal_.empty()) {
++  if (tree_traversal_.empty() || iPage < next_page_to_traverse_) {
+     ResetTraversal();
+     tree_traversal_.emplace_back(std::move(pPages));
+   }
+diff --git a/core/fpdfapi/parser/cpdf_document_unittest.cpp b/core/fpdfapi/parser/cpdf_document_unittest.cpp
+index abed319..f1387de 100644
+--- a/core/fpdfapi/parser/cpdf_document_unittest.cpp
++++ b/core/fpdfapi/parser/cpdf_document_unittest.cpp
+@@ -184,6 +184,24 @@ TEST_F(DocumentTest, GetPageWithoutObjNumTwice) {
+   EXPECT_EQ(page, second_call_page);
+ }
+ 
++TEST_F(DocumentTest, SkipUnvisitedPageBranches) {
++  auto document = std::make_unique<CPDF_TestDocumentForPages>();
++  auto page = document->GetPageDictionary(6);
++  ASSERT_TRUE(page);
++  EXPECT_EQ(6, page->GetIntegerFor("PageNumbering"));
++  for (int i = 0; i < 6; ++i) {
++    EXPECT_FALSE(document->IsPageLoaded(i));
++  }
++
++  // Earlier pages are no longer necessarily cached. Backward and forward
++  // navigation must restart or resume traversal at the right page index.
++  for (int i : {4, 1, 5, 0, 3, 2, 6}) {
++    page = document->GetPageDictionary(i);
++    ASSERT_TRUE(page);
++    EXPECT_EQ(i, page->GetIntegerFor("PageNumbering"));
++  }
++}
++
+ TEST_F(DocumentTest, GetPagesReverseOrder) {
+   std::unique_ptr<CPDF_TestDocumentForPages> document =
+       std::make_unique<CPDF_TestDocumentForPages>();

@@ -1,0 +1,98 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "digest"
+require "etc"
+require "fileutils"
+require "rbconfig"
+
+# Same PDFium release as the upstream packages, with the page-tree seeking fix.
+# Build tools and transitive dependencies are pinned; only .cache holds source.
+ROOT = File.expand_path("..", __dir__)
+BUILDER_REVISION = "f2e9a1c45bb17b85b540abf1af30146ef65416ac"
+DEPOT_REVISION = "8a5434051036b32412a2ecb10c213a72e3f3ccb9"
+PDFIUM_REVISION = "8ca5b735df4263f43c830479b78213854a392c22"
+PATCH = File.join(ROOT, "packaging/pdfium/skip-page-branches.patch")
+
+os = case RbConfig::CONFIG["host_os"]
+     when /darwin/ then "mac"
+     when /linux/ then "linux"
+     when /mingw|mswin/ then "win"
+     else abort "Unsupported PDFium platform."
+     end
+arch = RbConfig::CONFIG["host_cpu"].match?(/aarch64|arm64/) ? "arm64" : "x64"
+fingerprint = Digest::SHA256.hexdigest(File.binread(__FILE__) + File.binread(PATCH))[0, 16]
+version = "8076-#{os}-#{arch}-#{fingerprint}"
+destination = File.join(ROOT, "vendor/pdfium")
+library = os == "win" ? "bin/pdfium.dll" : "lib/libpdfium.#{os == 'mac' ? 'dylib' : 'so'}"
+exit if File.file?(File.join(destination, library)) &&
+  File.file?(File.join(destination, "VERSION")) && File.read(File.join(destination, "VERSION")).strip == version
+
+def run(*command, **options)
+  system(*command, **options) || abort("Failed: #{command.join(' ')}")
+end
+
+def checkout(url, directory, revision)
+  unless File.directory?(File.join(directory, ".git"))
+    run("git", "clone", "--no-checkout", "--depth", "1", url, directory)
+    run("git", "-C", directory, "fetch", "--depth", "1", "origin", revision)
+    run("git", "-C", directory, "checkout", "--detach", revision)
+  end
+  actual = IO.popen(["git", "-C", directory, "rev-parse", "HEAD"], &:read).strip
+  abort "Expected #{revision} in #{directory}, found #{actual}." unless actual == revision
+end
+
+build = File.join(ROOT, ".cache/pdfium-build")
+FileUtils.mkdir_p(File.dirname(build))
+checkout("https://github.com/bblanchon/pdfium-binaries.git", build, BUILDER_REVISION)
+depot = File.join(build, "depot_tools")
+checkout("https://chromium.googlesource.com/chromium/tools/depot_tools.git", depot, DEPOT_REVISION)
+environment = {
+  "PATH" => [depot, ENV.fetch("PATH")].join(File::PATH_SEPARATOR),
+  "DEPOT_TOOLS_UPDATE" => "0", "DEPOT_TOOLS_WIN_TOOLCHAIN" => "0",
+  "PDFium_TARGET_OS" => os, "PDFium_TARGET_CPU" => arch, "PDFium_ENABLE_V8" => "false",
+  "PDFium_SOURCE_DIR" => File.join(build, "pdfium"),
+  "PDFium_BUILD_DIR" => File.join(build, "pdfium/out"), "PDFium_VERSION" => "0.0.8076.0"
+}
+
+Dir.chdir(build) do
+  if os == "win"
+    run(environment, "cmd.exe", "/c", File.join(depot, "bootstrap/win_tools.bat"))
+    run(environment, "bash", "-eu", "steps/01-install.sh")
+    sdk = File.join(ENV.fetch("ProgramFiles(x86)"), "Windows Kits/10/bin/10.0.28000.0/x64")
+    environment["PATH"] = [sdk, environment.fetch("PATH")].join(File::PATH_SEPARATOR)
+  else
+    run(environment, "bash", File.join(depot, "ensure_bootstrap"))
+  end
+  gclient = File.join(depot, os == "win" ? "gclient.bat" : "gclient")
+  run(environment, gclient, "config", "--unmanaged", "https://pdfium.googlesource.com/pdfium.git",
+    "--custom-var", "checkout_configuration=minimal")
+  File.open(".gclient", "a") { |file| file.puts("target_os = ['#{os}']") }
+  run(environment, gclient, "sync", "--revision", "pdfium@#{PDFIUM_REVISION}", "--no-history", "--shallow", "--reset")
+  run("git", "-C", "pdfium", "reset", "--hard", PDFIUM_REVISION)
+  run("git", "-C", "pdfium/build", "reset", "--hard")
+  run(environment, "bash", "-eu", "steps/03-patch.sh")
+  run("git", "-C", "pdfium", "apply", "--check", PATCH)
+  run("git", "-C", "pdfium", "apply", PATCH)
+  run(environment, "bash", "-eu", "steps/05-configure.sh")
+  ninja = File.join(depot, os == "win" ? "ninja.bat" : "ninja")
+  run(environment, ninja, "-C", "pdfium/out", "-j", [Etc.nprocessors, 4].min.to_s, "pdfium", "pdfium_unittests")
+  run(File.join(build, "pdfium/out/pdfium_unittests#{'.exe' if os == 'win'}"),
+    "--gtest_filter=DocumentTest.*")
+  run(environment, "bash", "-eu", "steps/07-stage.sh")
+  run(environment, "bash", "-eu", "steps/08-licenses.sh")
+  # These dependencies are not covered by the pinned upstream license collector.
+  {
+    "harfbuzz/src/COPYING" => "harfbuzz.txt",
+    "dragonbox/src/LICENSE-Apache2-LLVM" => "dragonbox-apache.txt",
+    "dragonbox/src/LICENSE-Boost" => "dragonbox-boost.txt",
+    "libc++/src/LICENSE.TXT" => "libc++.txt",
+    "libc++abi/src/LICENSE.TXT" => "libc++abi.txt"
+  }.each do |source, name|
+    FileUtils.cp(File.join("pdfium/third_party", source), File.join("staging/licenses", name))
+  end
+  File.write("staging/VERSION", "#{version}\n")
+  FileUtils.rm_rf(destination)
+  FileUtils.cp_r("staging", destination)
+end
+puts "PDFium #{version} built and verified."

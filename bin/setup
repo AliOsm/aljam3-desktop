@@ -10,14 +10,6 @@ ROOT = File.expand_path("..", __dir__)
 SCARPE_REVISION = "47256367a4d3cefbb39756d8c3287814db72e927"
 TOKENIZER_REVISION = "049d3c496209be1a68712b841d3198128761c3f3"
 TOKENIZER_SOURCE_CHECKSUM = "f7e9217dc66ca78306e257d816175e18f4002022c3155f75f0d283089f81263c"
-PDFIUM_VERSION = "8076"
-PDFIUM_CHECKSUMS = {
-  "linux-x64" => "d9d67bc40af03aef4fe28a60b19b1086f28ace019c8c9caf19cb7fe3d14ceca3",
-  "linux-arm64" => "d7247b33ae5545615a5e877235dd97afc879e3a8805689684f528cae3339d352",
-  "mac-x64" => "40865f34642c34d82cc336132df9e0347133f4692cd46776647af160f9a5cca9",
-  "mac-arm64" => "0d6781fe08906baff3d82c90953e519fbc4eb253fe76431e5ed53b157763b97c",
-  "win-x64" => "808d36da9bc5a3104315fb307c80998121f565ee53953633bf33e80d7429e5ac"
-}.freeze
 TOKENIZER_CHECKSUMS = {
   "linux-x64" => "521ff550863b8a8d4636a9c96b68a4445d497b897edc6b9d4fba679acf396705",
   "linux-arm64" => "5896a9cd536c27430527782d9ac95eb1c6e69bba50410eaf900d51b4244f312d",
@@ -69,18 +61,7 @@ Dir.chdir(ROOT) do
          else abort "Unsupported architecture: #{cpu}"
          end
 
-  version = "#{PDFIUM_VERSION}-#{os}-#{arch}"
-  library = os == "win" ? "vendor/pdfium/bin/pdfium.dll" : "vendor/pdfium/lib/libpdfium.#{os == 'mac' ? 'dylib' : 'so'}"
-  unless File.file?(library) && File.exist?("vendor/pdfium/VERSION") && File.read("vendor/pdfium/VERSION").strip == version
-    Dir.mktmpdir("aljam3-pdfium") do |temporary|
-      archive = File.join(temporary, "pdfium.tgz")
-      fetch("https://github.com/bblanchon/pdfium-binaries/releases/download/chromium/#{PDFIUM_VERSION}/pdfium-#{os}-#{arch}.tgz", archive,
-        checksum: PDFIUM_CHECKSUMS.fetch("#{os}-#{arch}"))
-      FileUtils.mkdir_p("vendor/pdfium")
-      run("tar", "-xzf", File.basename(archive), "-C", File.join(ROOT, "vendor/pdfium"), chdir: temporary)
-      File.write("vendor/pdfium/VERSION", version)
-    end
-  end
+  run(RbConfig.ruby, "bin/build-pdfium")
 
   tokenizer_platform = "#{{ 'mac' => 'macos', 'win' => 'windows' }.fetch(os, os)}-#{arch}"
   tokenizer_version = "0.1.13-#{tokenizer_platform}"

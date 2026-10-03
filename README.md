@@ -20,7 +20,7 @@ mise run setup
 mise run start
 ```
 
-Setup fetches the pinned Scarpe source, applies the included native input, button, and Windows/clipboard patches, installs the Ruby bundle, compiles the native renderer, and installs checksum-verified PDFium and Arabic tokenizer binaries. The first build takes a few minutes. Mise manages Ruby 3.4.7, Rust 1.98.1, and `sqlite-tokenizer-ar` 0.1.13.
+Setup fetches pinned Scarpe and PDFium sources, applies the included native patches, installs the Ruby bundle, compiles the renderer and PDFium, and installs the checksum-verified Arabic tokenizer. The first build downloads the PDFium compiler toolchain and takes longer; later runs reuse the compiled libraries. PDFium's page-tree patch prevents distant-page seeks from reading unrelated earlier branches. See [PDF seeking](packaging/pdfium/README.md) for the pinned build and verification details. Linux builds need pkg-config; macOS needs Xcode, and Windows needs Visual Studio C++ tools and Git Bash. Mise manages Ruby 3.4.7, Rust 1.98.1, and `sqlite-tokenizer-ar` 0.1.13.
 
 The dependency releases cover Linux x64/arm64 with glibc, macOS Apple silicon, and Windows x64. Standalone test packages target Apple silicon Macs and Windows x64. Use a window of at least 800 × 700 for the current layout.
 
@@ -81,7 +81,7 @@ mise run verify-ui # live online/offline reading and native UI integration check
 mise run verify-layout # deterministic alignment and focus checks, light/dark, 800/1160px
 ```
 
-The smoke check downloads book 1 if it is not already under `.cache/smoke`. It then simulates an unreachable API to verify SQLite fallback and renders a real PDF page. It also renders distant pages using HTTP ranges, verifies identical pixels to the local PDF, measures transferred bytes, and checks that cached pages need no new requests. To repeat the actual download, use an empty smoke directory.
+The smoke check downloads book 1 if it is not already under `.cache/smoke`. It then simulates an unreachable API to verify SQLite fallback and renders a real PDF page. It also renders distant pages using HTTP ranges, verifies identical pixels to the local PDF, measures transferred bytes, and checks that cached pages need no new requests. A separate temporary reference of book 3435 checks cold seeks to pages 104 and 471 with a 1 MiB budget each. Packaged-runtime checks enforce the same limits. To repeat the book 1 download, use an empty smoke directory.
 
 `peek` forwards Scarpe's inspection arguments. It uses a scratch HOME, scratch app data, and Scarpe's fake clipboard/dialog commands. Screenshots and preview data stay under ignored `.cache/`.
 
@@ -115,9 +115,9 @@ The Gemfile uses Lacci and Scarpe directly from that checkout. No local web serv
 
 Test files are shared directly or downloaded from private build artifacts. Publishing a release is a separate step that requires an explicit request. These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
-- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.9-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
-- **Windows x64 installer:** run `Aljam3-0.1.9-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
-- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.9-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
+- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.10-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
+- **Windows x64 installer:** run `Aljam3-0.1.10-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
+- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.10-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
 
 The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
 
@@ -160,6 +160,6 @@ Database migrations run transactionally. Older libraries gain Arabic search, rec
 - [Aljam3 API documentation](https://aljam3.com/api-docs/index.html)
 - [Scarpe agent guide](https://github.com/scarpe-team/scarpe/blob/main/FOR_AGENTS.md)
 - [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar), Apache-2.0; see its included third-party notices for Lucene and stopwords.
-- [PDFium binaries](https://github.com/bblanchon/pdfium-binaries), release `chromium/8076`; licenses are included under `vendor/pdfium` by setup.
+- [PDFium](https://pdfium.googlesource.com/pdfium/), revision `8ca5b735` (`chromium/8076`), built with pinned [pdfium-binaries scripts](https://github.com/bblanchon/pdfium-binaries) and the [page-tree seeking patch](packaging/pdfium/skip-page-branches.patch); licenses are included under `vendor/pdfium` by setup.
 - Design and logo from [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app).
 - Noto Naskh Arabic UI and Kitab use SIL Open Font Licenses; Thmanyah has its own license. All are retained under `assets/fonts/`.

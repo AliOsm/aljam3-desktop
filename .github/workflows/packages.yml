@@ -19,7 +19,7 @@ jobs:
           - runner: windows-2022
             target: windows-x64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
     steps:
@@ -47,6 +47,10 @@ jobs:
         with:
           workspaces: vendor/scarpe/native
           cache-on-failure: true
+      - uses: actions/cache@v4
+        with:
+          path: vendor/pdfium
+          key: pdfium-${{ matrix.target }}-${{ hashFiles('bin/build-pdfium', 'packaging/pdfium/*.patch') }}
       - name: Set up pinned runtime and native libraries
         run: ruby bin/setup
       - name: Application tests

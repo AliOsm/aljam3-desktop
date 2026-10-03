@@ -118,4 +118,24 @@ class RemotePDFTest < Minitest::Test
       end
     end
   end
+
+  def test_distant_pages_do_not_fetch_unrelated_page_tree_branches
+    data = RangePDF.document(pages: 128, branch_size: 4)
+    Dir.mktmpdir do |directory|
+      path = File.join(directory, "book.pdf")
+      File.binwrite(path, data)
+      pdf = Aljam3::PDF.new(cache: File.join(directory, "renders"))
+      RangePDF.serve(data) do |url, requests|
+        source = Aljam3::RemotePDF.new(url)
+        [128, 1, 65, 127, 9, 2].each do |page|
+          before = requests.sum(&:last)
+          remote = pdf.render(source, page:, width: 240)
+          local = pdf.render(path, page:, width: 240)
+          assert_equal File.binread(local.path), File.binread(remote.path), "Page #{page} must render correctly after a seek"
+          assert_operator requests.sum(&:last) - before, :<, 1024 * 1024,
+            "Page #{page} fetched unrelated page data"
+        end
+      end
+    end
+  end
 end
