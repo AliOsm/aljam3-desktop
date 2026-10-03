@@ -6,7 +6,7 @@ module Aljam3
   module UI
     CARD_RADIUS = 6
     FONT = "Noto Naskh Arabic UI"
-    HEADING_FONT = "thmanyah serif display Medium"
+    HEADING_FONT = "thmanyah serif display 500"
     READING_FONT = "Kitab"
 
     module Theme
