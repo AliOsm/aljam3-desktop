@@ -44,10 +44,12 @@ Dir.chdir(ROOT) do
   if WINDOWS
     # Ruby resolves its own libraries before boot.rb runs. Keep Unicode paths
     # intact from process startup without changing the machine's system locale.
-    ruby_exe = File.join(resources, "ruby/bin.real/ruby.exe")
-    manifest = File.join(ROOT, ".cache/packaging/ruby.manifest")
-    run("mt.exe", "-nologo", "-inputresource:#{ruby_exe};#1", "-out:#{manifest}")
-    run("mt.exe", "-nologo", "-manifest", manifest, "packaging/windows-ruby.manifest", "-outputresource:#{ruby_exe};#1")
+    %w[ruby rubyw].each do |name|
+      ruby_exe = File.join(resources, "ruby/bin.real/#{name}.exe")
+      manifest = File.join(ROOT, ".cache/packaging/#{name}.manifest")
+      run("mt.exe", "-nologo", "-inputresource:#{ruby_exe};#1", "-out:#{manifest}")
+      run("mt.exe", "-nologo", "-manifest", manifest, "packaging/windows-ruby.manifest", "-outputresource:#{ruby_exe};#1")
+    end
   else
     run("git", "apply", "--directory", File.join(resources, "ruby").delete_prefix("#{ROOT}/"), "packaging/openssl-crl.patch")
   end
