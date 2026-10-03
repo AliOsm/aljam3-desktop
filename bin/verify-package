@@ -5,8 +5,8 @@ require_relative "../packaging/verify_runtime"
 
 root = File.expand_path("..", __dir__)
 windows = Gem.win_platform?
-# Move the finished app to a path with spaces to catch build-machine path dependencies.
-verification = File.join(root, ".cache", "Packaged App Test")
+# Exercise non-ASCII paths as well as spaces, including the user's data directory.
+verification = File.join(root, ".cache", "Packaged App Test - مكتبة الجامع")
 FileUtils.rm_rf(verification)
 FileUtils.mkdir_p(verification)
 source = File.join(root, "dist", windows ? "Aljam3" : "Aljam3.app")
@@ -21,3 +21,7 @@ output = File.join(root, "dist/verification")
 FileUtils.mkdir_p([scratch, output])
 FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(scratch, "data"))
 PackageVerification.call(bundle:, home: scratch, output:)
+if windows
+  require_relative "../packaging/verify_windows_launcher"
+  WindowsLauncherVerification.call(bundle:, home: scratch, output:)
+end

@@ -52,3 +52,60 @@ jobs:
             dist/installer-verification/
           if-no-files-found: error
           retention-days: 30
+
+  arm64:
+    name: Verify x64 app on Windows 11 ARM
+    needs: installer
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aljam3-windows-x64
+          path: input
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aljam3-windows-x64-installer
+          path: installer-input
+      - name: Prepare the bundled x64 Ruby on ARM Windows
+        shell: pwsh
+        run: |
+          if ([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'Arm64') {
+            throw 'Expected a native ARM64 Windows runner.'
+          }
+          $archive = Get-ChildItem input/*.zip
+          if (@($archive).Count -ne 1) { throw 'Expected one Windows ZIP.' }
+          $expected = (Get-Content "$($archive.FullName).sha256").Split(' ')[0]
+          if ((Get-FileHash $archive.FullName -Algorithm SHA256).Hash -ne $expected) { throw 'Package checksum mismatch.' }
+          Expand-Archive $archive.FullName -DestinationPath dist
+          $rubyRuntime = Join-Path $PWD 'dist/Aljam3/resources/ruby'
+          $libraries = @('site_ruby/3.4.0', 'site_ruby/3.4.0/x64-mingw-ucrt', 'site_ruby', 'vendor_ruby/3.4.0', 'vendor_ruby/3.4.0/x64-mingw-ucrt', 'vendor_ruby', '3.4.0', '3.4.0/x64-mingw-ucrt')
+          "RUBYLIB=$(($libraries | ForEach-Object { Join-Path $rubyRuntime "lib/ruby/$_" }) -join ';')" >> $env:GITHUB_ENV
+          "ALJAM3_TEST_RUBY=$rubyRuntime/bin.real/ruby.exe" >> $env:GITHUB_ENV
+          New-Item -ItemType Directory -Force dist/installer-verification | Out-Null
+          @{ architecture = 'Arm64'; windows = [Environment]::OSVersion.Version.ToString(); runtime = 'x64 emulation' } |
+            ConvertTo-Json | Set-Content dist/installer-verification/host.json
+      - name: Prepare the headless test helpers
+        shell: pwsh
+        run: |
+          & $env:ALJAM3_TEST_RUBY bin/setup --prepare
+          if ($LASTEXITCODE) { throw 'Test helper preparation failed.' }
+      - name: Verify installation, upgrade, and uninstall on ARM
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem installer-input/*-setup.exe
+          if (@($installer).Count -ne 1) { throw 'Expected one installer.' }
+          $expected = (Get-Content "$($installer.FullName).sha256").Split(' ')[0]
+          if ((Get-FileHash $installer.FullName -Algorithm SHA256).Hash -ne $expected) { throw 'Installer checksum mismatch.' }
+          & $env:ALJAM3_TEST_RUBY bin/verify-installer $installer.FullName
+          if ($LASTEXITCODE) { throw 'ARM Windows verification failed.' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aljam3-windows-arm64-verification
+          path: dist/installer-verification/
+          if-no-files-found: warn
+          retention-days: 30

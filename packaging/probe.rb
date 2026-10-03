@@ -4,6 +4,9 @@
 require "json"
 root = ENV.fetch("ALJAM3_BUNDLE_ROOT")
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
+raise "Ruby startup locale is not UTF-8" if Gem.win_platform? && Encoding.find("locale") != Encoding::UTF_8
+raise "Unicode app path was not exercised" if root.ascii_only?
+raise "Unicode data path was not exercised" if ENV.fetch("ALJAM3_DATA_DIR").ascii_only?
 require File.join(root, "app/lib/aljam3")
 require File.join(root, "app/lib/aljam3/pdf")
 require_relative "verify_streaming"
@@ -142,7 +145,7 @@ app.every(0.1) do
       alignment = AlignmentVerification.new(app, automation, output: File.join(output, "alignment")).call
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
         platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:, distant_pages:, alignment:,
-        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache pdf_distant_page_budget] }))
+        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache pdf_distant_page_budget unicode_bundle_and_data_paths] }))
       app.close
     end
   rescue StandardError => error

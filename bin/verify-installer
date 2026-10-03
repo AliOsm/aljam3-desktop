@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require_relative "../packaging/verify_runtime"
+require_relative "../packaging/verify_windows_launcher"
 require "digest"
 
 abort "Verify installers on a disposable Windows CI runner." unless Gem.win_platform? && ENV["GITHUB_ACTIONS"] == "true"
@@ -21,7 +22,7 @@ end
 
 root = File.expand_path("..", __dir__)
 installer = File.expand_path(ARGV.fetch(0) { Dir.glob(File.join(root, "dist/*-setup.exe")).fetch(0) })
-workspace = File.join(root, ".cache/Installer Test")
+workspace = File.join(root, ".cache/Installer Test - مكتبة الجامع")
 FileUtils.rm_rf(workspace)
 bundle = File.join(workspace, "Installed App")
 home = File.join(workspace, "home")
@@ -40,6 +41,7 @@ Win32::Registry::HKEY_CURRENT_USER.open(registry) do |key|
   raise "Wrong install location" unless File.expand_path(key["InstallLocation"]).delete_suffix("/") == bundle
 end
 PackageVerification.call(bundle:, home:, output: File.join(output, "installed"))
+WindowsLauncherVerification.call(bundle:, home:, output:)
 before = library_digest(home)
 
 # Upgrades replace managed resources and leave the user's library intact.
