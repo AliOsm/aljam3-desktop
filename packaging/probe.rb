@@ -7,6 +7,7 @@ output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
 require File.join(root, "app/lib/aljam3")
 require File.join(root, "app/lib/aljam3/pdf")
 require_relative "verify_streaming"
+require_relative "../test/support/alignment_verification"
 api = Aljam3::API.new
 raise "Bundled HTTPS failed" if api.books.fetch("books").empty?
 # Installer checks start with an empty library and download through the bundled runtime.
@@ -140,8 +141,9 @@ app.every(0.1) do
       app.navigate(:downloads)
       automation.wait_frames
       automation.snapshot(File.join(output, "downloads.png"), scale: 2)
+      alignment = AlignmentVerification.new(app, automation, output: File.join(output, "alignment")).call
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
-        platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:,
+        platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:, alignment:,
         checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache] }))
       app.close
     end

@@ -59,12 +59,8 @@ module Aljam3
               items.each { |item| search_row(item, query: @result_query) }
             else
               columns = @main_width >= 940 ? 2 : 1
-              flow(direction: "rtl") do
-                items.each do |item|
-                  stack(width: 1.0 / columns, padding_left: columns > 1 ? 12 : 0) do
-                    result_key == "authors" ? author_row(item) : book_row(item)
-                  end
-                end
+              grid(items, columns:) do |item, styles|
+                result_key == "authors" ? author_row(item, **styles) : book_row(item, **styles)
               end
             end
             page = @result.data.fetch("pagination").fetch("current_page")
@@ -114,20 +110,26 @@ module Aljam3
         "#{result_count(@result.data)} · #{@source == :online ? 'كل المكتبة' : 'المحفوظ على جهازك'}"
       end
 
-      def book_heading(book)
+      def book_heading(book, aligned: false)
         category, author = book.values_at("category", "author")
-        if category
-          para text_link(Text.plain(category.fetch("name")), stroke: muted) { browse_scope(:category, category) }, size: 13, margin_bottom: 8
+        stack(height_group: aligned ? "book_category" : nil) do
+          if category
+            para text_link(Text.plain(category.fetch("name")), stroke: muted) { browse_scope(:category, category) }, size: 13
+          end
         end
-        para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 20, weight: "semibold"
-        if author
-          para text_link(Text.plain(author.fetch("name")), stroke: muted) { browse_scope(:author, author) }, size: 14, margin_top: 8
+        stack(height_group: aligned ? "book_title" : nil, margin_top: 8) do
+          para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 20, weight: "semibold"
+        end
+        stack(height_group: aligned ? "book_author" : nil, margin_top: 8) do
+          if author
+            para text_link(Text.plain(author.fetch("name")), stroke: muted) { browse_scope(:author, author) }, size: 14
+          end
         end
       end
 
-      def book_row(book)
-        card do
-          stack(padding: 16) { book_heading(book) }
+      def book_row(book, **styles)
+        card(**styles) do
+          stack(padding: 16) { book_heading(book, aligned: true) }
           book_footer(book, "#{book.fetch('pages_count')} صفحة · #{book.fetch('files_count')} ملف")
         end
       end

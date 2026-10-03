@@ -74,26 +74,26 @@ module Aljam3
       def draw_reader
         @pdf_surface = @text_surface = @page_image = @copy_button = @page_text = @drag = nil
         book = @reader.fetch(:book)
-        row(left: 16, top: 76, width: width - 32, height: 36) do
+        row(left: PAGE_MARGIN, top: 84, width: @main_width, height: 36) do
           icon_button("arrow-right", "العودة إلى النتائج", width: 44) { close_reader }
           para Text.plain(book.fetch("title")), width: -44, size: 22, font: HEADING_FONT, wrap: "trim"
         end
         author = book["author"]
         para text_link(Text.plain(author&.fetch("name")), stroke: muted) { browse_scope(:author, author) if author },
-          left: 200, top: 120, width: width - 216, size: 14
-        para availability_label(book), left: 16, top: 120, width: 176, size: 13, stroke: muted, align: "left"
-        reader_toolbar(152)
-        pane_top = 216
+          left: PAGE_MARGIN + 184, top: 128, width: @main_width - 184, size: 14
+        para availability_label(book), left: PAGE_MARGIN, top: 128, width: 176, size: 13, stroke: muted, align: "left"
+        reader_toolbar(160)
+        pane_top = 224
         unless @reader.fetch(:query).empty?
           reader_match_bar(pane_top)
           pane_top += 44
         end
         if @reader[:notice]
-          para @reader[:notice], left: 16, top: pane_top, width: width - 32, size: 14, stroke: primary
+          para @reader[:notice], left: PAGE_MARGIN, top: pane_top, width: @main_width, size: 14, stroke: primary
           pane_top += 32
         end
         pdf_width, text_width = reader_pane_widths
-        pane_height = height - pane_top - 88
+        pane_height = height - pane_top - STATUS_HEIGHT - 88
         @pane_top, @pane_height = pane_top, pane_height
         reader_pdf_pane(width: pdf_width, height: pane_height, top: pane_top) if reader_pdf?
         reader_text_pane(width: text_width, height: pane_height, top: pane_top) unless @reader[:mode] == :pdf
@@ -102,7 +102,7 @@ module Aljam3
       end
 
       def reader_toolbar(top)
-        stack(left: 16, top:, width: width - 32, height: 48, padding: [8, 6, 8, 6]) do
+        stack(left: PAGE_MARGIN, top:, width: @main_width, height: 48, padding: [8, 6, 8, 6]) do
           background surface, curve: CARD_RADIUS
           row do
             action("بحث", icon: "search", width: 88, variant: :ghost) { open_book_search }
@@ -130,7 +130,7 @@ module Aljam3
       end
 
       def reader_text_pane(width:, height:, top:)
-        left = @reader[:mode] == :split ? @pdf_width + 32 : 16
+        left = PAGE_MARGIN + (@reader[:mode] == :split ? @pdf_width + READER_GAP : 0)
         @text_pane = stack(left:, top:, width:, height:) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
@@ -175,7 +175,7 @@ module Aljam3
 
       def reader_pdf_pane(width:, height:, top:)
         @pdf_width, @pdf_height = width, height
-        @pdf_pane = stack(left: 16, top:, width:, height:) do
+        @pdf_pane = stack(left: PAGE_MARGIN, top:, width:, height:) do
           background surface, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
           @pdf_surface = stack(width: 1.0, height:, scroll: !@dialog, direction: "rtl")
@@ -197,11 +197,12 @@ module Aljam3
       def reader_pagination
         number, file = @reader.values_at(:number, :file)
         count = file.fetch("pages_count")
-        stack(left: 16, top: height - 68, width: width - 32, height: 52) do
+        bottom = height - STATUS_HEIGHT
+        stack(left: PAGE_MARGIN, top: bottom - 68, width: @main_width, height: 52) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
         end
-        row(left: (width - 340) / 2, top: height - 60, width: 340) do
+        row(left: (width - 340) / 2, top: bottom - 60, width: 340) do
           icon_button("chevrons-right", "أول صفحة", state: number <= 1 ? "disabled" : nil) { turn_page(1) }
           icon_button("arrow-right", "الصفحة السابقة", state: number <= 1 ? "disabled" : nil) { turn_page(number - 1) }
           para "الصفحة", width: 52, size: 14, align: "center", stroke: muted
@@ -213,15 +214,15 @@ module Aljam3
           icon_button("arrow-left", "الصفحة التالية", state: number >= count ? "disabled" : nil) { turn_page(number + 1) }
           icon_button("chevrons-left", "آخر صفحة", state: number >= count ? "disabled" : nil) { turn_page(count) }
         end
-        @page_feedback = para "", left: (width - 340) / 2, top: height - 86, width: 340, size: 13, stroke: primary, align: "center"
+        @page_feedback = para "", left: (width - 340) / 2, top: bottom - 86, width: 340, size: 13, stroke: primary, align: "center"
         files = @reader.fetch(:files)
         if files.size > 1
-          action("ملفات الكتاب", icon: "chevron-down", right: 28, top: height - 60, width: 144, variant: :ghost) do
+          action("ملفات الكتاب", icon: "chevron-down", right: PAGE_MARGIN + 12, top: bottom - 60, width: 144, variant: :ghost) do
             choices = files.map { |item| ["#{item.fetch('name')} · #{item.fetch('pages_count')} صفحة", item] }
             open_dialog(:volumes, query: "", choices:, selection: ->(selected) { @reader[:file] = selected; turn_page(1) })
           end
         else
-          para "الكتاب", right: 32, top: height - 50, width: 120, size: 14, stroke: muted
+          para "الكتاب", right: PAGE_MARGIN + 16, top: bottom - 50, width: 120, size: 14, stroke: muted
         end
       end
 

@@ -2,14 +2,20 @@
 
 module Aljam3
   module UI
+    PAGE_MARGIN = 24
+    COLUMN_GAP = 24
+    SCROLL_GUTTER = 16
+    STATUS_HEIGHT = 32
+    READER_GAP = 16
+
     module Components
       def row(**styles, &block)
         flow(width: 1.0, height: 36, direction: "rtl", valign: "center", **styles, &block)
       end
 
       def scroll_area(**styles, &block)
-        area = stack(width: 1.0, direction: "rtl", scroll: !@dialog, **styles) do
-          stack(margin: [14, 0, 0, 16], &block)
+        area = stack(left: -SCROLL_GUTTER, width: @main_width + SCROLL_GUTTER, direction: "rtl", scroll: !@dialog, **styles) do
+          stack(margin: [SCROLL_GUTTER, 0, 0, 16], &block)
         end
         if @drawing_dialog
           @dialog_results = area
@@ -18,14 +24,26 @@ module Aljam3
         area
       end
 
+      def grid(items, columns:, gap: COLUMN_GAP, row_gap: 16)
+        cell_width = (@main_width - gap * (columns - 1)).fdiv(columns)
+        items.each_slice(columns) do |items_in_row|
+          flow(width: 1.0, direction: "rtl", valign: "stretch", align_heights: true, margin_bottom: row_gap) do
+            items_in_row.each_with_index do |item, index|
+              gutter = index < columns - 1 ? gap : 0
+              yield item, { width: cell_width + gutter, margin_right: gutter, margin_bottom: 0 }
+            end
+          end
+        end
+      end
+
       def separator(**styles)
-        stack(height: 1, **styles) { background line_color }
+        stack(height: 1 + styles.fetch(:margin_top, 0) + styles.fetch(:margin_bottom, 0), **styles) { background line_color }
       end
 
       def section_heading(title, action: nil, &block)
         row(height: 40, margin_bottom: 12) do
           para title, width: action ? -132 : 1.0, font: HEADING_FONT, size: 20
-          self.action(action, width: 132, variant: :ghost, &block) if action
+          para text_link(action, &block), width: 132, size: 14, align: "left" if action
         end
       end
 
@@ -82,7 +100,7 @@ module Aljam3
         styles[:height] ||= 36 + styles.fetch(:margin_top, 0) + styles.fetch(:margin_bottom, 0)
         key ||= styles[:tooltip] || label
         control = button(label, variant: variant.to_s, color:, text_color: variant == :solid && !selected ? "#ffffff" : ink,
-          border_color: line_color, disabled_color: @dialog && !@drawing_dialog ? rgb(0, 0, 0, 0) : card_color, stroke: primary, icon_pos: "right", **styles) do |clicked|
+          border_color: line_color, disabled_color: @dialog && !@drawing_dialog ? rgb(0, 0, 0, 0) : card_color, stroke: primary, focus_inset: true, icon_pos: "right", **styles) do |clicked|
           @editing_field = nil
           @last_action_key = key
           @last_action_rect = Shoes::DisplayService.layout_cache[clicked.linkable_id]&.first(4)
@@ -94,7 +112,7 @@ module Aljam3
 
       def input(text = "", **styles, &block)
         styles[:state] = "disabled" if @dialog && !@drawing_dialog
-        field = edit_line(text, align: "right", disabled_color: card_color, placeholder_color: muted, **styles) do |control|
+        field = edit_line(text, align: "right", disabled_color: card_color, placeholder_color: muted, focus_inset: true, focus_color: primary, **styles) do |control|
           block&.call(control)
         end
         field.focus_changed = proc do |control, focused|

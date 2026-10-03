@@ -4,15 +4,16 @@ module Aljam3
   module UI
     module ReaderTools
       def reader_pane_widths
-        return [width - 32, width - 32] unless @reader[:mode] == :split
+        available = width - PAGE_MARGIN * 2
+        return [available, available] unless @reader[:mode] == :split
 
-        available = width - 48
+        available -= READER_GAP
         pdf = (available * @reader.fetch(:split_ratio)).round.clamp(240, available - 240)
         [pdf, available - pdf]
       end
 
       def draw_reader_divider
-        @reader_divider = stack(left: @pdf_width + 16, top: @pane_top, width: 16, height: @pane_height) do
+        @reader_divider = stack(left: PAGE_MARGIN + @pdf_width, top: @pane_top, width: READER_GAP, height: @pane_height) do
           line 8, 4, 8, @pane_height - 4, stroke: line_color
           image asset_path("icons", "grip-vertical"), top: @pane_height / 2 - 12, width: 16, height: 24,
             alt: "اسحب لتغيير مساحة النص والصورة. تتوفر النسب أيضًا في خيارات القراءة."
@@ -23,13 +24,13 @@ module Aljam3
       def resize_reader_split(x)
         return unless @reader[:mode] == :split && @pdf_pane && @text_pane
 
-        available = width - 48
-        @reader[:split_ratio] = (x - 24).fdiv(available).clamp(0.25, 0.75)
+        available = width - PAGE_MARGIN * 2 - READER_GAP
+        @reader[:split_ratio] = (x - PAGE_MARGIN - READER_GAP / 2).fdiv(available).clamp(0.25, 0.75)
         pdf, text = reader_pane_widths
         @pdf_width = pdf
         @pdf_pane.style(width: pdf)
-        @text_pane.style(left: pdf + 32, width: text)
-        @reader_divider.move(pdf + 16, @pane_top)
+        @text_pane.style(left: PAGE_MARGIN + pdf + READER_GAP, width: text)
+        @reader_divider.move(PAGE_MARGIN + pdf, @pane_top)
         draw_pdf_image
       end
 
@@ -141,7 +142,7 @@ module Aljam3
       def reader_match_bar(top)
         count = Text.match_ranges(page_text, @reader.fetch(:query)).length
         position = count.zero? ? 0 : @reader.fetch(:match_index, 0) + 1
-        row(left: 16, top:, width: width - 32) do
+        row(left: PAGE_MARGIN, top:, width: @main_width) do
           para "البحث: #{@reader.fetch(:query)[0, 64]}", width: -272, size: 15, stroke: primary, wrap: "trim"
           @match_label = para "#{position} / #{count} في الصفحة", width: 164, size: 14, stroke: muted, align: "center"
           icon_button("arrow-right", "التطابق السابق · Shift F3", state: count.zero? ? "disabled" : nil) { move_reader_match(-1) }

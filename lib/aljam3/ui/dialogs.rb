@@ -89,7 +89,8 @@ module Aljam3
             end
             separator(left: 20, top: 64, width: panel_width - 40)
           end
-          stack(left: padding, top: body_top, width: @main_width, height: @content_height) do
+          stack(left: padding - SCROLL_GUTTER, top: body_top, width: @main_width + SCROLL_GUTTER,
+            padding_left: SCROLL_GUTTER, height: @content_height) do
             case type
             when :filters then draw_filters
             when :choices, :volumes then draw_choices
@@ -159,7 +160,7 @@ module Aljam3
           end
         end
         top = searchable ? 56 : 0
-        @choices = stack(top:, width: 1.0, height: @content_height - top, scroll: true, direction: "rtl")
+        scroll_area(top:, height: @content_height - top, scroll: true) { @choices = stack }
         update_choices
       end
 
@@ -170,7 +171,7 @@ module Aljam3
         @choices.clear do
           choices.each do |label, value|
             selected = @dialog[:type] == :volumes && value.fetch("id") == @reader.fetch(:file).fetch("id")
-            control = action(label, tooltip: label, width: 1.0, height: 44, margin_left: 14, margin_bottom: 4, variant: :ghost, align: "right", selected:) do
+            control = action(label, tooltip: label, width: 1.0, height: 44, margin_bottom: 4, variant: :ghost, align: "right", selected:) do
               selection = @dialog.fetch(:selection)
               close_dialog { selection.call(value) }
             end

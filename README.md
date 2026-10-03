@@ -4,6 +4,8 @@ An Arabic desktop library built with Ruby and Scarpe's native renderer. Browse [
 
 The interface follows [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app)'s light and dark design systems: terracotta primary colors, warm neutral surfaces, top navigation, and bordered book cards. Its logo, Noto Naskh Arabic UI, Cairo, and Kitab fonts are bundled locally; see [asset provenance](assets/README.md).
 
+Pages share content boundaries and grid gutters, including forms and scrolling lists. Reading panels and book cards align their measured content within each row, retaining full titles. Focus outlines remain inside controls, including dialogs. A compact bottom bar shows connection status throughout the app, including the reader.
+
 ## Run
 
 Install [mise](https://mise.jdx.dev), Git, curl, tar, and a C/C++ build toolchain. On macOS, install Xcode Command Line Tools. Linux needs a graphical desktop for the app window; previews and tests run headlessly.
@@ -49,7 +51,7 @@ The pool and ranked IDs are cached until the query, scope, pool size, or databas
 
 Downloads are queued in SQLite and listed in pages of 12. The app keeps only the current transfer in memory, and storage totals use saved PDF sizes rather than walking the book directories. Catalog filters and downloaded-author lookups have dedicated indexes. New databases use 16 KiB pages to pack OCR text more tightly; upgrades preserve the existing page size and do not vacuum a user's entire library. See `bench/` for reproducible scale measurements.
 
-Previously browsed catalog entries, categories, libraries, and author metadata are cached. Browsing immediately shows cached books while refreshing in the background. Availability labels distinguish online books from complete downloads; the connection strip reports the last API request's status and offers reconnection. Offline browsing can show the cached catalog, but offline title and content searches only return downloaded books. The app does not mirror the entire remote catalog.
+Previously browsed catalog entries, categories, libraries, and author metadata are cached. Browsing immediately shows cached books while refreshing in the background. Availability labels distinguish online books from complete downloads; the bottom status bar reports the last API request's status and offers reconnection. Offline browsing can show the cached catalog, but offline title and content searches only return downloaded books. The app does not mirror the entire remote catalog.
 
 Downloads use temporary files, fetch text in batches, and validate PDF responses and page counts before publishing a book as available offline. Partial books never appear in offline search. Retrying reuses completed volumes and indexed batches. Partial PDFs resume with HTTP Range/If-Range when the server provides a validator; otherwise that PDF restarts safely. A changed file manifest restarts the affected book. Pausing takes effect at the next chunk or batch boundary. API calls are spaced to respect the documented 60 requests/minute limit within this app process.
 
@@ -74,6 +76,7 @@ mise run test-native # native input, buttons, keyboard, accessibility, and rende
 mise run smoke    # live catalog, sample book, offline search, PDF rendering
 mise run peek     # native screenshot and layout, without opening a window
 mise run verify-ui # live online/offline reading and native UI integration checks
+mise run verify-layout # deterministic alignment and focus checks, light/dark, 800/1160px
 ```
 
 The smoke check downloads book 1 if it is not already under `.cache/smoke`. It then simulates an unreachable API to verify SQLite fallback and renders a real PDF page. It also renders distant pages using HTTP ranges, verifies identical pixels to the local PDF, measures transferred bytes, and checks that cached pages need no new requests. To repeat the actual download, use an empty smoke directory.
@@ -102,7 +105,7 @@ Tests cover API preference and reconnection, explicit local scope, Arabic search
 | `lib/aljam3/pdf.rb`, `remote_pdf.rb` | PDFium file/range callbacks, bounded chunk cache, and rendered page cache |
 | `lib/aljam3/worker.rb` | Background work with callbacks delivered on the UI thread |
 
-Scarpe is pinned in `bin/setup`. The [UI source patch](patches/scarpe-ui.patch) adds RTL rows and scrollbars, centered row alignment, input placeholders and focus notifications, aligned menu buttons, flat button variants, theme-aware disabled controls, and accessible names for icon buttons and search fields. Arabic shaping, caret movement, selection, and mouse coordinates remain native. The patch combines the earlier input/button patches and includes native regression checks; setup applies it idempotently and refuses conflicting source changes. The [reading patch](patches/scarpe-reading.patch) fixes native RTL span highlights and adds theme colors and RTL fill to progress bars, with pixel regression checks. There are no runtime monkey patches or webviews.
+Scarpe is pinned in `bin/setup`. The [UI source patch](patches/scarpe-ui.patch) adds RTL rows and scrollbars, centered row alignment, input placeholders and focus notifications, aligned menu buttons, flat button variants, theme-aware disabled controls, and accessible names for icon buttons and search fields. Arabic shaping, caret movement, selection, and mouse coordinates remain native. The patch combines the earlier input/button patches and includes native regression checks; setup applies it idempotently and refuses conflicting source changes. The [reading patch](patches/scarpe-reading.patch) fixes native RTL span highlights and adds theme colors and RTL fill to progress bars, with pixel regression checks. The UI patch also adds measured row height groups, bidirectional column stretching, and inset focus outlines. Layout checks use mixed title lengths and missing metadata at 1160 × 820 and 800 × 700 in both themes, with focus pixel checks at 1×, 1.25×, and 2×. These run against the packaged runtime as well; source screenshots are saved under `.cache/preview/alignment/`. There are no runtime monkey patches or webviews.
 
 The Gemfile uses Lacci and Scarpe directly from that checkout. No local web server is needed.
 
@@ -110,9 +113,9 @@ The Gemfile uses Lacci and Scarpe directly from that checkout. No local web serv
 
 Test files are shared directly or downloaded from private build artifacts. Publishing a release is a separate step that requires an explicit request. These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
-- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.5-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
-- **Windows x64 installer:** run `Aljam3-0.1.5-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
-- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.5-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
+- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.6-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
+- **Windows x64 installer:** run `Aljam3-0.1.6-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
+- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.6-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
 
 The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
 

@@ -1,21 +1,18 @@
-diff --git a/lacci/lib/shoes/drawables/button.rb b/lacci/lib/shoes/drawables/button.rb
-index a8ec5b6..3216b56 100644
 --- a/lacci/lib/shoes/drawables/button.rb
 +++ b/lacci/lib/shoes/drawables/button.rb
-@@ -5,6 +5,8 @@ class Shoes
+@@ -5,6 +5,9 @@
      include Shoes::Focusable
  
      shoes_styles :text, :width, :height, :top, :left, :color, :padding_top, :padding_bottom, :text_color, :size, :font_size, :tooltip, :icon, :icon_pos, :font, :stroke
 +    shoes_styles :variant, :border_color, :disabled_color
 +    shoes_styles :align
++    shoes_styles :focus_inset
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
      shoes_events :click
  
-diff --git a/lacci/lib/shoes/drawables/edit_line.rb b/lacci/lib/shoes/drawables/edit_line.rb
-index 081a65f..a65b671 100644
 --- a/lacci/lib/shoes/drawables/edit_line.rb
 +++ b/lacci/lib/shoes/drawables/edit_line.rb
-@@ -4,11 +4,13 @@ class Shoes
+@@ -4,11 +4,14 @@
    class EditLine < Shoes::Drawable
      include Shoes::Focusable
  
@@ -23,6 +20,7 @@ index 081a65f..a65b671 100644
 -    shoes_styles :fill, :border_color # the box and its edge, in the page's colours (ledger G17)
 +    shoes_styles :text, :width, :font, :tooltip, :stroke, :secret, :align
 +    shoes_styles :placeholder, :placeholder_color
++    shoes_styles :focus_inset, :focus_color
 +    shoes_styles :fill, :border_color, :disabled_color # the box and its edge, in the page's colours (ledger G17)
      shoes_style :change # the handler (manual 1123-1128, ledger G10)
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
@@ -32,34 +30,31 @@ index 081a65f..a65b671 100644
  
      # text "returns a string of characters", empty ones included (ledger M5)
      Shoes::Drawable.drawable_default_styles[Shoes::EditLine][:text] = ""
-@@ -31,6 +33,10 @@ class Shoes
-         @finish&.call(self)
-       end
+@@ -29,6 +32,10 @@
  
-+      bind_self_event("focus_changed") do |focused|
-+        @focus_changed&.call(self, focused)
+       bind_self_event("finish") do
+         @finish&.call(self)
 +      end
 +
-       create_display_drawable
-     end
++      bind_self_event("focus_changed") do |focused|
++        @focus_changed&.call(self, focused)
+       end
  
-diff --git a/lacci/lib/shoes/drawables/slot.rb b/lacci/lib/shoes/drawables/slot.rb
-index ef8affd..0d7a694 100644
+       create_display_drawable
 --- a/lacci/lib/shoes/drawables/slot.rb
 +++ b/lacci/lib/shoes/drawables/slot.rb
-@@ -11,6 +11,7 @@ class Shoes::Slot < Shoes::Drawable
+@@ -11,6 +11,8 @@
    # - :center — center the slot
    # - another_drawable — position relative to that element
    shoes_styles :attach
 +  shoes_styles :direction, :valign, :scrollbar_color
++  shoes_styles :align_heights, :height_group
  
    # fill, stroke, rotate, translate... for the shapes drawn in this slot
    include Shoes::DrawContext
-diff --git a/native/src/a11y.rs b/native/src/a11y.rs
-index 33cb211..2a82c07 100644
 --- a/native/src/a11y.rs
 +++ b/native/src/a11y.rs
-@@ -192,7 +192,7 @@ impl Builder<'_> {
+@@ -192,7 +192,7 @@
              Kind::Para | Kind::TextDrawable => self.text_block(id),
              Kind::Button => {
                  let mut n = Node::new(Role::Button);
@@ -68,7 +63,7 @@ index 33cb211..2a82c07 100644
                  works(&mut n, node, &[Action::Click, Action::Focus]);
                  Some(n)
              }
-@@ -330,6 +330,11 @@ impl Builder<'_> {
+@@ -330,6 +330,11 @@
          let text = self.view.fields.get(&node.id).map(|f| f.text()).or_else(|| node.props.text("text")).unwrap_or_default();
          n.set_value(if secret { text.chars().map(|_| text_field::BULLET).collect() } else { text });
          n.set_labelled_by(self.label_beside(before).into_iter().collect::<Vec<_>>());
@@ -80,24 +75,22 @@ index 33cb211..2a82c07 100644
          if readonly(node) {
              n.set_read_only();
              works(&mut n, node, &[Action::Click, Action::Focus]);
-diff --git a/native/src/elements/button.rs b/native/src/elements/button.rs
-index 813abb5..a76c5f9 100644
 --- a/native/src/elements/button.rs
 +++ b/native/src/elements/button.rs
 @@ -1,9 +1,10 @@
  //! button: a rounded push button with a soft gradient, border and shadow, and
  //! Shoes 3.3's optional `icon:` beside its label (`icon_pos:` left, right, top, bottom).
  
--use super::image::{self, ImageCache};
--use super::{focus_ring, text_on, Label, WidgetState, CONTROL_TEXT_SIZE};
- use std::path::Path;
++use std::path::Path;
 +
-+use super::image::{self, ImageCache};
+ use super::image::{self, ImageCache};
+-use super::{focus_ring, text_on, Label, WidgetState, CONTROL_TEXT_SIZE};
+-use std::path::Path;
 +use super::{focus_ring, focus_ring_in, text_on, Label, WidgetState, CONTROL_TEXT_SIZE};
  use crate::doc::Node;
  use crate::input::{Key, KeyInput, Named};
  use crate::layout::{LBox, Rect, TextBox};
-@@ -50,12 +51,17 @@ fn icon_pos(node: &Node) -> Option<IconPos> {
+@@ -50,12 +51,17 @@
  
  /// Where the label goes inside a (w, h) button, and the icon's box, both from its corner.
  fn arrange(node: &Node, w: f32, h: f32, label: (f32, f32)) -> ((f32, f32), Option<Rect>) {
@@ -117,7 +110,7 @@ index 813abb5..a76c5f9 100644
              let (icon_x, text_x) = if pos == IconPos::Left { (start, start + ICON + gap) } else { (start + label.0 + gap, start) };
              ((text_x, centred.1), Some(Rect::new(icon_x, (h - ICON) / 2.0, ICON, ICON)))
          }
-@@ -118,8 +124,15 @@ pub fn size(node: &Node, engine: &mut TextEngine) -> (f32, f32) {
+@@ -118,8 +124,15 @@
  }
  
  pub fn label(node: &Node, w: f32, h: f32, engine: &mut TextEngine) -> Label {
@@ -135,7 +128,7 @@ index 813abb5..a76c5f9 100644
      let ((dx, dy), _) = arrange(node, w, h - SHADOW, (shaped.width, shaped.height));
      Label { shaped, dx, dy }
  }
-@@ -140,24 +153,43 @@ pub fn paint(
+@@ -140,24 +153,47 @@
  ) {
      let (bx, r) = (lbox.rect, face(lbox.rect));
      let clip = lbox.clip;
@@ -148,6 +141,13 @@ index 813abb5..a76c5f9 100644
 -        Some(c) => {
 -            let shade = if state.pressed { 0.82 } else if state.hovered { 1.04 } else { 1.0 };
 -            (tint(c, shade * 1.06), tint(c, shade * 0.96))
+-        }
+-        None if state.pressed => (Color::rgb(0xdc, 0xdc, 0xe2), Color::rgb(0xd0, 0xd0, 0xd8)),
+-        None if state.hovered => (Color::WHITE, Color::rgb(0xf2, 0xf2, 0xf6)),
+-        None => (Color::WHITE, Color::rgb(0xee, 0xee, 0xf1)),
+-    };
+-    canvas.fill_gradient(r, RADIUS, top, bottom, clip);
+-    canvas.stroke_rounded(r, RADIUS, Color::rgba(0, 0, 0, 38), 1.0, clip);
 +    let flat = matches!(node.props.str("variant"), Some("solid" | "outline" | "ghost"));
 +    if flat {
 +        let variant = node.props.str("variant").unwrap();
@@ -157,18 +157,16 @@ index 813abb5..a76c5f9 100644
 +        } else {
 +            tint(color, if state.pressed { 0.92 } else if state.hovered { 0.97 } else { 1.0 })
 +        };
-+        if state.focused {
++        if state.focused && !node.props.truthy("focus_inset") {
 +            focus_ring_in(canvas, r, RADIUS, node.props.color("stroke").unwrap_or(super::ACCENT), clip);
-         }
--        None if state.pressed => (Color::rgb(0xdc, 0xdc, 0xe2), Color::rgb(0xd0, 0xd0, 0xd8)),
--        None if state.hovered => (Color::WHITE, Color::rgb(0xf2, 0xf2, 0xf6)),
--        None => (Color::WHITE, Color::rgb(0xee, 0xee, 0xf1)),
--    };
--    canvas.fill_gradient(r, RADIUS, top, bottom, clip);
--    canvas.stroke_rounded(r, RADIUS, Color::rgba(0, 0, 0, 38), 1.0, clip);
++        }
 +        canvas.fill_rounded(r, RADIUS, fill, clip);
 +        if variant == "outline" {
 +            canvas.stroke_rounded(r, RADIUS, node.props.color("border_color").unwrap_or(super::FIELD_BORDER), 1.0, clip);
++        }
++        if state.focused && node.props.truthy("focus_inset") {
++            let color = if variant == "solid" { label_color(node) } else { node.props.color("stroke").unwrap_or(super::ACCENT) };
++            super::focus_outline(canvas, r, RADIUS, color, clip);
 +        }
 +    } else {
 +        if state.focused {
@@ -195,11 +193,18 @@ index 813abb5..a76c5f9 100644
      if let Some(tb) = label {
          text::draw_shaped(canvas, engine, &tb.shaped, tb.x, tb.y, inner_clip, None);
      }
-diff --git a/native/src/elements/edit_line.rs b/native/src/elements/edit_line.rs
-index d3498f8..21a7cdb 100644
 --- a/native/src/elements/edit_line.rs
 +++ b/native/src/elements/edit_line.rs
-@@ -24,6 +24,19 @@ pub fn paint(canvas: &mut Canvas, node: &Node, lbox: &LBox, state: WidgetState,
+@@ -20,10 +20,27 @@
+ pub fn paint(canvas: &mut Canvas, node: &Node, lbox: &LBox, state: WidgetState, view: &mut ViewState, text: &mut TextEngine) {
+     let r = lbox.rect;
+     let colors = Colors::of(node);
+-    frame(canvas, &colors, r, lbox.clip, state.focused);
++    let inset = node.props.truthy("focus_inset");
++    frame(canvas, &colors, r, lbox.clip, state.focused && !inset);
++    if state.focused && inset {
++        super::focus_outline(canvas, r, RADIUS, node.props.color("focus_color").unwrap_or(colors.accent), lbox.clip);
++    }
      let field = text_field::ensure(&mut view.fields, node, &mut text.fonts);
      let inner = inner_rect(r, field.line_height());
      field.fit(&mut text.fonts.system, inner);
@@ -219,7 +224,7 @@ index d3498f8..21a7cdb 100644
      draw_field(canvas, field, Rect::new(r.x + 3.0, r.y + 1.0, r.w - 6.0, r.h - 2.0), lbox.clip, state.focused, colors.accent, text);
  }
  
-@@ -80,7 +93,7 @@ pub fn draw_field(
+@@ -80,7 +97,7 @@
      for r in field.selection() {
          canvas.fill_rect(r, selection, clip);
      }
@@ -228,11 +233,9 @@ index d3498f8..21a7cdb 100644
      if field.secret {
          let shaped = text.shape(&RichText::plain(&field.bullets(), TextStyle::new(field.size, field.color)), None);
          draw_shaped(canvas, text, &shaped, x, y, clip, None);
-diff --git a/native/src/elements/mod.rs b/native/src/elements/mod.rs
-index ea03df5..6ee3f69 100644
 --- a/native/src/elements/mod.rs
 +++ b/native/src/elements/mod.rs
-@@ -112,7 +112,11 @@ pub fn paint(
+@@ -112,7 +112,11 @@
      }
      if disabled(node) {
          let r = lbox.rect;
@@ -245,11 +248,22 @@ index ea03df5..6ee3f69 100644
      }
  }
  
-diff --git a/native/src/elements/text_field.rs b/native/src/elements/text_field.rs
-index 941a35d..cb953fe 100644
+@@ -128,6 +132,12 @@
+     canvas.fill_rounded(halo, radius + 3.0, color.with_alpha(FOCUS_RING.a), clip);
+ }
+ 
++/// A complete focus outline inside the control, including in tightly clipped rows.
++pub fn focus_outline(canvas: &mut Canvas, rect: Rect, radius: f32, color: Color, clip: Option<Rect>) {
++    let inside = Rect::new(rect.x + 1.0, rect.y + 1.0, (rect.w - 2.0).max(0.0), (rect.h - 2.0).max(0.0));
++    canvas.stroke_rounded(inside, (radius - 1.0).max(0.0), color, 2.0, clip);
++}
++
+ /// Picks readable text for a coloured surface.
+ pub fn text_on(surface: Color) -> Color {
+     if surface.luminance() < 0.55 {
 --- a/native/src/elements/text_field.rs
 +++ b/native/src/elements/text_field.rs
-@@ -7,7 +7,7 @@ use crate::layout::Rect;
+@@ -7,7 +7,7 @@
  use crate::paint::text::{caret_position, selection_rects};
  use crate::style::Color;
  use crate::text::FamilyName;
@@ -258,7 +272,7 @@ index 941a35d..cb953fe 100644
  use std::collections::VecDeque;
  
  pub const BULLET: char = '\u{2022}';
-@@ -75,6 +75,7 @@ pub struct TextField {
+@@ -75,6 +75,7 @@
      pub size: f32,
      pub color: Color,
      face: Face,
@@ -266,7 +280,7 @@ index 941a35d..cb953fe 100644
      bullet_w: f32,
      history: History,
      /// Texts sent in `change` events that Lacci has not echoed back yet. Echoes can trail
-@@ -129,6 +130,7 @@ impl TextField {
+@@ -129,6 +130,7 @@
              size,
              color,
              face,
@@ -274,7 +288,7 @@ index 941a35d..cb953fe 100644
              bullet_w,
              history: History::default(),
              unechoed: VecDeque::new(),
-@@ -251,6 +253,9 @@ impl TextField {
+@@ -251,6 +253,9 @@
          });
          self.editor.shape_as_needed(fs, false);
          self.clamp_offset();
@@ -284,7 +298,7 @@ index 941a35d..cb953fe 100644
      }
  
      /// Keeps the scroll offset inside the text, without chasing the caret
-@@ -261,8 +266,22 @@ impl TextField {
+@@ -261,8 +266,22 @@
          self.offset.1 = self.offset.1.clamp(0.0, (ch - self.inner.h).max(0.0));
      }
  
@@ -308,7 +322,7 @@ index 941a35d..cb953fe 100644
      }
  
      /// A press in the field: click places the caret, a double click selects a
-@@ -526,13 +545,15 @@ impl TextField {
+@@ -526,13 +545,15 @@
      /// The caret in window coordinates.
      pub fn caret(&self) -> Option<Rect> {
          let (x, top, h) = self.caret_local()?;
@@ -326,7 +340,7 @@ index 941a35d..cb953fe 100644
          if self.secret {
              let (a, b) = (self.chars_before(start) as f32 * self.bullet_w, self.chars_before(end) as f32 * self.bullet_w);
              return vec![shift(Rect::new(a, 0.0, b - a, self.line_height()))];
-@@ -615,7 +636,7 @@ pub fn ensure<'v>(
+@@ -615,7 +636,7 @@
      node: &crate::doc::Node,
      fonts: &mut crate::text::Fonts,
  ) -> &'v mut TextField {
@@ -335,11 +349,12 @@ index 941a35d..cb953fe 100644
          let p = &node.props;
          let mut face = Face::plain(FamilyName::Sans);
          let mut size = super::CONTROL_TEXT_SIZE;
-@@ -634,5 +655,12 @@ pub fn ensure<'v>(
+@@ -634,5 +655,12 @@
          let multiline = node.kind == crate::doc::Kind::EditBox;
          let text = p.text("text").unwrap_or_default();
          TextField::new(&mut fonts.system, &text, multiline, p.truthy("secret"), face, size, color)
 -    })
+-}
 +    });
 +    // Updating alignment does not rebuild the editor or lose its selection and history.
 +    field.align = match node.props.str("align") {
@@ -348,12 +363,10 @@ index 941a35d..cb953fe 100644
 +        _ => Align::Left,
 +    };
 +    field
- }
-diff --git a/native/src/input.rs b/native/src/input.rs
-index 429cb36..cc81e35 100644
++}
 --- a/native/src/input.rs
 +++ b/native/src/input.rs
-@@ -896,9 +896,13 @@ impl Runtime {
+@@ -896,9 +896,13 @@
      pub fn set_focus(&mut self, app: Id, id: Option<Id>) {
          let Some(view) = self.views.get_mut(&app) else { return };
          if view.ui.focus != id {
@@ -367,11 +380,9 @@ index 429cb36..cc81e35 100644
              }
              self.request_redraw(app);
          }
-diff --git a/native/src/layout/mod.rs b/native/src/layout/mod.rs
-index 925c710..18aebf3 100644
 --- a/native/src/layout/mod.rs
 +++ b/native/src/layout/mod.rs
-@@ -12,7 +12,7 @@ use crate::elements::{self, image::ImageCache};
+@@ -12,7 +12,7 @@
  use crate::limits;
  use crate::paint::shapes;
  use crate::props::{Edges, Id};
@@ -380,7 +391,7 @@ index 925c710..18aebf3 100644
  use crate::text::{rich, RichText, ShapedText, TextEngine};
  use std::collections::HashMap;
  
-@@ -123,6 +123,8 @@ pub struct Scroller {
+@@ -123,6 +123,8 @@
      pub viewport: Rect,
      pub content_height: f32,
      pub top: f32,
@@ -389,26 +400,48 @@ index 925c710..18aebf3 100644
  }
  
  impl Scroller {
-@@ -348,6 +350,11 @@ impl Engine<'_> {
+@@ -197,6 +199,7 @@
+         attached: Vec::new(),
+         depth: 0,
+         row_floor: None,
++        minimum_heights: HashMap::new(),
+     };
+     engine.text.begin_layout(root);
+     engine.root(root, size);
+@@ -217,6 +220,8 @@
+     /// The height a slot about to be placed in a flow reaches down to at least: the bottom of
+     /// what came before it on its row (ledger C16). Taken by the next slot.
+     row_floor: Option<f32>,
++    /// Row-local height groups and stretched columns, measured anew for each layout.
++    minimum_heights: HashMap<Id, f32>,
+ }
+ 
+ #[derive(Clone, Copy)]
+@@ -348,6 +353,13 @@
  
      fn children_within_depth(&mut self, slot: Id, flow: bool, content: Rect, avail_h: f32) -> (f32, Vec<Id>) {
          let doc = self.doc;
 +        let parent = doc.get(slot);
 +        let rtl = flow && parent.is_some_and(|n| n.props.str("direction") == Some("rtl"));
 +        let center = flow && parent.is_some_and(|n| n.props.str("valign") == Some("center"));
++        let stretch = flow && parent.is_some_and(|n| n.props.str("valign") == Some("stretch"));
++        let align_heights = flow && parent.is_some_and(|n| n.props.truthy("align_heights"));
 +        let fixed_height = parent.is_some_and(|n| n.props.has("height"));
 +        let mut rows: Vec<(f32, Vec<Id>)> = Vec::new();
          let mut cursor = Cursor::default();
          let mut later = Vec::new();
          for &child in doc.children(slot) {
-@@ -358,7 +365,28 @@ impl Engine<'_> {
+@@ -358,11 +370,90 @@
              match role(node) {
                  Role::Skip | Role::Subscription => {}
                  Role::OutOfFlow => later.push(child),
 -                Role::InFlow => self.place_in_flow(node, flow, content, &mut cursor, avail_h),
+-            }
+-        }
+-        let used = if flow { cursor.y + cursor.row_h } else { cursor.y };
 +                Role::InFlow => {
 +                    self.place_in_flow(node, flow, content, &mut cursor, avail_h);
-+                    if rtl || center {
++                    if rtl || center || stretch || align_heights {
 +                        if rows.last().is_none_or(|(y, _)| *y != cursor.y) {
 +                            rows.push((cursor.y, Vec::new()));
 +                        }
@@ -418,20 +451,92 @@ index 925c710..18aebf3 100644
 +            }
 +        }
 +        let single_row = rows.len() == 1;
++        let mut extra_height = 0.0;
 +        for (y, children) in rows {
-+            let row_h = if single_row && fixed_height { avail_h } else {
-+                children.iter().filter_map(|id| self.out.rect(*id)).map(|r| r.bottom() - content.y - y).fold(0.0, f32::max)
-+            };
++            let natural_height = self.row_height(&children, content, y);
++            if align_heights {
++                self.align_height_groups(&children, content, avail_h);
++            }
++            let measured_height = self.row_height(&children, content, y);
++            let row_h = if single_row && fixed_height { avail_h.max(measured_height) } else { measured_height };
 +            for child in children {
++                if stretch {
++                    if let Some(node) = doc.get(child).filter(|n| n.kind.is_slot() && !n.props.has("height")) {
++                        let margins = margins_of(node, content.w);
++                        self.minimum_heights.insert(child, (row_h - margins.vertical()).max(0.0));
++                        self.relayout_slot(node, content, avail_h);
++                    }
++                }
 +                if let Some(rect) = self.out.rect(child) {
 +                    let dx = if rtl { content.x + content.right() - rect.right() - rect.x } else { 0.0 };
-+                    let dy = if center { content.y + y + (row_h - rect.h) / 2.0 - rect.y } else { 0.0 };
++                    let dy = extra_height + if center { content.y + y + (row_h - rect.h) / 2.0 - rect.y } else { 0.0 };
 +                    self.translate_subtree(child, dx, dy);
 +                }
-             }
-         }
-         let used = if flow { cursor.y + cursor.row_h } else { cursor.y };
-@@ -733,7 +761,9 @@ impl Engine<'_> {
++            }
++            extra_height += measured_height - natural_height;
++        }
++        let used = if flow { cursor.y + cursor.row_h + extra_height } else { cursor.y };
+         (used, later)
++    }
++
++    fn row_height(&self, children: &[Id], content: Rect, y: f32) -> f32 {
++        children.iter().filter_map(|id| {
++            let node = self.doc.get(*id)?;
++            let rect = self.out.rect(*id)?;
++            Some(rect.bottom() - content.y - y + margins_of(node, content.w).bottom)
++        }).fold(0.0, f32::max)
++    }
++
++    /// Named blocks in sibling columns share their measured height. Text remains
++    /// naturally wrapped; a new width or font size measures the groups again.
++    fn align_height_groups(&mut self, children: &[Id], content: Rect, avail_h: f32) {
++        let doc = self.doc;
++        let mut groups: HashMap<String, (f32, Vec<Id>)> = HashMap::new();
++        let mut pending = children.to_vec();
++        while let Some(id) = pending.pop() {
++            let Some(node) = doc.get(id) else { continue };
++            let Some(rect) = self.out.rect(id) else { continue };
++            if let Some(group) = node.props.str("height_group").filter(|_| node.kind.is_slot() && !node.props.has("height")) {
++                let entry = groups.entry(group.to_owned()).or_default();
++                entry.0 = entry.0.max(rect.h);
++                entry.1.push(id);
++            }
++            if !node.props.truthy("align_heights") {
++                pending.extend(doc.children(id));
++            }
++        }
++        for (height, ids) in groups.into_values() {
++            for id in ids {
++                self.minimum_heights.insert(id, height);
++            }
++        }
++        for id in children {
++            if let Some(node) = doc.get(*id).filter(|n| n.kind.is_slot()) {
++                self.relayout_slot(node, content, avail_h);
++            }
++        }
++    }
++
++    fn relayout_slot(&mut self, node: &Node, content: Rect, avail_h: f32) {
++        if let Some(rect) = self.out.rect(node.id) {
++            let margins = margins_of(node, content.w);
++            self.row_floor = None;
++            self.place_box(node, rect.x, rect.y, rect.w, (content.w, avail_h), &margins);
++        }
+     }
+ 
+     fn place_in_flow(&mut self, node: &Node, flow: bool, content: Rect, cursor: &mut Cursor, avail_h: f32) {
+@@ -595,7 +686,8 @@
+         let avail_h = explicit_h.map(|h| (h - padding.vertical()).max(0.0)).unwrap_or(parent.1);
+         let flow = matches!(node.kind, Kind::Flow | Kind::DocumentRoot | Kind::Widget | Kind::Mask);
+         let (used, later) = self.children(node.id, flow, content, avail_h);
+-        let h = explicit_h.unwrap_or((used + padding.vertical()).max(floor));
++        let minimum = self.minimum_heights.get(&node.id).copied().unwrap_or(0.0);
++        let h = explicit_h.unwrap_or((used + padding.vertical()).max(floor).max(minimum));
+         let slot_box = Rect::new(frame.x, frame.y, frame.w, h);
+         self.record(node, slot_box, parent);
+         self.out.content_heights.insert(node.id, used + padding.vertical());
+@@ -733,7 +825,9 @@
              return;
          }
          let doc = self.doc;
@@ -442,14 +547,61 @@ index 925c710..18aebf3 100644
          scroller.top = self.scroll.get(&slot).copied().unwrap_or(0.0).clamp(0.0, scroller.max_top());
          if scroller.top != 0.0 {
              for &child in doc.children(slot) {
-diff --git a/native/src/layout/tests.rs b/native/src/layout/tests.rs
-index 300eb08..53686cb 100644
 --- a/native/src/layout/tests.rs
 +++ b/native/src/layout/tests.rs
-@@ -84,6 +84,35 @@ fn flow_packs_left_to_right_and_wraps() {
+@@ -82,6 +82,82 @@
+     assert_eq!(r(&l, ids[1]), Rect::new(80.0, 0.0, 80.0, 20.0));
+     assert_eq!(r(&l, ids[2]), Rect::new(0.0, 20.0, 80.0, 20.0));
      assert_eq!(r(&l, flow).h, 40.0);
- }
- 
++}
++
++#[test]
++fn stretch_flow_grows_the_shorter_first_column_and_its_footer() {
++    let mut s = Scene::new();
++    let flow = s.add("Flow", ROOT, json!({"width": 360, "direction": "rtl", "valign": "stretch"}));
++    let short = s.add("Stack", flow, json!({"width": 180}));
++    s.add("Stack", short, json!({"height": 30}));
++    let footer = s.add("Stack", short, json!({"bottom": 0, "height": 30}));
++    let tall = s.add("Stack", flow, json!({"width": 180}));
++    s.add("Stack", tall, json!({"height": 120}));
++    let below = s.add("Stack", ROOT, json!({"height": 20}));
++    let l = s.layout(360.0, 400.0);
++    assert_eq!(r(&l, short), Rect::new(180.0, 0.0, 180.0, 120.0));
++    assert_eq!(r(&l, tall), Rect::new(0.0, 0.0, 180.0, 120.0));
++    assert_eq!(r(&l, footer).bottom(), 120.0);
++    assert_eq!(r(&l, below).y, 120.0);
++}
++
++#[test]
++fn height_groups_align_authors_and_footers_and_reset_on_wrapping() {
++    let mut s = Scene::new();
++    let flow = s.add("Flow", ROOT, json!({"direction": "rtl", "valign": "stretch", "align_heights": true}));
++    let mut cards = Vec::new();
++    let mut authors = Vec::new();
++    let mut footers = Vec::new();
++    for (title_height, author_height) in [(20, 60), (60, 20), (10, 10)] {
++        let card = s.add("Stack", flow, json!({"width": 180}));
++        cards.push(card);
++        let title = s.add("Stack", card, json!({"height_group": "title"}));
++        s.add("Stack", title, json!({"height": title_height}));
++        let author = s.add("Stack", card, json!({"height_group": "author", "margin_top": 8}));
++        s.add("Stack", author, json!({"height": author_height}));
++        authors.push(author);
++        footers.push(s.add("Stack", card, json!({"height": 30})));
++    }
++    let wide = s.layout(360.0, 600.0);
++    assert_eq!(r(&wide, cards[0]).h, 158.0);
++    assert_eq!(r(&wide, cards[1]).h, 158.0);
++    assert_eq!(r(&wide, authors[0]).y, r(&wide, authors[1]).y);
++    assert_eq!(r(&wide, footers[0]).y, r(&wide, footers[1]).y);
++    assert_eq!(r(&wide, cards[2]).y, 158.0);
++    assert_eq!(r(&wide, cards[2]).h, 58.0, "height groups belong to one row");
++    let narrow = s.layout(180.0, 600.0);
++    assert_eq!(r(&narrow, cards[0]).h, 118.0);
++    assert_eq!(r(&narrow, cards[1]).h, 118.0);
++    assert_eq!(r(&narrow, cards[2]).y, 236.0);
++}
++
 +#[test]
 +fn rtl_flow_preserves_source_order_and_centers_whole_children() {
 +    let mut s = Scene::new();
@@ -477,16 +629,12 @@ index 300eb08..53686cb 100644
 +    assert_eq!(r(&l, second), Rect::new(70.0, 20.0, 150.0, 20.0));
 +    assert!(l.scrollers[&scrolling].rtl);
 +    assert_eq!(l.scrollers[&scrolling].max_top(), 150.0);
-+}
-+
+ }
+ 
  #[test]
- fn width_forms() {
-     let mut s = Scene::new();
-diff --git a/native/src/paint/decor.rs b/native/src/paint/decor.rs
-index c077522..058dfc2 100644
 --- a/native/src/paint/decor.rs
 +++ b/native/src/paint/decor.rs
-@@ -51,7 +51,7 @@ pub fn scrollbars(canvas: &mut Canvas, layout: &Layout) {
+@@ -51,7 +51,7 @@
          let track = v.h - 4.0;
          let thumb = (track * v.h / s.content_height).max(24.0).min(track);
          let y = v.y + 2.0 + (track - thumb) * (s.top / s.max_top());
@@ -496,11 +644,9 @@ index c077522..058dfc2 100644
 +        canvas.fill_rounded(bar, 2.5, s.color.map_or(SCROLLBAR, |color| color.fade(0.65)), clip.or(Some(v)));
      }
  }
-diff --git a/native/tests/a11y.rs b/native/tests/a11y.rs
-index 46ea95e..d3a3c82 100644
 --- a/native/tests/a11y.rs
 +++ b/native/tests/a11y.rs
-@@ -543,3 +543,19 @@ fn a_window_scale_turns_bounds_into_device_pixels() {
+@@ -543,3 +543,19 @@
      let (b2, b1) = (bounds(&at_2x), bounds(&at_1x));
      assert_eq!(b2, b1.iter().map(|v| v * 2.0).collect::<Vec<_>>(), "AccessKit counts device pixels");
  }
@@ -520,11 +666,55 @@ index 46ea95e..d3a3c82 100644
 +    h.feed(&app(200, 100, &[create(3, "EditLine", 2, json!({"text":"", "tooltip":"Search books"}))]));
 +    assert_eq!(one(&mut h, "text_input")["name"], json!("Search books"));
 +}
-diff --git a/native/tests/protocol.rs b/native/tests/protocol.rs
-index be297fe..c52c30b 100644
 --- a/native/tests/protocol.rs
 +++ b/native/tests/protocol.rs
-@@ -1015,3 +1015,57 @@ fn a_span_named_again_after_its_para_went_still_shows() {
+@@ -516,6 +516,45 @@
+ }
+ 
+ #[test]
++fn inset_focus_is_complete_at_clipped_edges_and_keeps_control_geometry() {
++    for kind in ["EditLine", "Button"] {
++        let mut h = Harness::new();
++        h.feed(&app(200, 100, &[
++            create(3, "Stack", 2, json!({"left": 10, "top": 10, "width": 160, "height": 40})),
++            create(4, kind, 3, json!({"width": 160, "height": 40, "text": "", "focus_inset": true,
++                "focus_color": "#ae4721", "stroke": "#ae4721", "variant": "outline"})),
++        ]));
++        let before = h.node(|n| n["id"] == 4);
++        h.value(json!({"op": "click", "target": {"id": 4}}));
++        if kind == "Button" {
++            h.value(json!({"op": "key", "key": "tab"}));
++        }
++        assert_eq!(h.value(json!({"op": "focused"})), json!(4));
++        let after = h.node(|n| n["id"] == 4);
++        for key in ["x", "y", "w", "h"] {
++            assert_eq!(before[key], after[key]);
++        }
++        for scale in [1.0f64, 1.25, 2.0] {
++            let path = std::env::temp_dir().join(format!("aljam3-focus-{kind}-{scale}-{}.png", std::process::id()));
++            h.value(json!({"op": "snapshot", "path": path.to_string_lossy(), "scale": scale}));
++            let picture = image::open(&path).unwrap().to_rgba8();
++            // Sample a strip inside each edge: fractional scaling antialiases its
++            // outer pixels, and the button face is slightly inset from its box.
++            for (x, y, dx, dy) in [(90.0, 10.0, 0.0, 1.0), (10.0, 30.0, 1.0, 0.0), (169.0, 30.0, -1.0, 0.0), (90.0, 49.0, 0.0, -1.0)] {
++                let painted = (0..(5.0 * scale) as u32).any(|offset| {
++                    let px = (x * scale + f64::from(offset) * dx).floor() as u32;
++                    let py = (y * scale + f64::from(offset) * dy).floor() as u32;
++                    let ink = picture.get_pixel(px, py);
++                    u16::from(ink[0]) > u16::from(ink[1]) + 70 && ink[1] > ink[2]
++                });
++                assert!(painted, "{kind} at {scale}: missing focus edge at {x},{y}");
++            }
++            let _ = std::fs::remove_file(path);
++        }
++    }
++}
++
++#[test]
+ fn resize_relayouts_and_tells_ruby() {
+     let mut h = Harness::new();
+     h.feed(&app(200, 100, &[create(3, "Flow", 2, json!({"height": 10}))]));
+@@ -1015,3 +1054,57 @@
          .collect::<String>());
      assert_eq!(h.node(|n| n["id"] == 9)["text"], json!("Again kept"));
  }
@@ -582,11 +772,9 @@ index be297fe..c52c30b 100644
 +    ]));
 +    assert_eq!(h.value(json!({"op":"pixel","x":40,"y":40})), json!([44,40,40,255]));
 +}
-diff --git a/native/tests/text_input.rs b/native/tests/text_input.rs
-index c20739e..35e6e19 100644
 --- a/native/tests/text_input.rs
 +++ b/native/tests/text_input.rs
-@@ -270,3 +270,125 @@ fn a_fields_font_keeps_its_weight_and_slant() {
+@@ -270,3 +270,125 @@
      assert!(bold.len() * 10 > plain.len() * 13, "bold puts down at least 30% more ink: {} against {}", plain.len(), bold.len());
      assert!(lean(&italic) > lean(&plain) + 0.5, "italic leans right: {:.2} against {:.2}", lean(&plain), lean(&italic));
  }

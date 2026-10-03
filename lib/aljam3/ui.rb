@@ -112,8 +112,8 @@ module Aljam3
       pdf_scroll = @dialog_scroll&.fetch(:pdf) || @pdf_surface&.scroll_top || 0
       @viewport = [width, height]
       @progress_views = {}
-      @main_width = [width - 32, 1120].min
-      @content_height = [height - 100, 260].max
+      @main_width = @screen == :reader ? width - PAGE_MARGIN * 2 : [width - PAGE_MARGIN * 2, 1120].min
+      @content_height = [height - 84 - STATUS_HEIGHT - 16, 260].max
       @drawing_dialog = false
       @editing_field = nil
       @redraw_pending = false
@@ -124,9 +124,8 @@ module Aljam3
         if @screen == :reader
           draw_reader
         else
-          connection_strip
-          @content_height -= 24
-          stack(left: (width - @main_width) / 2, top: 104, width: @main_width, height: @content_height) do
+          stack(left: (width - @main_width) / 2 - SCROLL_GUTTER, top: 84,
+            width: @main_width + SCROLL_GUTTER, padding_left: SCROLL_GUTTER, height: @content_height) do
             case @screen
             when :downloads then draw_downloads
             when :home then @query.strip.empty? ? draw_home : draw_catalog
@@ -136,6 +135,7 @@ module Aljam3
             end
           end
         end
+        connection_bar
         draw_dialog if @dialog
       end
       @results.scroll_top = scroll if @results
@@ -247,16 +247,22 @@ module Aljam3
       draw_window
     end
 
-    def connection_strip
+    def connection_bar
       message = case @connection
-                when :offline then "دون اتصال · كتبك المحمّلة متاحة للقراءة والبحث."
-                when :unavailable then "المكتبة غير متاحة الآن · يمكنك استخدام كتبك المحمّلة."
-                when :online then "متصل بالجامع · نزّل الكتب لتحتفظ بها دون اتصال."
-                else "مكتبتك المحفوظة جاهزة · جارٍ التحقق من الاتصال…"
+                when :offline then "دون اتصال · كتبك المحمّلة متاحة"
+                when :unavailable then "الجامع غير متاح الآن · كتبك المحمّلة متاحة"
+                when :online then "متصل بالجامع"
+                else "جارٍ التحقق من الاتصال…"
                 end
-      para message, left: 160, top: 73, width: width - 180, size: 13, stroke: muted
-      if %i[offline unavailable].include?(@connection)
-        action("إعادة الاتصال", left: 16, top: 64, width: 126, variant: :ghost) { refresh_connection }
+      @connection_bar = stack(left: 0, top: height - STATUS_HEIGHT, width: width, height: STATUS_HEIGHT) do
+        background surface
+        separator(width: 1.0)
+        row(left: (width - @main_width) / 2, top: 2, width: @main_width, height: STATUS_HEIGHT - 4) do
+          para message, width: -126, size: 13, stroke: muted, wrap: "trim"
+          if %i[offline unavailable].include?(@connection)
+            action("إعادة الاتصال", width: 126, height: 28, size: 13, variant: :ghost) { refresh_connection }
+          end
+        end
       end
     end
 
