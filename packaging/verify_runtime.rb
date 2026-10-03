@@ -21,7 +21,8 @@ module PackageVerification
       "PATH" => [File.join(root, "vendor/scarpe/spec/support/fakebin"), *system_path].join(File::PATH_SEPARATOR),
       "SPEC_CLIPBOARD_FILE" => File.join(home, "clipboard.txt"), "SPEC_TRAP_FILE" => File.join(home, "trapped.txt")
     }
-    stdout, status = Timeout.timeout(120) { Open3.capture2e(env, [launcher, launcher]) }
+    timeout = Integer(ENV.fetch("ALJAM3_VERIFY_TIMEOUT", "120"))
+    stdout, status = Timeout.timeout(timeout) { Open3.capture2e(env, [launcher, launcher]) }
     puts stdout
     report = File.join(output, "passed.json")
     unless status.success? && File.file?(report) && JSON.parse(File.read(report)).fetch("passed")

@@ -58,6 +58,9 @@ jobs:
     needs: installer
     runs-on: windows-11-arm
     timeout-minutes: 15
+    env:
+      # Rendering the full screenshot suite through x64 emulation needs longer.
+      ALJAM3_VERIFY_TIMEOUT: '300'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
