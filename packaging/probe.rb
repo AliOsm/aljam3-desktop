@@ -144,7 +144,8 @@ app.every(0.1) do
       automation.snapshot(File.join(output, "downloads.png"), scale: 2)
       alignment = AlignmentVerification.new(app, automation, output: File.join(output, "alignment")).call
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
-        platform: RUBY_PLATFORM, build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:, distant_pages:, alignment:,
+        platform: RUBY_PLATFORM, startup_encoding: { locale: Encoding.locale_charmap, filesystem: Encoding.find("filesystem").name },
+        build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:, distant_pages:, alignment:,
         checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache pdf_distant_page_budget unicode_bundle_and_data_paths] }))
       app.close
     end

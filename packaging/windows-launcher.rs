@@ -108,7 +108,9 @@ fn launch() -> io::Result<i32> {
         .env_remove("GEM_HOME")
         .env_remove("GEM_PATH")
         .current_dir(root)
-        .creation_flags(0x08000000)
+        // A hidden console still supplies a legacy code page to Ruby. Detach
+        // completely so Ruby uses its UTF-8 process manifest from startup.
+        .creation_flags(0x00000008) // DETACHED_PROCESS
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
