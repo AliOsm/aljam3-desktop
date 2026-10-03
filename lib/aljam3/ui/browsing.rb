@@ -15,7 +15,7 @@ module Aljam3
           stack(padding: 16, height_group: "author_name") do
             para text_link(Text.plain(author.fetch("name"))) { browse_scope(:author, author) }, size: 20
           end
-          stack(padding: [16, 0, 16, 16]) do
+          stack(padding_left: 16, padding_right: 16, padding_bottom: 16) do
             row do
               para "#{author.fetch('books_count', 0)} كتاب", width: -132, size: 14, stroke: muted
               action("كتب المؤلف", icon: "arrow-left", width: 132) { browse_scope(:author, author) }
@@ -55,16 +55,15 @@ module Aljam3
           else
             columns = @main_width >= 940 ? 3 : 2
             grid(@libraries, columns:, row_gap: 28) do |library, styles|
-              card(**styles) do
-                stack(padding: [16, 16, 16, 0], height_group: "library_title") do
-                  para text_link(library_name(library)) { browse_scope(:library, library) }, size: 18
-                end
-                stack(padding: 16) do
-                  row do
-                    para "#{library.fetch('books_count')} كتاب", width: -36, size: 14, stroke: muted
-                    icon_button("arrow-left", "استكشاف #{library_name(library)}") { browse_scope(:library, library) }
+              card(padding: 16, **styles) do
+                flow(direction: "rtl", valign: "center") do
+                  stack(width: -32) do
+                    para text_link(library_name(library)) { browse_scope(:library, library) }, size: 18
+                    para "#{library.fetch('books_count')} كتاب", size: 14, stroke: muted, margin_top: 4
                   end
+                  image asset_path("icons", "arrow-left"), width: 32, height: 16, margin_left: 16
                 end
+                click { browse_scope(:library, library) unless @dialog }
               end
             end
           end
@@ -81,7 +80,7 @@ module Aljam3
         total = file&.fetch("pages_count")
         location = [files.length > 1 && file&.fetch("name"), "صفحة #{entry.fetch('number')}#{total ? " من #{total}" : ''}"].select { |part| part }.join(" · ")
         card(height_group: "reading", margin_bottom: 0) do
-          stack(padding: [20, 20, 20, 72]) do
+          stack(padding_left: 20, padding_right: 20, padding_top: 20, padding_bottom: 72) do
             book_heading(book)
             para location, size: 14, stroke: muted, margin_top: 16
             if total&.positive?
@@ -133,7 +132,7 @@ module Aljam3
       def category_grid(categories)
         grid(categories, columns: 2, row_gap: 0) do |category, styles|
           stack(**styles) do
-            stack(padding: [0, 16, 0, 16], height_group: "category_label") do
+            stack(padding_top: 16, padding_bottom: 16, height_group: "category_label") do
               flow(width: 1.0, direction: "rtl", valign: "center") do
                 para text_link(category.fetch("name")) { browse_scope(:category, category) }, width: -100, size: 16
                 para "#{category.fetch('books_count', 0)} كتاب", width: 100, size: 13, stroke: muted, align: "left"

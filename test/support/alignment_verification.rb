@@ -51,7 +51,9 @@ class AlignmentVerification
         home
         catalog
         categories
+        authors
         dialog
+        reader_options
       end
     end
     { passed: true, checks: @checks }
@@ -107,6 +109,13 @@ class AlignmentVerification
     check("library grid shares search boundaries", near(first_row.first[:x], @left) && near(right(first_row.last), @right))
     gaps = first_row.each_cons(2).map { |a, b| b[:x] - right(a) }
     check("library gutters are even", gaps.all? { |gap| gap.between?(16, 32) && near(gap, gaps.first) })
+    check("library tiles have compact content", first_row.all? { |tile| tile[:h].between?(64, 96) })
+    LIBRARIES.first(first_row.length).each do |library|
+      title = node("Para", library.fetch("name"))
+      count = node("Para", "#{library.fetch('books_count')} كتاب")
+      tile = first_row.find { |entry| title[:x] >= entry[:x] && right(title) <= right(entry) + 1 }
+      check("library title and count have balanced padding", title[:y] - tile[:y] >= 15 && bottom(tile) - bottom(count) >= 15)
+    end
     status
     shot("home")
     focus(@app.instance_variable_get(:@query_field), "home-focus")
@@ -117,6 +126,7 @@ class AlignmentVerification
     set(screen: :browse, mode: :books, query: "", result: Aljam3::Result.new({ "books" => BOOKS, "pagination" => pagination }, :downloaded, nil),
       source: :downloaded, busy: false, results: nil)
     draw
+    check("Books has only one Authors navigation entry", @layout.count { |entry| entry[:kind] == "Button" && entry[:text] == "المؤلفون" } == 1)
     cards = @layout.select { |entry| entry[:kind] == "Border" }
     check("book grid shares search boundaries", near(cards.map { |entry| entry[:x] }.min, @left) && near(cards.map { |entry| right(entry) }.max, @right))
     buttons = @layout.select { |entry| entry[:kind] == "Button" && entry[:text] == "قراءة" }
@@ -137,6 +147,15 @@ class AlignmentVerification
     field = @layout.find { |entry| entry[:kind] == "EditLine" }
     rules = @layout.select { |entry| entry[:kind] == "Background" && near(entry[:h], 1) && entry[:y] > field[:y] && entry[:y] < @app.height - 40 }
     check("category search and rows share boundaries", near(field[:x], rules.map { |entry| entry[:x] }.min) && near(right(field), rules.map { |entry| right(entry) }.max))
+    CATEGORIES.each do |category|
+      label = node("Para", category.fetch("name"))
+      below = rules.select { |rule| rule[:y] >= bottom(label) && near(right(rule), right(label) + 100) }.min_by { |rule| rule[:y] }
+      # Rows reserve the count at the logical end; the name starts at the right edge.
+      below ||= rules.select { |rule| rule[:y] >= bottom(label) && near(right(rule), right(label)) }.min_by { |rule| rule[:y] }
+      check("category label clears its divider", below && below[:y] - bottom(label) >= 15)
+      above = rules.select { |rule| rule[:y] < label[:y] && near(rule[:x], below[:x]) }.max_by { |rule| rule[:y] }
+      check("category row has space after the previous divider", !above || label[:y] - bottom(above) >= 15)
+    end
     status
     shot("categories")
     focus(field.fetch(:id), "category-focus")
@@ -149,6 +168,102 @@ class AlignmentVerification
     check("dialog fits the viewport", panel.x >= 16 && panel.y >= 16 && panel.x + panel.w <= @app.width - 16 && panel.y + panel.h <= @app.height - 16)
     focus(@app.instance_variable_get(:@dialog_first), "dialog-focus")
     @app.close_dialog
+  end
+
+  def authors
+    authors = BOOKS.first(2).each_with_index.map { |book, index| book.fetch("author").merge("books_count" => 13 + index) }
+    pagination = { "current_page" => 1, "total_pages" => 2, "count" => 30 }
+    set(screen: :authors, mode: :authors, query: "", results: nil, busy: false,
+      result: Aljam3::Result.new({ "authors" => authors, "pagination" => pagination }, :downloaded, nil))
+    draw
+    cards = @layout.select { |entry| entry[:kind] == "Border" }
+    authors.each do |author|
+      count = node("Para", "#{author.fetch('books_count')} كتاب")
+      card = cards.find { |entry| count[:x] >= entry[:x] && right(count) <= right(entry) && count[:y] > entry[:y] && bottom(count) < bottom(entry) }
+      check("author count clears the card edge", card && right(card) - right(count) >= 15 && bottom(card) - bottom(count) >= 15)
+    end
+    following, previous = node("Button", "التالي"), node("Button", "السابق")
+    check("pagination is centered in the content", near((following[:x] + right(previous)) / 2, (@left + @right) / 2))
+    check("Next is at the logical end in RTL", right(following) < previous[:x])
+    shot("authors")
+  end
+
+  def reader_options
+    book = BOOKS.first
+    reader = { book:, files: book.fetch("files"), file: book.fetch("files").first, number: 1,
+      zoom: 1.0, mode: :split, text_size: 21, tashkeel: true, split_ratio: 0.5, query: "",
+      page: { "content" => "آدابُ الْعِلْمِ وأَهْلِهِ" } }
+    set(screen: :reader, reader:, bookmarks: [], results: nil)
+    draw
+    check("single file readers omit the redundant volume label", !@layout.any? { |entry| entry[:kind] == "Para" && entry[:text] == "الكتاب" })
+    @app.open_dialog(:reader_options)
+    draw
+    panel = @automation.rect_of!(@app.instance_variable_get(:@dialog_panel).linkable_id)
+    hint = node("Para", "تُحفظ اختياراتك تلقائيًا.")
+    check("reading options have no empty footer", (panel.y + panel.h - bottom(hint)).between?(16, 28))
+    presets = %w[صورة\ أوسع متساويان نص\ أوسع].map { |label| node("Button", label) }.sort_by { |entry| entry[:x] }
+    check("split presets have separate hit areas", presets.each_cons(2).all? { |a, b| (b[:x] - right(a)).between?(7, 9) })
+    shot("reading-options")
+    %w[تكبير\ النص تصغير\ النص].each do |label|
+      button = @app.instance_variable_get(:@action_views).fetch(label)
+      icon_center(button, label)
+    end
+    larger = @app.instance_variable_get(:@text_larger)
+    larger.focus
+    @automation.key("space")
+    @automation.key("space")
+    check("font size adjusts repeatedly without losing focus", reader[:text_size] == 25 && @automation.focused == larger.linkable_id)
+    toggle = @app.instance_variable_get(:@tashkeel_switch)
+    @automation.click({ id: toggle.linkable_id })
+    check("tashkeel switches off without moving focus", !reader[:tashkeel] && @automation.focused == toggle.linkable_id)
+    @automation.key("tab")
+    @automation.key("shift_tab")
+    @automation.key("space")
+    check("tashkeel toggle supports pointer and keyboard", reader[:tashkeel] && @automation.focused == toggle.linkable_id)
+    check("tashkeel choice is saved", @app.instance_variable_get(:@store).preference("reader").fetch("tashkeel"))
+    @app.close_dialog
+    @app.open_dialog(:export)
+    draw
+    panel = @automation.rect_of!(@app.instance_variable_get(:@dialog_panel).linkable_id)
+    file = node("Para", "الكتاب")
+    check("single-file export is compact", panel.h < 260 && (panel.y + panel.h - bottom(file)).between?(16, 48))
+    shot("export")
+    @app.close_dialog
+    reader[:files] = Array.new(12) { |index| reader.fetch(:file).merge("id" => index + 1, "name" => "المجلد #{index + 1}") }
+    @app.open_dialog(:export)
+    draw
+    panel = @automation.rect_of!(@app.instance_variable_get(:@dialog_panel).linkable_id)
+    files = @app.instance_variable_get(:@dialog_results)
+    check("many-file export stays bounded and scrolls", panel.y >= 16 && panel.y + panel.h <= @app.height - 16 && files.scroll_max.positive?)
+    files.scroll_top = files.scroll_max
+    @automation.wait_frames
+    @layout = @automation.layout
+    last = node("Para", "المجلد 12")
+    check("last export file remains reachable", bottom(last) <= panel.y + panel.h - 20 && last[:y] >= panel.y + 76)
+    shot("export-volumes")
+    @app.close_dialog
+    reader[:files] = book.fetch("files")
+    reader[:mode] = :text
+    @app.open_dialog(:reader_options)
+    draw
+    check("text-only reader hides split controls", !@layout.any? { |entry| entry[:kind] == "Button" && entry[:text] == "نص أوسع" })
+    @app.close_dialog
+    @app.navigate(:home)
+  end
+
+  def icon_center(button, label)
+    bounds = @automation.rect_of!(button.linkable_id)
+    picture = ChunkyPNG::Image.from_file(shot("icon-centering", scale: 2))
+    ink = ChunkyPNG::Color.from_hex(@app.ink)
+    points = []
+    (bounds.y * 2).ceil.upto(((bounds.y + bounds.h) * 2).floor - 1) do |y|
+      (bounds.x * 2).ceil.upto(((bounds.x + bounds.w) * 2).floor - 1) do |x|
+        points << [x, y] if picture[x, y] == ink
+      end
+    end
+    check("#{label} glyph is centered", !points.empty? &&
+      (points.sum(&:first).fdiv(points.size) - (bounds.x + bounds.w / 2) * 2).abs <= 2 &&
+      (points.sum(&:last).fdiv(points.size) - (bounds.y + bounds.h / 2) * 2).abs <= 2)
   end
 
   def status

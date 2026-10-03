@@ -119,10 +119,7 @@ app.every(0.1) do
       app.toggle_reader_bookmark unless app.bookmarked?
       app.open_dialog(:reader_options)
       tashkeel = reader[:tashkeel]
-      label = tashkeel ? "إخفاء التشكيل" : "إظهار التشكيل"
-      button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == label }
-      raise "Tashkeel control missing" unless button
-      automation.click({ id: button.fetch(:id) })
+      automation.click({ id: app.instance_variable_get(:@tashkeel_switch).linkable_id })
       raise "Tashkeel option failed" unless reader[:tashkeel] == !tashkeel
       automation.wait_frames
       automation.snapshot(File.join(output, "reading-options.png"), scale: 2)

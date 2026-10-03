@@ -81,6 +81,28 @@ module Aljam3
 
     def pdf_path(book_id, file_id) = File.join(@directory, Integer(book_id).to_s, "#{Integer(file_id)}.pdf")
 
+    # Old downloads may predate size metadata. Stat only their expected PDFs, in
+    # bounded batches; never transfer data or count an incomplete set as complete.
+    def repair_download_sizes(after: 0, limit: 100)
+      batch = @store.downloads_without_size(after:, limit:)
+      batch.each do |record|
+        id = record.fetch("id")
+        files = @store.files(id)
+        next if files.empty?
+
+        sizes = files.map do |file|
+          stat = File.stat(pdf_path(id, file.fetch("id")))
+          stat.size if stat.file? && stat.size.positive?
+        rescue SystemCallError
+          nil
+        end
+        next if sizes.any?(&:nil?)
+
+        @store.save_download_size(id, downloaded_at: record.fetch("downloaded_at"), bytes: sizes.sum)
+      end
+      batch.last&.fetch("id")
+    end
+
     private
 
     def partial_directory(book_id) = File.join(@directory, ".partial", Integer(book_id).to_s)

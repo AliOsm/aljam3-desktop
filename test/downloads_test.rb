@@ -31,6 +31,7 @@ class DownloadsTest < StoreTestCase
 
     def finish = @finish << true
     def disk_usage(_id) = 100
+    def repair_download_sizes(after: 0) = nil
     def cancel(id) = @cancelled << id
     def remove(id) = @store.discard_download(id)
   end

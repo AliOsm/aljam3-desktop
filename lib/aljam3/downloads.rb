@@ -9,6 +9,7 @@ module Aljam3
       @store, @downloader = store, downloader
       @worker, @cleanup, @progress = Worker.new, Worker.new, Queue.new
       @store.recover_downloads.each { |id| finish_stop(id, :cancelled) }
+      repair_sizes
     end
 
     def entries(**options) = @store.downloads(**options)
@@ -74,6 +75,15 @@ module Aljam3
     end
 
     private
+
+    def repair_sizes(after: 0)
+      @cleanup.submit(-> { @downloader.repair_download_sizes(after:) }) do |last_id, _error|
+        if last_id
+          @changed = true
+          repair_sizes(after: last_id)
+        end
+      end
+    end
 
     def persist = @store.save_download(@active, @entry)
 

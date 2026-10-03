@@ -13,9 +13,9 @@ module Aljam3
         flow(width: 1.0, height: 36, direction: "rtl", valign: "center", **styles, &block)
       end
 
-      def scroll_area(**styles, &block)
+      def scroll_area(bottom_padding: 16, **styles, &block)
         area = stack(left: -SCROLL_GUTTER, width: @main_width + SCROLL_GUTTER, direction: "rtl", scroll: !@dialog, **styles) do
-          stack(margin: [SCROLL_GUTTER, 0, 0, 16], &block)
+          stack(margin: [SCROLL_GUTTER, 0, 0, bottom_padding], &block)
         end
         if @drawing_dialog
           @dialog_results = area
@@ -58,10 +58,12 @@ module Aljam3
       def page_controls(page:, previous:, following:, &change)
         return unless previous || following
 
-        row(height: 52, margin_top: 8) do
-          action("السابق", icon: "arrow-right", width: 100, state: previous ? nil : "disabled") { change.call(page - 1) }
-          para "صفحة #{page}", width: 100, size: 14, stroke: muted, align: "center"
-          action("التالي", icon: "arrow-left", width: 100, state: following ? nil : "disabled") { change.call(page + 1) }
+        stack(height: 60, margin_top: 8) do
+          row(left: (@main_width - 324) / 2, top: 8, width: 324) do
+            action("السابق", icon: "arrow-right", width: 100, state: previous ? nil : "disabled") { change.call(page - 1) }
+            para "صفحة #{page}", width: 124, size: 14, stroke: muted, align: "center"
+            action("التالي", icon: "arrow-left", width: 100, state: following ? nil : "disabled") { change.call(page + 1) }
+          end
         end
       end
 
@@ -98,9 +100,10 @@ module Aljam3
         styles[:icon] = asset_path("icons", icon, theme: variant == :solid && !selected ? :dark : @theme) if icon
         styles[:state] = "disabled" if @dialog && !@drawing_dialog
         styles[:height] ||= 36 + styles.fetch(:margin_top, 0) + styles.fetch(:margin_bottom, 0)
+        styles[:icon_pos] ||= %w[arrow-left chevron-down].include?(icon) ? "left" : "right"
         key ||= styles[:tooltip] || label
         control = button(label, variant: variant.to_s, color:, text_color: variant == :solid && !selected ? "#ffffff" : ink,
-          border_color: line_color, disabled_color: @dialog && !@drawing_dialog ? rgb(0, 0, 0, 0) : card_color, stroke: primary, focus_inset: true, icon_pos: "right", **styles) do |clicked|
+          border_color: line_color, disabled_color: @dialog && !@drawing_dialog ? rgb(0, 0, 0, 0) : card_color, stroke: primary, focus_inset: true, **styles) do |clicked|
           @editing_field = nil
           @last_action_key = key
           @last_action_rect = Shoes::DisplayService.layout_cache[clicked.linkable_id]&.first(4)

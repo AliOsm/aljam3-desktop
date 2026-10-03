@@ -2,7 +2,7 @@
 
 An Arabic desktop library built with Ruby and Scarpe's native renderer. Browse [aljam3.com](https://aljam3.com), download books, and read and search them without an internet connection.
 
-The interface follows [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app)'s light and dark design systems: terracotta primary colors, warm neutral surfaces, top navigation, and bordered book cards. Its logo, Noto Naskh Arabic UI, Cairo, and Kitab fonts are bundled locally; see [asset provenance](assets/README.md).
+The interface follows [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app)'s light and dark design systems: terracotta primary colors, warm neutral surfaces, top navigation, and bordered book cards. Typography follows the FAQ app: Thmanyah for headings, Noto Naskh Arabic UI for controls, and Kitab for reading. Fonts and the Aljam3 logo are bundled locally; see [asset provenance](assets/README.md).
 
 Pages share content boundaries and grid gutters, including forms and scrolling lists. Reading panels and book cards align their measured content within each row, retaining full titles. Focus outlines remain inside controls, including dialogs. A compact bottom bar shows connection status throughout the app, including the reader.
 
@@ -113,9 +113,9 @@ The Gemfile uses Lacci and Scarpe directly from that checkout. No local web serv
 
 Test files are shared directly or downloaded from private build artifacts. Publishing a release is a separate step that requires an explicit request. These packages include Ruby, the native renderer, PDFium, SQLite, the Arabic tokenizer, and app assets. Ruby, mise, and developer tools are not needed to run them.
 
-- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.6-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
-- **Windows x64 installer:** run `Aljam3-0.1.6-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
-- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.6-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
+- **Apple silicon (M1 or newer), macOS 13+:** extract `Aljam3-0.1.7-macos-arm64.zip`, move `Aljam3.app` to Applications, and open it. The test app is ad-hoc signed and not notarized. If macOS blocks the first launch, use **System Settings → Privacy & Security → Open Anyway**, then confirm.
+- **Windows x64 installer:** run `Aljam3-0.1.7-windows-x64-setup.exe`. It installs for your user without administrator access, adds a Start menu shortcut, and offers an optional desktop shortcut. Windows Settings can uninstall it. Downloads and reading positions stay in `%LOCALAPPDATA%/Aljam3` through upgrades and uninstalling.
+- **Windows x64 portable ZIP:** extract the entire `Aljam3-0.1.7-windows-x64.zip` and open `Aljam3/Aljam3.exe`. Keep the accompanying files with the executable. Windows test executables are unsigned; SmartScreen may require **More info → Run anyway**.
 
 The [packaging workflow](.github/workflows/packages.yml) builds on native macOS arm64 and Windows x64 runners. Before archiving, it relocates the app to a directory with spaces and launches its bundled runtime headlessly. Checks exercise HTTPS, a real downloaded book, SQLite/Arabic search, Arabic input, clipboard, and the PDF/text reader. Verification reports and screenshots are saved with the build artifacts. These automated checks do not replace interactive testing on users' desktops.
 
@@ -160,4 +160,4 @@ Database migrations run transactionally. Older libraries gain Arabic search, rec
 - [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar), Apache-2.0; see its included third-party notices for Lucene and stopwords.
 - [PDFium binaries](https://github.com/bblanchon/pdfium-binaries), release `chromium/8076`; licenses are included under `vendor/pdfium` by setup.
 - Design and logo from [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app).
-- Noto Naskh Arabic UI, Cairo, and Kitab fonts from the web app, with SIL Open Font Licenses under `assets/fonts/`.
+- Noto Naskh Arabic UI and Kitab use SIL Open Font Licenses; Thmanyah has its own license. All are retained under `assets/fonts/`.

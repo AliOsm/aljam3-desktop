@@ -79,26 +79,44 @@ module Aljam3
       end
 
       def draw_reader_options
+        update_size = lambda do |change|
+          change_text_size(change)
+          @text_size_label.text = @reader.fetch(:text_size).to_s
+          @text_larger.state = @reader[:text_size] >= 35 ? "disabled" : nil
+          @text_smaller.state = @reader[:text_size] <= 17 ? "disabled" : nil
+        end
         row do
           para "حجم النص", width: -140, size: 16
-          @dialog_first = action("+", tooltip: "تكبير النص", width: 44, size: 21, state: @reader[:text_size] >= 35 ? "disabled" : nil) { change_text_size(2); draw_window }
-          para @reader.fetch(:text_size).to_s, width: 52, align: "center"
-          action("−", tooltip: "تصغير النص", width: 44, size: 21, state: @reader[:text_size] <= 17 ? "disabled" : nil) { change_text_size(-2); draw_window }
+          @dialog_first = @text_larger = icon_button("plus", "تكبير النص", width: 44, variant: :outline, state: @reader[:text_size] >= 35 ? "disabled" : nil) { update_size.call(2) }
+          @text_size_label = para @reader.fetch(:text_size).to_s, width: 52, align: "center"
+          @text_smaller = icon_button("minus", "تصغير النص", width: 44, variant: :outline, state: @reader[:text_size] <= 17 ? "disabled" : nil) { update_size.call(-2) }
         end
-        action(@reader[:tashkeel] ? "إخفاء التشكيل" : "إظهار التشكيل", icon: @reader[:tashkeel] ? "filled-shaddah" : "dotted-shaddah", selected: @reader[:tashkeel],
-          top: 52, width: 1.0, align: "right") { toggle_tashkeel; draw_window }
-        para "مساحة النص والصورة", top: 112, size: 16
-        row(top: 148) do
-          { 0.35 => "نص أوسع", 0.5 => "متساويان", 0.65 => "صورة أوسع" }.each do |ratio, label|
-            action(label, width: (@main_width / 3).floor, selected: (@reader[:split_ratio] - ratio).abs < 0.02) do
-              @reader[:split_ratio] = ratio
-              save_reader_options
-              draw_window
-              render_pdf if reader_pdf?
+        row(top: 48) do
+          para "إظهار التشكيل", width: -96, size: 16
+          state = para @reader[:tashkeel] ? "مفعّل" : "متوقف", width: 56, size: 13, stroke: muted, align: "center"
+          @tashkeel_switch = check(checked: @reader[:tashkeel], variant: "switch", tooltip: "إظهار التشكيل",
+            width: 40, height: 36, color: primary, background_color: line_color, direction: "rtl") do
+            toggle_tashkeel
+            state.text = @reader[:tashkeel] ? "مفعّل" : "متوقف"
+          end
+        end
+        if @reader[:mode] == :split
+          separator(top: 100)
+          para "مساحة النص والصورة", top: 116, size: 16
+          row(top: 148) do
+            choices = { 0.35 => "نص أوسع", 0.5 => "متساويان", 0.65 => "صورة أوسع" }
+            choices.each_with_index do |(ratio, label), index|
+              gap = index < choices.length - 1 ? 8 : 0
+              action(label, width: (@main_width - 16).fdiv(3) + gap, margin_right: gap, selected: (@reader[:split_ratio] - ratio).abs < 0.02) do
+                @reader[:split_ratio] = ratio
+                save_reader_options
+                draw_window
+                render_pdf
+              end
             end
           end
         end
-        para "تُحفظ اختياراتك تلقائيًا. يمكنك أيضًا سحب الفاصل.", top: 208, size: 13, stroke: muted
+        para "تُحفظ اختياراتك تلقائيًا.", top: @reader[:mode] == :split ? 200 : 100, size: 13, stroke: muted
       end
 
       def reader_keypress(key)

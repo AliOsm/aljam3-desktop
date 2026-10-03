@@ -44,6 +44,25 @@ module Aljam3
         end
       end
 
+      def downloads_without_size(after: 0, limit: 100)
+        @reader.call do |db|
+          db.execute(<<~SQL, [after, limit])
+            SELECT id, downloaded_at FROM books
+            WHERE downloaded_at IS NOT NULL AND download_bytes IS NULL AND id > ?
+            ORDER BY id LIMIT ?
+          SQL
+        end
+      end
+
+      def save_download_size(id, downloaded_at:, bytes:)
+        @lock.synchronize do
+          @db.execute(<<~SQL, [bytes, id, downloaded_at])
+            UPDATE books SET download_bytes = ?
+            WHERE id = ? AND downloaded_at = ? AND download_bytes IS NULL
+          SQL
+        end
+      end
+
       def next_download
         @reader.call { |db| db.get_first_value("SELECT book_id FROM downloads WHERE state = 'queued' ORDER BY queued_at, book_id LIMIT 1") }
       end

@@ -39,13 +39,13 @@ module Aljam3
         menu = type == :reader_menu
         requested_width, requested_height = case type
           when :filters then [368, height - 60]
-          when :volumes then [360, [@reader.fetch(:files).length * 44 + 96 + (@reader.fetch(:files).length > 6 ? 52 : 0), 440].min]
-          when :share then [480, 280]
-          when :export then [620, [@reader.fetch(:files).length * 64 + 220, 620].min]
-          when :choices then [520, 440]
-          when :reader_options then [384, 336]
+          when :volumes then [360, choice_dialog_height]
+          when :share then [480, 240]
+          when :export then [620, [@reader.fetch(:files).length * 56 + 188, 580].min]
+          when :choices then [520, choice_dialog_height]
+          when :reader_options then [384, @reader[:mode] == :split ? 312 : 212]
           when :reader_menu then [304, 216]
-          when :bookmarks then [640, 540]
+          when :bookmarks then [640, @bookmarks.empty? ? 204 : 540]
           when :shortcuts then [540, 420]
           when :remove_download then [560, 340]
           when :unavailable then [520, 320]
@@ -116,6 +116,11 @@ module Aljam3
         open_dialog(:filters, filters: @filters.dup)
       end
 
+      def choice_dialog_height
+        count = @dialog.fetch(:choices).length
+        [96 + [count, 1].max * 44 + (count > 6 ? 56 : 0), 440].min
+      end
+
       def draw_filters
         filters = @dialog.fetch(:filters)
         para @mode == :content || @screen == :saved ? "اجمع بين المكتبة والتصنيف والمؤلف لتحديد نطاق البحث." : "اختر المكتبة أو التصنيف أو المؤلف لتصفح العناوين.",
@@ -160,7 +165,7 @@ module Aljam3
           end
         end
         top = searchable ? 56 : 0
-        scroll_area(top:, height: @content_height - top, scroll: true) { @choices = stack }
+        scroll_area(top:, height: @content_height - top, scroll: true, bottom_padding: 0) { @choices = stack }
         update_choices
       end
 
@@ -221,14 +226,13 @@ module Aljam3
       end
 
       def draw_share
-        para "رابط إلى الصفحة الحالية على الجامع.", size: 15, stroke: muted
+        @share_feedback = para "رابط إلى الصفحة الحالية على الجامع.", size: 15, stroke: muted
         url = "https://aljam3.com/ar/#{@reader.fetch(:book).fetch('id')}/#{@reader.fetch(:file).fetch('id')}/#{@reader.fetch(:number)}"
         input(url, top: 48, width: 1.0, state: "readonly", align: "left", tooltip: "رابط الصفحة")
         action("نسخ الرابط", icon: "copy", top: 108, right: 0, width: 132, variant: :solid) do
           self.clipboard = url
           @share_feedback.text = "تم نسخ الرابط"
         end
-        @share_feedback = para "", top: 156, size: 14, stroke: muted
       end
     end
   end

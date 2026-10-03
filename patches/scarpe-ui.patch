@@ -10,6 +10,16 @@
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
      shoes_events :click
  
+--- a/lacci/lib/shoes/drawables/check.rb
++++ b/lacci/lib/shoes/drawables/check.rb
+@@ -5,6 +5,7 @@
+     include Shoes::Focusable
+ 
+     shoes_styles :checked
++    shoes_styles :variant, :color, :background_color, :direction, :tooltip
+     shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
+     shoes_events :click
+ 
 --- a/lacci/lib/shoes/drawables/edit_line.rb
 +++ b/lacci/lib/shoes/drawables/edit_line.rb
 @@ -4,11 +4,14 @@
@@ -54,7 +64,7 @@
    include Shoes::DrawContext
 --- a/native/src/a11y.rs
 +++ b/native/src/a11y.rs
-@@ -192,7 +192,7 @@
+@@ -192,14 +192,21 @@
              Kind::Para | Kind::TextDrawable => self.text_block(id),
              Kind::Button => {
                  let mut n = Node::new(Role::Button);
@@ -63,7 +73,23 @@
                  works(&mut n, node, &[Action::Click, Action::Focus]);
                  Some(n)
              }
-@@ -330,6 +330,11 @@
+             Kind::Check | Kind::Radio => {
+-                let mut n = Node::new(if node.kind == Kind::Check { Role::CheckBox } else { Role::RadioButton });
++                let role = if node.kind == Kind::Radio { Role::RadioButton }
++                    else if node.props.str("variant") == Some("switch") { Role::Switch }
++                    else { Role::CheckBox };
++                let mut n = Node::new(role);
+                 n.set_toggled(if node.props.truthy("checked") { Toggled::True } else { Toggled::False });
+-                n.set_labelled_by(self.label_beside(after).into_iter().collect::<Vec<_>>());
++                if let Some(label) = tooltip(node) {
++                    n.set_label(label);
++                } else {
++                    n.set_labelled_by(self.label_beside(after).into_iter().collect::<Vec<_>>());
++                }
+                 works(&mut n, node, &[Action::Click, Action::Focus]);
+                 Some(n)
+             }
+@@ -330,6 +337,11 @@
          let text = self.view.fields.get(&node.id).map(|f| f.text()).or_else(|| node.props.text("text")).unwrap_or_default();
          n.set_value(if secret { text.chars().map(|_| text_field::BULLET).collect() } else { text });
          n.set_labelled_by(self.label_beside(before).into_iter().collect::<Vec<_>>());
@@ -193,6 +219,47 @@
      if let Some(tb) = label {
          text::draw_shaped(canvas, engine, &tb.shaped, tb.x, tb.y, inner_clip, None);
      }
+--- a/native/src/elements/check.rs
++++ b/native/src/elements/check.rs
+@@ -1,7 +1,7 @@
+ //! check: a rounded box that fills with the accent colour and a tick when on.
+ //! Lacci toggles `checked` itself and echoes it; the box only draws the echo.
+ 
+-use super::{focus_ring, WidgetState, ACCENT};
++use super::{focus_ring, focus_ring_in, WidgetState, ACCENT, FIELD_BORDER};
+ use crate::doc::Node;
+ use crate::input::KeyInput;
+ use crate::layout::{LBox, Rect};
+@@ -22,6 +22,10 @@
+ }
+ 
+ pub fn paint(canvas: &mut Canvas, node: &Node, lbox: &LBox, state: WidgetState) {
++    if node.props.str("variant") == Some("switch") {
++        paint_switch(canvas, node, lbox, state);
++        return;
++    }
+     let b = box_rect(lbox.rect);
+     let clip = lbox.clip;
+     if state.focused {
+@@ -47,3 +51,18 @@
+         canvas.stroke_rounded(b, 4.0, border, 1.0, clip);
+     }
+ }
++
++fn paint_switch(canvas: &mut Canvas, node: &Node, lbox: &LBox, state: WidgetState) {
++    let r = lbox.rect;
++    let track = Rect::new(r.x + (r.w - 36.0) / 2.0, r.y + (r.h - 20.0) / 2.0, 36.0, 20.0);
++    let checked = node.props.truthy("checked");
++    let accent = node.props.color("color").unwrap_or(ACCENT);
++    let fill = if checked { accent } else { node.props.color("background_color").unwrap_or(FIELD_BORDER) };
++    canvas.fill_rounded(track, 10.0, fill, lbox.clip);
++    let on_right = checked != (node.props.str("direction") == Some("rtl"));
++    let thumb = Rect::new(track.x + if on_right { 18.0 } else { 2.0 }, track.y + 2.0, 16.0, 16.0);
++    canvas.fill_rounded(thumb, 8.0, Color::WHITE, lbox.clip);
++    if state.focused {
++        focus_ring_in(canvas, r, 6.0, accent, lbox.clip);
++    }
++}
 --- a/native/src/elements/edit_line.rs
 +++ b/native/src/elements/edit_line.rs
 @@ -20,10 +20,27 @@
@@ -235,7 +302,15 @@
          draw_shaped(canvas, text, &shaped, x, y, clip, None);
 --- a/native/src/elements/mod.rs
 +++ b/native/src/elements/mod.rs
-@@ -112,7 +112,11 @@
+@@ -46,6 +46,7 @@
+ pub fn intrinsic_size(node: &Node, text: &mut TextEngine, images: &mut ImageCache) -> (f32, f32) {
+     match node.kind {
+         Kind::Button => button::size(node, text),
++        Kind::Check if node.props.str("variant") == Some("switch") => (40.0, 28.0),
+         Kind::Check | Kind::Radio => (18.0, 18.0),
+         Kind::EditLine => (200.0, 28.0),
+         Kind::EditBox => (200.0, 108.0),
+@@ -112,7 +113,11 @@
      }
      if disabled(node) {
          let r = lbox.rect;
@@ -248,7 +323,7 @@
      }
  }
  
-@@ -128,6 +132,12 @@
+@@ -128,6 +133,12 @@
      canvas.fill_rounded(halo, radius + 3.0, color.with_alpha(FOCUS_RING.a), clip);
  }
  
@@ -646,7 +721,32 @@
  }
 --- a/native/tests/a11y.rs
 +++ b/native/tests/a11y.rs
-@@ -543,3 +543,19 @@
+@@ -80,6 +80,24 @@
+     assert_eq!(button["actions"], json!(["click", "focus"]));
+     let laid = h.node(|n| n["id"] == 3);
+     assert_eq!(button["bounds"], json!([laid["x"], laid["y"], laid["w"], laid["h"]]), "where the layout put it");
++}
++
++#[test]
++fn switches_expose_their_label_state_and_keyboard_actions() {
++    let mut h = Harness::new();
++    h.feed(&app(300, 200, &[create(3, "Check", 2, json!({
++        "variant": "switch", "tooltip": "Show diacritics", "checked": true,
++        "direction": "rtl", "width": 40, "height": 36
++    }))]));
++    let switch = one(&mut h, "switch");
++    assert_eq!(switch["name"], json!("Show diacritics"));
++    assert_eq!(switch["toggled"], json!(true));
++    assert_eq!(switch["actions"], json!(["click", "focus"]));
++    let (events, reply) = act(&mut h, &json!(3), "click", None);
++    assert_eq!(reply["error"], Value::Null);
++    assert!(events.iter().any(|(event, id, _)| event == "click" && *id == json!(3)));
++    h.feed(r#"{"t":"props","id":3,"props":{"checked":false}}"#);
++    assert_eq!(one(&mut h, "switch")["toggled"], json!(false));
+ }
+ 
+ #[test]
+@@ -543,3 +561,19 @@
      let (b2, b1) = (bounds(&at_2x), bounds(&at_1x));
      assert_eq!(b2, b1.iter().map(|v| v * 2.0).collect::<Vec<_>>(), "AccessKit counts device pixels");
  }

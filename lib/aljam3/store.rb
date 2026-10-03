@@ -166,7 +166,7 @@ module Aljam3
     end
 
     def complete_download(id, bytes: nil)
-      @lock.synchronize { @db.execute("UPDATE books SET downloaded_at = ?, download_bytes = ? WHERE id = ?", [Time.now.utc.iso8601, bytes, id]) }
+      @lock.synchronize { @db.execute("UPDATE books SET downloaded_at = ?, download_bytes = ? WHERE id = ?", [Time.now.utc.iso8601(6), bytes, id]) }
     end
 
     def discard_download(id)

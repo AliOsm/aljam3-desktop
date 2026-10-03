@@ -102,7 +102,7 @@ module Aljam3
       end
 
       def reader_toolbar(top)
-        stack(left: PAGE_MARGIN, top:, width: @main_width, height: 48, padding: [8, 6, 8, 6]) do
+        stack(left: PAGE_MARGIN, top:, width: @main_width, height: 48, padding_left: 8, padding_right: 8, padding_top: 6, padding_bottom: 6) do
           background surface, curve: CARD_RADIUS
           row do
             action("بحث", icon: "search", width: 88, variant: :ghost) { open_book_search }
@@ -221,8 +221,6 @@ module Aljam3
             choices = files.map { |item| ["#{item.fetch('name')} · #{item.fetch('pages_count')} صفحة", item] }
             open_dialog(:volumes, query: "", choices:, selection: ->(selected) { @reader[:file] = selected; turn_page(1) })
           end
-        else
-          para "الكتاب", right: PAGE_MARGIN + 16, top: bottom - 50, width: 120, size: 14, stroke: muted
         end
       end
 
@@ -326,9 +324,8 @@ module Aljam3
         downloaded = @downloaded_ids.include?(@reader.fetch(:book).fetch("id"))
         action(downloaded ? "متاح دون اتصال" : "تنزيل الكتاب للقراءة دون اتصال", icon: downloaded ? "check" : "download",
           width: 1.0, state: downloaded ? "disabled" : nil) { queue_download(@reader.fetch(:book)) }
-        para "أو احفظ ملفًا بصيغة تختارها.", top: 50, size: 14, stroke: muted
-        @export_feedback = para "", top: 80, size: 14, stroke: muted
-        scroll_area(top: 112, height: @content_height - 112, scroll: true) do
+        @export_feedback = para @dialog.fetch(:feedback, "احفظ نسخة بصيغة PDF أو نص أو Word."), top: 52, size: 14, stroke: muted
+        scroll_area(top: 84, height: @content_height - 84, scroll: true, bottom_padding: 0) do
           @reader.fetch(:files).each do |file|
             row(height: 56) do
               para file.fetch("name"), width: -234, size: 15, wrap: "trim"
@@ -345,11 +342,11 @@ module Aljam3
         return if !path || path.empty?
 
         dialog = @dialog
-        @export_feedback.text = "جارٍ حفظ الملف…"
+        @export_feedback.text = dialog[:feedback] = "جارٍ حفظ الملف…"
         @export_worker.submit(-> { HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf") }) do |_result, error|
           next unless @dialog.equal?(dialog)
 
-          @export_feedback.text = error ? error_message(error) : "تم حفظ الملف"
+          @export_feedback.text = dialog[:feedback] = error ? error_message(error) : "تم حفظ الملف"
         end
       end
     end

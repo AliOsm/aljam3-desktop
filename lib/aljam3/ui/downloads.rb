@@ -32,7 +32,9 @@ module Aljam3
 
       def draw_downloads
         para "التنزيلات والمساحة", font: HEADING_FONT, size: 24
-        para "#{@downloaded_ids.length} كتاب متاح دون اتصال · PDF: #{format_bytes(@store.download_bytes)} · النص والفهرس: #{format_bytes(@store.database_bytes)}",
+        pdf_bytes = @store.download_bytes
+        storage = ["#{@downloaded_ids.length} كتاب متاح دون اتصال", pdf_bytes && "PDF: #{format_bytes(pdf_bytes)}", "النص والفهرس: #{format_bytes(@store.database_bytes)}"]
+        para storage.compact.join(" · "),
           size: 15, stroke: muted, margin_top: 8
         row(top: 72) do
           tabs({ all: "الكل", active: "غير المكتملة", done: "المكتملة" }, selected: @download_filter || :all, width: 288) do |filter|
@@ -84,7 +86,8 @@ module Aljam3
           row(height: 64) do
             stack(width: -312) do
               para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 18, wrap: "trim"
-              para "#{Text.plain(book.dig('author', 'name'))} · #{format_bytes(download[:bytes])} · متاح دون اتصال",
+              details = [Text.plain(book.dig("author", "name")), download[:bytes] && format_bytes(download[:bytes]), "متاح دون اتصال"]
+              para details.compact.reject(&:empty?).join(" · "),
                 size: 13, stroke: muted, margin_top: 8, wrap: "trim"
             end
             row(width: 312) { download_actions(id, download) }
@@ -113,7 +116,8 @@ module Aljam3
       def draw_remove_download
         book = @dialog.fetch(:book)
         para Text.plain(book.fetch("title")), size: 19
-        para "سيُحذف PDF والنص المحفوظ. حجم ملفات PDF: #{format_bytes(@store.download(book.fetch('id'))&.fetch(:bytes))}. تبقى مواضع القراءة والفواصل محفوظة، ويمكنك تنزيل الكتاب مجددًا.",
+        bytes = @store.download(book.fetch("id"))&.fetch(:bytes)
+        para "سيُحذف PDF والنص المحفوظ. #{bytes ? "حجم ملفات PDF: #{format_bytes(bytes)}. " : ''}تبقى مواضع القراءة والفواصل محفوظة، ويمكنك تنزيل الكتاب مجددًا.",
           size: 16, stroke: muted, margin_top: 16
         para @dialog[:error].to_s, size: 14, stroke: primary, margin_top: 12
         action(@dialog[:busy] ? "جارٍ الإزالة…" : "إزالة النسخة", top: @content_height - 36, right: 0, width: 142,

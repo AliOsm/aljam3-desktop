@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "timeout"
 
 class DownloaderTest < StoreTestCase
   class API
@@ -108,6 +109,75 @@ class DownloaderTest < StoreTestCase
     assert_equal 1, @downloader.call(1).fetch("id")
     assert @store.downloaded?(1)
     assert_equal 2, @store.search("العلم").fetch("pages").length
+  end
+
+  def test_repairs_legacy_sizes_once_in_bounded_batches_without_network_access
+    install_book(1)
+    install_book(2)
+    extra = book(1).fetch("files").first.merge("id" => 11)
+    data = book(1).merge("files" => [book(1).fetch("files").first, extra])
+    @store.prepare_download(data, resume: true)
+    @store.complete_download(1)
+    { [1, 10] => 120, [1, 11] => 230, [2, 20] => 450 }.each do |(id, file), size|
+      path = @downloader.pdf_path(id, file)
+      FileUtils.mkdir_p(File.dirname(path))
+      File.binwrite(path, "x" * size)
+    end
+
+    assert_nil @store.download_bytes
+    assert_equal 1, @downloader.repair_download_sizes(limit: 1)
+    assert_equal 350, @store.download(1).fetch(:bytes)
+    assert_nil @store.download(2).fetch(:bytes)
+    assert_equal 2, @downloader.repair_download_sizes(after: 1, limit: 1)
+    assert_equal 800, @store.download_bytes
+    assert_nil @downloader.repair_download_sizes
+    assert_equal 0, @http.calls
+    @store.close
+    @store = Aljam3::Store.new(File.join(@directory, "library.sqlite3"))
+    assert_equal 800, @store.download_bytes
+    assert_empty @store.downloads_without_size
+  end
+
+  def test_size_repair_does_not_publish_partial_or_missing_pdfs
+    install_book(1)
+    install_book(2)
+    FileUtils.mkdir_p(File.dirname(@downloader.pdf_path(2, 20)))
+    File.binwrite(@downloader.pdf_path(2, 20), "")
+    assert_equal 2, @downloader.repair_download_sizes
+    assert_nil @store.download_bytes
+    assert_nil @store.download(1).fetch(:bytes)
+    assert_nil @store.download(2).fetch(:bytes)
+    assert_equal 0, @http.calls
+  end
+
+  def test_size_repair_cannot_overwrite_a_removed_or_replaced_download
+    install_book
+    stamp = @store.downloads_without_size.first.fetch("downloaded_at")
+    @store.discard_download(1)
+    @store.save_download_size(1, downloaded_at: stamp, bytes: 100)
+    refute @store.downloaded?(1)
+    install_book
+    @store.save_download_size(1, downloaded_at: stamp, bytes: 100)
+    assert_nil @store.download(1).fetch(:bytes)
+    @store.complete_download(1, bytes: 500)
+    @store.save_download_size(1, downloaded_at: stamp, bytes: 100)
+    assert_equal 500, @store.download(1).fetch(:bytes)
+  end
+
+  def test_queue_repairs_legacy_metadata_in_the_background
+    @downloader.call(1)
+    @store.instance_variable_get(:@db).execute("UPDATE books SET download_bytes = NULL WHERE id = 1")
+    queue = Aljam3::Downloads.new(store: @store, downloader: @downloader)
+    Timeout.timeout(3) do
+      until @store.download(1).fetch(:bytes)
+        queue.tick
+        sleep 0.001
+      end
+    end
+    assert_equal File.size(@downloader.pdf_path(1, 10)), @store.download_bytes
+    assert_equal 1, @http.calls
+  ensure
+    queue&.close
   end
 
   def test_cancel_discards_partial_data_and_remove_preserves_reading_history_and_bookmarks

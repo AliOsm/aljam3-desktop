@@ -16,7 +16,7 @@ module Aljam3
     include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools
 
     def setup
-      %w[NotoNaskhArabicUI Cairo Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
+      %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
       directory = Aljam3.data_directory
       @store = Store.new(File.join(directory, "library.sqlite3"))
       @theme = @store.preference("theme", system_theme.to_s).to_sym

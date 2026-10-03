@@ -53,10 +53,10 @@ index 4a0bef0..bea2bc0 100644
                  flush(canvas, current.take());
                  current = Some((c, glyph.x, glyph.x + glyph.w));
 diff --git a/native/tests/golden.rs b/native/tests/golden.rs
-index cfbce00..aef51b3 100644
+index cfbce00..e61ad7f 100644
 --- a/native/tests/golden.rs
 +++ b/native/tests/golden.rs
-@@ -133,3 +133,41 @@ fn shading_a_few_levels_off_still_matches() {
+@@ -133,3 +133,56 @@ fn shading_a_few_levels_off_still_matches() {
          assert_eq!(mismatch(&shaded, &golden(scene)), None, "{scene}");
      }
  }
@@ -77,6 +77,21 @@ index cfbce00..aef51b3 100644
 +    let max = colored.iter().map(|(x, _, _)| *x).max().unwrap();
 +    assert!(max - min > 40, "The highlight must span more than one glyph");
 +    let _ = std::fs::remove_file(path);
++}
++
++#[test]
++fn rtl_switch_uses_the_theme_and_moves_its_thumb_with_state() {
++    let mut h = Harness::new();
++    h.feed(&common::app(120, 60, &[
++        common::create(3, "Check", 2, json!({"left":10,"top":10,"width":40,"height":36,
++            "variant":"switch","checked":true,"direction":"rtl",
++            "color":{"rgba":[174,71,33,255]},"background_color":{"rgba":[74,69,67,255]}})),
++    ]));
++    assert_eq!(h.value(json!({"op":"pixel","x":22,"y":28})), json!([255,255,255,255]));
++    assert_eq!(h.value(json!({"op":"pixel","x":38,"y":28})), json!([174,71,33,255]));
++    h.feed(r#"{"t":"props","id":3,"props":{"checked":false}}"#);
++    assert_eq!(h.value(json!({"op":"pixel","x":22,"y":28})), json!([74,69,67,255]));
++    assert_eq!(h.value(json!({"op":"pixel","x":38,"y":28})), json!([255,255,255,255]));
 +}
 +
 +#[test]

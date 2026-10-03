@@ -20,12 +20,11 @@ module Aljam3
         search_form(top: form_top)
         row(top: form_top + 56) do
           unless authors
-            modes = saved ? { content: "النصوص", books: "العناوين" } : { content: "النصوص", books: "العناوين", authors: "المؤلفون" }
-            tabs(modes, selected: @mode, width: 270) { |mode| switch_search_mode(mode) }
+            tabs({ content: "النصوص", books: "العناوين" }, selected: @mode, width: 208) { |mode| switch_search_mode(mode) }
             action("تصفية#{@filters.empty? ? '' : " · #{@filters.length}"}", icon: "sliders-horizontal",
               width: 116, margin_left: 12) { open_filters }
           end
-          para catalog_count, width: authors ? 1.0 : -386, size: 14, stroke: muted, align: authors ? "right" : "left"
+          para catalog_count, width: authors ? 1.0 : -324, size: 14, stroke: muted, align: authors ? "right" : "left"
         end
         result_top = form_top + 108
         if @mode == :content && !@query.strip.empty? && (@search_scope == :downloaded || (@result ? @source != :online : %i[offline unavailable].include?(@connection)))
