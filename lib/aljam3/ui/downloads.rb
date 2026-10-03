@@ -67,10 +67,10 @@ module Aljam3
             card(padding: 16) do
                 para Text.plain(download.fetch(:book).fetch("title")), size: 20
                 label = para download_message(download), size: 14, stroke: muted, margin_top: 8
-                bar = progress(width: 1.0, height: 24, margin_top: 16)
+                bar = progress(width: 1.0, height: 20, margin_top: 12)
                 bar.fraction = download.fetch(:fraction)
                 @progress_views[id] = { label:, bar: }
-                row(height: 52, margin_top: 16) { download_actions(id, download) }
+                row(height: 48, margin_top: 12) { download_actions(id, download) }
             end
           end
           page_controls(page:, previous: page > 1, following: page * Store::PAGE_SIZE < count) do |number|
@@ -83,7 +83,7 @@ module Aljam3
       def completed_download_row(id, download)
         book = download.fetch(:book)
         card(padding: 16) do
-          row(height: 64) do
+          row(height: 52) do
             stack(width: -312) do
               para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 18, wrap: "trim"
               details = [Text.plain(book.dig("author", "name")), download[:bytes] && format_bytes(download[:bytes]), "متاح دون اتصال"]
@@ -115,11 +115,13 @@ module Aljam3
 
       def draw_remove_download
         book = @dialog.fetch(:book)
-        para Text.plain(book.fetch("title")), size: 19
         bytes = @store.download(book.fetch("id"))&.fetch(:bytes)
-        para "سيُحذف PDF والنص المحفوظ. #{bytes ? "حجم ملفات PDF: #{format_bytes(bytes)}. " : ''}تبقى مواضع القراءة والفواصل محفوظة، ويمكنك تنزيل الكتاب مجددًا.",
-          size: 16, stroke: muted, margin_top: 16
-        para @dialog[:error].to_s, size: 14, stroke: primary, margin_top: 12
+        scroll_area(height: @content_height - 48, scroll: true, bottom_padding: 0) do
+          para Text.plain(book.fetch("title")), size: 19
+          para "سيُحذف PDF والنص المحفوظ. #{bytes ? "حجم ملفات PDF: #{format_bytes(bytes)}. " : ''}تبقى مواضع القراءة والفواصل محفوظة، ويمكنك تنزيل الكتاب مجددًا.",
+            size: 16, stroke: muted, margin_top: 12
+          para @dialog[:error], size: 14, stroke: primary, margin_top: 12 if @dialog[:error]
+        end
         action(@dialog[:busy] ? "جارٍ الإزالة…" : "إزالة النسخة", top: @content_height - 36, right: 0, width: 142,
           variant: :solid, state: @dialog[:busy] ? "disabled" : nil) do
           dialog = @dialog

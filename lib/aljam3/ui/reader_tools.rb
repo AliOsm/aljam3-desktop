@@ -46,22 +46,27 @@ module Aljam3
       end
 
       def draw_bookmarks
+        if @bookmarks.empty?
+          para "لا توجد فواصل في هذا الكتاب بعد.", size: 16
+          para "احفظ الصفحة من زر الفاصل أو Ctrl/⌘ D.", size: 15, stroke: muted, margin_top: 8
+          return
+        end
+
         para "مواضع محفوظة في هذا الكتاب، تبقى معك بعد إغلاق التطبيق.", size: 15, stroke: muted
-        scroll_area(top: 48, height: @content_height - 48, scroll: true) do
-          if @bookmarks.empty?
-            para "لا توجد فواصل بعد. احفظ الصفحة من زر الفاصل أو Ctrl/⌘ D.", size: 16, stroke: muted
-          end
-          @bookmarks.each do |entry|
-            card(padding: 16) do
+        scroll_area(top: 36, height: @content_height - 36, scroll: true, bottom_padding: 0) do
+          @bookmarks.each_with_index do |entry, index|
+            separator(margin_top: 8, margin_bottom: 8) unless index.zero?
+            row(height: 59) do
               file = @reader.fetch(:files).find { |candidate| candidate.fetch("id") == entry.fetch("file_id") }
-              para "#{file&.fetch('name')} · صفحة #{entry.fetch('number')}", size: 16
-              para entry.fetch("excerpt"), size: 14, stroke: muted, margin_top: 8
-              row(margin_top: 12, height: 48) do
-                action("فتح الصفحة", width: 126, state: file ? nil : "disabled") do
-                  close_dialog
-                  @reader[:file] = file
-                  turn_page(entry.fetch("number"))
-                end
+              stack(width: -120) do
+                label = [@reader.fetch(:files).length > 1 && file&.fetch("name"), "صفحة #{entry.fetch('number')}"].select { |part| part }.join(" · ")
+                para label, size: 16, wrap: "trim"
+                para entry.fetch("excerpt"), size: 14, stroke: muted, margin_top: 6, wrap: "trim"
+              end
+              action("فتح الصفحة", width: 120, margin_left: 12, state: file ? nil : "disabled") do
+                close_dialog
+                @reader[:file] = file
+                turn_page(entry.fetch("number"))
               end
             end
           end
@@ -201,10 +206,12 @@ module Aljam3
       end
 
       def draw_unavailable_book
-        para Text.plain(@dialog.fetch(:book).fetch("title")), size: 18
-        para "هذا الكتاب متاح عبر الإنترنت ولم يُنزّل على جهازك. افتح كتابًا محمّلًا الآن، أو أعد الاتصال لتنزيله.",
-          size: 16, stroke: muted, margin_top: 16
-        action("كتبي المحمّلة", top: @content_height - 48, width: 152, variant: :solid) { navigate(:saved) }
+        scroll_area(height: @content_height - 48, scroll: true, bottom_padding: 0) do
+          para Text.plain(@dialog.fetch(:book).fetch("title")), size: 18
+          para "هذا الكتاب متاح عبر الإنترنت ولم يُنزّل على جهازك. افتح كتابًا محمّلًا الآن، أو أعد الاتصال لتنزيله.",
+            size: 16, stroke: muted, margin_top: 12
+        end
+        action("كتبي المحمّلة", top: @content_height - 36, width: 152, variant: :solid) { navigate(:saved) }
       end
     end
   end

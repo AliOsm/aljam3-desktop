@@ -13,6 +13,16 @@ module Aljam3
 
       def close_book_search = close_dialog
 
+      def book_search_dialog_height
+        return 296 if @book_search[:error]
+
+        pages = @book_search[:result]&.data&.fetch("pages")
+        return 184 unless pages
+        return 244 if pages.empty?
+
+        164 + [pages.length * 184, 440].min
+      end
+
       def draw_book_search
         row(height: 40) do
           @book_query_field = input(@book_search.fetch(:query), width: -88, tooltip: "البحث في نص هذا الكتاب", placeholder: "اكتب كلمة أو عبارة…") { |field| @book_search[:query] = field.text }
@@ -20,15 +30,15 @@ module Aljam3
           action("بحث", width: 88, height: 40, margin_left: 12, variant: :solid) { request_book_search }
         end
         result = @book_search[:result]
-        row(top: 52, height: 28) do
+        row(top: 48, height: 24) do
           para Text.plain(@reader.fetch(:book).fetch("title")), width: result ? -230 : 1.0, size: 14, stroke: muted, wrap: "trim"
           if result
             para "#{result_count(result.data)} · #{result.source == :online ? 'متصل بالجامع' : 'دون اتصال'}", width: 230, size: 13, stroke: muted, align: "left"
           end
         end
-        scroll_area(top: 90, height: @content_height - 90, scroll: true) do
+        scroll_area(top: 84, height: @content_height - 84, scroll: true, bottom_padding: 0) do
           if @book_search[:busy]
-            empty_state("جارٍ البحث…", "نبحث عن الكلمات في هذا الكتاب.", icon: "search")
+            para "جارٍ البحث في صفحات الكتاب…", size: 15, stroke: muted
           elsif @book_search[:error]
             empty_state("تعذّر إكمال البحث", @book_search[:error], icon: "search", action_label: "إعادة المحاولة") { request_book_search }
           elsif result
@@ -40,7 +50,7 @@ module Aljam3
             page = result.data.fetch("pagination").fetch("current_page")
             page_controls(page:, previous: page > 1, following: following_page(result.data)) { |number| request_book_search(page: number) }
           else
-            empty_state("ابحث في صفحات الكتاب", "اكتب كلمة أو عبارة. يعمل البحث أيضًا في كتبك المحمّلة دون اتصال.", icon: "search")
+            para "اكتب كلمة أو عبارة. يمكنك البحث في كتبك المحمّلة دون اتصال أيضًا.", size: 15, stroke: muted
           end
         end
       end

@@ -116,10 +116,10 @@ module Aljam3
             para text_link(Text.plain(category.fetch("name")), stroke: muted) { browse_scope(:category, category) }, size: 13
           end
         end
-        stack(height_group: aligned ? "book_title" : nil, margin_top: 8) do
+        stack(height_group: aligned ? "book_title" : nil, margin_top: category || aligned ? 8 : 0) do
           para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 20, weight: "semibold"
         end
-        stack(height_group: aligned ? "book_author" : nil, margin_top: 8) do
+        stack(height_group: aligned ? "book_author" : nil, margin_top: author || aligned ? 8 : 0) do
           if author
             para text_link(Text.plain(author.fetch("name")), stroke: muted) { browse_scope(:author, author) }, size: 14
           end

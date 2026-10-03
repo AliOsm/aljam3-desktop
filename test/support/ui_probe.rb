@@ -286,7 +286,7 @@ app.every(0.1) do
       raise "Bookmarks lost after removal" if store.bookmarks(1).empty?
       raise "Reading history lost after removal" if store.recent_books.empty?
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true,
-        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_sheet_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope bounded_pagination immediate_cached_catalog remove_download_preserves_history typing_during_background_refresh field_blur anchored_popup popup_focus_return reader_header page_validation enter_arabic_digits dialog_scroll_preserved] }))
+        checks: %w[online_reading_without_download rtl_panes clipboard persistent_dark_theme compact_layout modal_search exact_search_page author_browsing filter_popup_scoping download offline_search escape search_highlights match_navigation draggable_divider persistent_split bookmarks keyboard_paging continue_reading downloaded_scope bounded_pagination immediate_cached_catalog remove_download_preserves_history typing_during_background_refresh field_blur anchored_popup popup_focus_return reader_header page_validation enter_arabic_digits dialog_scroll_preserved] }))
       app.close
     end
   rescue StandardError => error

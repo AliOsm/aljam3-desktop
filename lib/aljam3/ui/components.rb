@@ -58,7 +58,7 @@ module Aljam3
       def page_controls(page:, previous:, following:, &change)
         return unless previous || following
 
-        stack(height: 60, margin_top: 8) do
+        stack(height: 52, margin_top: 8) do
           row(left: (@main_width - 324) / 2, top: 8, width: 324) do
             action("السابق", icon: "arrow-right", width: 100, state: previous ? nil : "disabled") { change.call(page - 1) }
             para "صفحة #{page}", width: 124, size: 14, stroke: muted, align: "center"
@@ -158,13 +158,13 @@ module Aljam3
       end
 
       def empty_state(heading, description, icon: "book-open", action_label: nil, &on_action)
-        stack(padding: 24, margin_top: 16) do
-          row(height: 40) do
-            image asset_path("icons", icon), width: 24, height: 24, margin_right: 12
-            para heading, width: -40, font: HEADING_FONT, size: 21
+        stack(padding_top: 8, padding_bottom: 8) do
+          row(height: 32) do
+            image asset_path("icons", icon), width: 32, height: 24, margin_right: 8
+            para heading, width: -32, font: HEADING_FONT, size: 20
           end
-          para description, size: 16, stroke: muted, margin_top: 12
-          row(margin_top: 20, height: 56) { action(action_label, width: 160, variant: :solid, &on_action) } if action_label
+          para description, size: 15, stroke: muted, margin_top: 8
+          row(margin_top: 12, height: 48) { action(action_label, width: 160, variant: :solid, &on_action) } if action_label
         end
       end
     end

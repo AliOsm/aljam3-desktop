@@ -106,6 +106,9 @@ class AlignmentVerification
       check("reading columns share top and bottom", cards.size == 2 && near(cards[0][:y], cards[1][:y]) && near(bottom(cards[0]), bottom(cards[1])))
       check("section headings share a baseline", near(node("Para", "تابع القراءة")[:y], node("Para", "قرأت مؤخرًا")[:y]))
     end
+    progress = @layout.find { |entry| entry[:kind] == "Progress" }
+    resume = node("Button", "متابعة القراءة")
+    check("reading progress stays close to its action", progress && (resume[:y] - bottom(progress)).between?(10, 24))
     libraries = @layout.select { |entry| entry[:kind] == "Border" && entry[:y] > explore[:y] }.sort_by { |entry| entry[:x] }
     first_row = libraries.select { |entry| near(entry[:y], libraries.map { |item| item[:y] }.min) }
     check("library grid shares search boundaries", near(first_row.first[:x], @left) && near(right(first_row.last), @right))
@@ -141,6 +144,40 @@ class AlignmentVerification
     end
     status
     shot("books")
+    filters
+  end
+
+  def panel
+    @automation.rect_of!(@app.instance_variable_get(:@dialog_panel).linkable_id)
+  end
+
+  def filters
+    trigger = node("Button", "تصفية")
+    @automation.click({ id: trigger.fetch(:id) })
+    draw
+    check("filters open as a compact popup beside their trigger", panel.h <= 320 && near(panel.y, bottom(trigger) + 8) && near(panel.x + panel.w, right(trigger)))
+    check("filter actions have balanced bottom padding", (panel.y + panel.h - bottom(node("Button", "تطبيق"))).between?(15, 18))
+    shot("filters")
+    original = @app.instance_variable_get(:@filters).dup
+    field = @app.instance_variable_get(:@action_views).fetch([:filter, :library])
+    @automation.click({ id: field.linkable_id })
+    draw
+    check("short filter choices fit their content", panel.h < 280 && @app.instance_variable_get(:@dialog_results).scroll_max.zero?)
+    @automation.click({ id: node("Button", LIBRARIES.first.fetch("name")).fetch(:id) })
+    draw
+    check("nested selection returns to the filter draft", @app.instance_variable_get(:@dialog).fetch(:type) == :filters &&
+      @app.instance_variable_get(:@dialog).dig(:filters, :library) == LIBRARIES.first.fetch("id"))
+    check("filter changes wait for Apply", @app.instance_variable_get(:@filters) == original)
+    @automation.key("escape")
+    focused = @automation.focused == @app.instance_variable_get(:@action_views).fetch("تصفية").linkable_id
+    draw
+    check("dismissing filters discards the draft and restores focus", !@app.instance_variable_get(:@dialog) &&
+      @app.instance_variable_get(:@filters) == original && focused)
+    # Exercise an empty author picker without a network request.
+    @app.open_dialog(:authors, query: "", busy: true, selection: ->(_) {})
+    draw
+    check("author loading state has no reserved results area", panel.h <= 200 && @app.instance_variable_get(:@dialog_results).scroll_max.zero?)
+    @app.close_dialog
   end
 
   def categories
@@ -227,8 +264,8 @@ class AlignmentVerification
     @app.open_dialog(:export)
     draw
     panel = @automation.rect_of!(@app.instance_variable_get(:@dialog_panel).linkable_id)
-    file = node("Para", "الكتاب")
-    check("single-file export is compact", panel.h < 260 && (panel.y + panel.h - bottom(file)).between?(16, 48))
+    file = node("Button", "PDF")
+    check("single-file export is compact", panel.h < 200 && (panel.y + panel.h - bottom(file)).between?(15, 18))
     shot("export")
     @app.close_dialog
     reader[:files] = Array.new(12) { |index| reader.fetch(:file).merge("id" => index + 1, "name" => "المجلد #{index + 1}") }
@@ -241,7 +278,7 @@ class AlignmentVerification
     @automation.wait_frames
     @layout = @automation.layout
     last = node("Para", "المجلد 12")
-    check("last export file remains reachable", bottom(last) <= panel.y + panel.h - 20 && last[:y] >= panel.y + 76)
+    check("last export file remains reachable", bottom(last) <= panel.y + panel.h - 16 && last[:y] >= panel.y + 64)
     shot("export-volumes")
     @app.close_dialog
     reader[:files] = book.fetch("files")
@@ -250,7 +287,68 @@ class AlignmentVerification
     draw
     check("text-only reader hides split controls", !@layout.any? { |entry| entry[:kind] == "Button" && entry[:text] == "نص أوسع" })
     @app.close_dialog
+    reader_dialogs(reader)
     @app.navigate(:home)
+  end
+
+  def reader_dialogs(reader)
+    set(bookmarks: [])
+    @app.open_dialog(:bookmarks)
+    draw
+    hint = node("Para", "احفظ الصفحة من زر الفاصل أو Ctrl/⌘ D.")
+    check("empty bookmarks fit their two lines", panel.h <= 144 && (panel.y + panel.h - bottom(hint)).between?(16, 24))
+    shot("bookmarks-empty")
+    @app.close_dialog
+
+    entries = Array.new(12) { |index| { "file_id" => reader.fetch(:file).fetch("id"), "number" => index + 1, "excerpt" => "آداب العلم وأهله، وفضل القراءة والعمل." } }
+    set(bookmarks: entries.first(1))
+    @app.open_dialog(:bookmarks)
+    draw
+    check("one bookmark does not reserve a full list", panel.h <= 192 && @app.instance_variable_get(:@dialog_results).scroll_max.zero?)
+    check("bookmark text and action share a row", near(node("Button", "فتح الصفحة")[:y] + 18,
+      (node("Para", "صفحة 1")[:y] + bottom(node("Para", entries.first.fetch("excerpt")))) / 2))
+    shot("bookmarks-one") if @label == "light-1160"
+    set(bookmarks: entries)
+    draw
+    list = @app.instance_variable_get(:@dialog_results)
+    check("many bookmarks stay bounded and scroll", panel.h <= 500 && list.scroll_max.positive?)
+    list.scroll_top = list.scroll_max
+    @automation.wait_frames
+    @layout = @automation.layout
+    check("last bookmark remains reachable", bottom(node("Para", "صفحة 12")) < panel.y + panel.h - 16)
+    @app.close_dialog
+
+    set(book_search: nil)
+    @app.open_book_search
+    draw
+    check("initial book search fits its controls and hint", panel.h <= 200 && @app.instance_variable_get(:@dialog_results).scroll_max.zero?)
+    hint = node("Para", "اكتب كلمة أو عبارة. يمكنك البحث في كتبك المحمّلة دون اتصال أيضًا.")
+    check("initial search has balanced bottom padding", (panel.y + panel.h - bottom(hint)).between?(16, 24))
+    shot("book-search-initial")
+    search = @app.instance_variable_get(:@book_search)
+    search[:busy] = true
+    draw
+    check("loading book search stays compact", panel.h <= 200)
+    search.merge!(busy: false, error: "تعذّر الاتصال بالجامع. حاول مرة أخرى.")
+    draw
+    check("search retry remains visible", bottom(node("Button", "إعادة المحاولة")) <= panel.y + panel.h - 16)
+    pagination = { "current_page" => 1, "total_pages" => 1, "count" => 0 }
+    search.merge!(error: nil, result: Aljam3::Result.new({ "pages" => [], "pagination" => pagination }, :downloaded, nil))
+    draw
+    check("empty search results stay compact", panel.h <= 260 && @app.instance_variable_get(:@dialog_results).scroll_max.zero?)
+    shot("book-search-empty") if @label == "light-1160"
+    pages = Array.new(12) do |index|
+      { "id" => index + 1, "number" => index + 1, "book" => reader.fetch(:book), "content" => "العلم والعمل، وآداب طلب العلم وفضله. " * 16 }
+    end
+    search.merge!(searched_query: "العلم", query: "العلم", result: Aljam3::Result.new({ "pages" => pages, "pagination" => pagination.merge("count" => 12) }, :downloaded, nil))
+    draw
+    list = @app.instance_variable_get(:@dialog_results)
+    check("populated search grows into a bounded scrollable list", panel.h.between?(400, 640) && list.scroll_max.positive?)
+    list.scroll_top = list.scroll_max
+    @automation.wait_frames
+    @layout = @automation.layout
+    check("last search result remains reachable", bottom(node("Para", "صفحة 12")) < panel.y + panel.h - 16)
+    @app.close_dialog
   end
 
   def icon_center(button, label)

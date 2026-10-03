@@ -324,13 +324,17 @@ module Aljam3
         downloaded = @downloaded_ids.include?(@reader.fetch(:book).fetch("id"))
         action(downloaded ? "متاح دون اتصال" : "تنزيل الكتاب للقراءة دون اتصال", icon: downloaded ? "check" : "download",
           width: 1.0, state: downloaded ? "disabled" : nil) { queue_download(@reader.fetch(:book)) }
-        @export_feedback = para @dialog.fetch(:feedback, "احفظ نسخة بصيغة PDF أو نص أو Word."), top: 52, size: 14, stroke: muted
-        scroll_area(top: 84, height: @content_height - 84, scroll: true, bottom_padding: 0) do
-          @reader.fetch(:files).each do |file|
-            row(height: 56) do
-              para file.fetch("name"), width: -234, size: 15, wrap: "trim"
-              %w[pdf txt docx].each do |format|
-                action(format.upcase, width: 78, margin_left: 8, state: file.dig("urls", format).to_s.empty? ? "disabled" : nil) { export_file(file, format) }
+        @export_feedback = para @dialog.fetch(:feedback, "احفظ نسخة بصيغة PDF أو نص أو Word."), top: 48, size: 14, stroke: muted
+        files = @reader.fetch(:files)
+        scroll_area(top: 76, height: @content_height - 76, scroll: true, bottom_padding: 0) do
+          files.each_with_index do |file, index|
+            gap = index < files.length - 1 ? 8 : 0
+            row(height: 36 + gap, margin_bottom: gap) do
+              para file.fetch("name"), width: -234, size: 15, wrap: "trim" if files.length > 1
+              %w[pdf txt docx].each_with_index do |format, format_index|
+                margin = format_index < 2 ? 8 : 0
+                action(format.upcase, width: files.length == 1 ? (@main_width - 16).fdiv(3) + margin : 78,
+                  margin_right: margin, state: file.dig("urls", format).to_s.empty? ? "disabled" : nil) { export_file(file, format) }
               end
             end
           end

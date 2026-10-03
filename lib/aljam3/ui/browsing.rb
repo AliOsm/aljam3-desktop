@@ -33,15 +33,15 @@ module Aljam3
         @results = scroll_area(top: 180, height: @content_height - 180) do
           unless recent.empty?
             sections = recent.size > 1 ? %i[continue recent] : [:continue]
-            grid(sections, columns: @main_width >= 920 ? sections.size : 1, row_gap: 28) do |section, styles|
+            grid(sections, columns: @main_width >= 920 ? sections.size : 1, row_gap: 20) do |section, styles|
               stack(**styles) do
                 section_heading(section == :continue ? "تابع القراءة" : "قرأت مؤخرًا")
                 if section == :continue
                   reading_card(recent.first)
                 else
-                  card(padding: 20, height_group: "reading", margin_bottom: 0) do
+                  card(padding: 16, height_group: "reading", margin_bottom: 0) do
                     recent.drop(1).each_with_index do |entry, index|
-                      separator(margin_top: 8, margin_bottom: 8) unless index.zero?
+                      separator(margin_top: 4, margin_bottom: 4) unless index.zero?
                       recent_reading_row(entry)
                     end
                   end
@@ -54,7 +54,7 @@ module Aljam3
             para "اتصل بالإنترنت لاستكشاف المكتبة، أو افتح كتبك المحمّلة.", stroke: muted, size: 15, margin_bottom: 20
           else
             columns = @main_width >= 940 ? 3 : 2
-            grid(@libraries, columns:, row_gap: 28) do |library, styles|
+            grid(@libraries, columns:, row_gap: 20) do |library, styles|
               card(padding: 16, **styles) do
                 flow(direction: "rtl", valign: "center") do
                   stack(width: -32) do
@@ -80,14 +80,14 @@ module Aljam3
         total = file&.fetch("pages_count")
         location = [files.length > 1 && file&.fetch("name"), "صفحة #{entry.fetch('number')}#{total ? " من #{total}" : ''}"].select { |part| part }.join(" · ")
         card(height_group: "reading", margin_bottom: 0) do
-          stack(padding_left: 20, padding_right: 20, padding_top: 20, padding_bottom: 72) do
+          stack(padding_left: 16, padding_right: 16, padding_top: 16, padding_bottom: 64) do
             book_heading(book)
-            para location, size: 14, stroke: muted, margin_top: 16
+            para location, size: 14, stroke: muted, margin_top: 12
             if total&.positive?
-              progress(width: 1.0, height: 24, margin_top: 16).fraction = entry.fetch("number").fdiv(total).clamp(0, 1)
+              progress(width: 1.0, height: 20, margin_top: 12).fraction = entry.fetch("number").fdiv(total).clamp(0, 1)
             end
           end
-          row(left: 20, bottom: 20, width: -40) do
+          row(left: 16, bottom: 16, width: -32) do
             action("متابعة القراءة", icon: "book-open", width: 164,
               state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book) }
             para availability_label(book), width: -164, size: 13, stroke: muted, align: "left"
@@ -97,7 +97,7 @@ module Aljam3
 
       def recent_reading_row(entry)
         book = entry.fetch("book")
-        row(height: 56) do
+        row(height: 52) do
           stack(width: -44) do
             para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 16, wrap: "trim"
             para "صفحة #{entry.fetch('number')} · #{availability_label(book)}", size: 13, stroke: muted, margin_top: 6
