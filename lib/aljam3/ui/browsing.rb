@@ -28,7 +28,7 @@ module Aljam3
         recent = @store.recent_books(limit: 4)
         para recent.empty? ? "المكتبة بين يديك" : "مكتبتك، حيث توقفت", font: HEADING_FONT, size: 26
         para "ابحث في الكتب، وتابع القراءة، واحتفظ بما تحتاجه دون اتصال.", size: 16, stroke: muted, margin_top: 8
-        search_scope_control(top: 64)
+        search_controls(top: 64)
         search_form(top: 112)
         @results = scroll_area(top: 180, height: @content_height - 180) do
           unless recent.empty?

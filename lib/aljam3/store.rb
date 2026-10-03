@@ -114,6 +114,13 @@ module Aljam3
       end
     end
 
+    def author(id)
+      @reader.call do |db|
+        data = db.get_first_value("SELECT data FROM authors WHERE id = ?", [id])
+        JSON.parse(data) if data
+      end
+    end
+
     def cache_authors(authors)
       @lock.synchronize { @db.transaction { write_authors(authors) } }
     end

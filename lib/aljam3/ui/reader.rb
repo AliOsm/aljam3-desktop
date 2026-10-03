@@ -74,16 +74,15 @@ module Aljam3
       def draw_reader
         @pdf_surface = @text_surface = @page_image = @copy_button = @page_text = @drag = nil
         book = @reader.fetch(:book)
-        row(left: PAGE_MARGIN, top: 84, width: @main_width, height: 36) do
-          icon_button("arrow-right", "العودة إلى النتائج", width: 44) { close_reader }
-          para Text.plain(book.fetch("title")), width: -44, size: 22, font: HEADING_FONT, wrap: "trim"
-        end
+        para Text.plain(book.fetch("title")), left: PAGE_MARGIN + 48, top: PAGE_TOP,
+          width: @main_width - 48, size: 22, font: HEADING_FONT, wrap: "trim"
+        icon_button("arrow-left", "العودة إلى النتائج", left: PAGE_MARGIN, top: PAGE_TOP - 4) { close_reader }
         author = book["author"]
         para text_link(Text.plain(author&.fetch("name")), stroke: muted) { browse_scope(:author, author) if author },
-          left: PAGE_MARGIN + 184, top: 128, width: @main_width - 184, size: 14
-        para availability_label(book), left: PAGE_MARGIN, top: 128, width: 176, size: 13, stroke: muted, align: "left"
-        reader_toolbar(160)
-        pane_top = 224
+          left: PAGE_MARGIN + 184, top: PAGE_TOP + 36, width: @main_width - 184, size: 14
+        para availability_label(book), left: PAGE_MARGIN, top: PAGE_TOP + 36, width: 176, size: 13, stroke: muted, align: "left"
+        reader_toolbar(PAGE_TOP + 68)
+        pane_top = PAGE_TOP + 132
         unless @reader.fetch(:query).empty?
           reader_match_bar(pane_top)
           pane_top += 44
@@ -110,8 +109,8 @@ module Aljam3
             @copy_button = icon_button("copy", "نسخ نص الصفحة", state: page_text.strip.empty? ? "disabled" : nil) { copy_page }
             action("خيارات القراءة", width: 128, variant: :ghost) { open_dialog(:reader_options) }
             icon_button("ellipsis", "أدوات الكتاب") { open_dialog(:reader_menu) }
-            stack(width: reader_pdf? ? -712 : -604, height: 1)
-            tabs({ text: "النص", split: "النص والصورة", pdf: "الصورة" }, selected: @reader[:mode], width: 264,
+            stack(width: reader_pdf? ? -728 : -620, height: 1)
+            tabs({ text: "النص", split: "النص والصورة", pdf: "الصورة" }, selected: @reader[:mode], width: 280,
               widths: { text: 60, split: 132, pdf: 72 }) { |mode| change_reader_mode(mode) }
             stack(width: 16, height: 1)
             if reader_pdf?

@@ -51,6 +51,7 @@ class AlignmentVerification
         @automation.resize(width, height)
         @label = "#{theme}-#{width}"
         home
+        search_controls
         catalog
         categories
         authors
@@ -145,6 +146,55 @@ class AlignmentVerification
     status
     shot("books")
     filters
+    filter_chips
+  end
+
+  def search_controls
+    mode_label, scope_label = node("Para", "البحث في:"), node("Para", "ضمن:")
+    mode, scope = node("Button", "نصوص الكتب"), node("Button", "كل المكتبة")
+    check("search labels sit eight pixels from their controls", near(mode_label[:x] - right(mode), 8) && near(scope_label[:x] - right(scope), 8))
+    check("search choices share one row above the query", near(mode[:y], scope[:y]) && bottom(mode) < node("Button", "بحث")[:y])
+    @automation.click({ id: mode[:id] })
+    @automation.wait_frames
+    @layout = @automation.layout
+    check("search dropdown opens at its control and fits two options", panel.h <= 104 && near(panel.y, bottom(mode) + 8))
+    check("current search mode receives keyboard focus", @automation.focused == @app.instance_variable_get(:@dialog_first).linkable_id)
+    shot("search-dropdown") if @label == "light-1160"
+    @automation.key("tab")
+    @automation.key("enter")
+    @automation.wait_frames
+    field = @app.instance_variable_get(:@query_field)
+    check("keyboard selection updates the search mode and placeholder", @app.instance_variable_get(:@mode) == :books && field.style[:placeholder] == "ابحث عن عنوان كتاب…")
+    check("dropdown selection restores focus to its trigger", @automation.focused == @app.instance_variable_get(:@action_views).fetch(:search_mode).linkable_id)
+    @automation.click({ id: @app.instance_variable_get(:@action_views).fetch(:search_scope).linkable_id })
+    @automation.wait_frames
+    @layout = @automation.layout
+    @automation.click({ id: @app.instance_variable_get(:@action_views).fetch("كتبي المحمّلة").linkable_id })
+    check("search location changes independently of search mode", @app.instance_variable_get(:@search_scope) == :downloaded && @app.instance_variable_get(:@mode) == :books)
+    @automation.click({ id: @app.instance_variable_get(:@action_views).fetch(:search_scope).linkable_id })
+    @automation.key("escape")
+    check("Escape closes dropdown without changing search scope", !@app.instance_variable_get(:@dialog) && @app.instance_variable_get(:@search_scope) == :downloaded)
+    @automation.click({ id: @app.instance_variable_get(:@action_views).fetch(:search_scope).linkable_id })
+    @automation.mouse(:down, 8, 8)
+    @automation.mouse(:up, 8, 8)
+    check("clicking outside dismisses the dropdown", !@app.instance_variable_get(:@dialog))
+    @app.navigate(:home)
+    draw
+  end
+
+  def filter_chips
+    chosen = { library: LIBRARIES.first.fetch("id"), category: CATEGORIES.first.fetch("id"), author: BOOKS.first.dig("author", "id") }
+    set(mode: :content, query: "العلم", filters: chosen.dup, search_scope: :downloaded, source: :downloaded)
+    draw
+    chips = chosen.keys.map { |key| @automation.rect_of!(@app.instance_variable_get(:@action_views).fetch([:clear_filter, key]).linkable_id) }
+    check("active filters share one row and stay within the page", chips.all? { |item| near(item.y, chips.first.y) && item.x >= @left && item.x + item.w <= @right })
+    check("author filter uses its cached name", @app.filter_label(:author, chosen[:author]) == BOOKS.first.dig("author", "name"))
+    sort = node("Button", "الأكثر صلة")
+    check("offline sort stays on the result-count row and aligns with the search edge", near(sort[:x], @left) && bottom(sort) < chips.first.y)
+    shot("active-filters")
+    @automation.click({ id: @app.instance_variable_get(:@action_views).fetch([:clear_filter, :category]).linkable_id })
+    check("removing one filter preserves the query and other filters", @app.instance_variable_get(:@query) == "العلم" && @app.instance_variable_get(:@filters) == chosen.except(:category))
+    @app.navigate(:home)
   end
 
   def panel
@@ -155,7 +205,7 @@ class AlignmentVerification
     trigger = node("Button", "تصفية")
     @automation.click({ id: trigger.fetch(:id) })
     draw
-    check("filters open as a compact popup beside their trigger", panel.h <= 320 && near(panel.y, bottom(trigger) + 8) && near(panel.x + panel.w, right(trigger)))
+    check("filters open as a compact popup beside their trigger", panel.h <= 320 && near(panel.y, bottom(trigger) + 8) && near(panel.x, [right(trigger) - panel.w, 16].max))
     check("filter actions have balanced bottom padding", (panel.y + panel.h - bottom(node("Button", "تطبيق"))).between?(15, 18))
     shot("filters")
     original = @app.instance_variable_get(:@filters).dup
@@ -169,7 +219,7 @@ class AlignmentVerification
       @app.instance_variable_get(:@dialog).dig(:filters, :library) == LIBRARIES.first.fetch("id"))
     check("filter changes wait for Apply", @app.instance_variable_get(:@filters) == original)
     @automation.key("escape")
-    focused = @automation.focused == @app.instance_variable_get(:@action_views).fetch("تصفية").linkable_id
+    focused = @automation.focused == @app.instance_variable_get(:@action_views).fetch(:filters).linkable_id
     draw
     check("dismissing filters discards the draft and restores focus", !@app.instance_variable_get(:@dialog) &&
       @app.instance_variable_get(:@filters) == original && focused)
@@ -234,6 +284,12 @@ class AlignmentVerification
       page: { "content" => "آدابُ الْعِلْمِ وأَهْلِهِ" } }
     set(screen: :reader, reader:, bookmarks: [], results: nil)
     draw
+    back = @automation.rect_of!(@app.instance_variable_get(:@action_views).fetch("العودة إلى النتائج").linkable_id)
+    title = node("Para", book.fetch("title"))
+    check("reader title uses the page inset and back sits at the left edge", near(title[:y], Aljam3::UI::PAGE_TOP) && near(right(title), @right) && near(back.x, @left) && back.x + back.w < title[:x])
+    modes = ["النص", "النص والصورة", "الصورة"].map { |label| node("Button", label) }.sort_by { |entry| entry[:x] }
+    check("reader mode buttons have separate hit areas", modes.each_cons(2).all? { |a, b| near(b[:x] - right(a), 8) })
+    shot("reader-header") if @label.start_with?("light")
     check("single file readers omit the redundant volume label", !@layout.any? { |entry| entry[:kind] == "Para" && entry[:text] == "الكتاب" })
     @app.open_dialog(:reader_options)
     draw
@@ -321,7 +377,8 @@ class AlignmentVerification
     set(book_search: nil)
     @app.open_book_search
     draw
-    check("initial book search fits its controls and hint", panel.h <= 200 && @app.instance_variable_get(:@dialog_results).scroll_max.zero?)
+    check("initial book search fits its controls and hint", panel.h <= 156 && @app.instance_variable_get(:@dialog_results).scroll_max.zero?)
+    check("book-search dialog does not repeat the book title", @layout.none? { |entry| entry[:kind] == "Para" && entry[:text] == reader.dig(:book, "title") && entry[:y] >= panel.y && entry[:y] < panel.y + panel.h })
     hint = node("Para", "اكتب كلمة أو عبارة. يمكنك البحث في كتبك المحمّلة دون اتصال أيضًا.")
     check("initial search has balanced bottom padding", (panel.y + panel.h - bottom(hint)).between?(16, 24))
     shot("book-search-initial")

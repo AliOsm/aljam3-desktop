@@ -14,10 +14,10 @@ module Aljam3
       def close_book_search = close_dialog
 
       def book_search_dialog_height
-        return 296 if @book_search[:error]
+        return 264 if @book_search[:error]
 
         pages = @book_search[:result]&.data&.fetch("pages")
-        return 184 unless pages
+        return 152 unless pages
         return 244 if pages.empty?
 
         164 + [pages.length * 184, 440].min
@@ -30,13 +30,11 @@ module Aljam3
           action("بحث", width: 88, height: 40, margin_left: 12, variant: :solid) { request_book_search }
         end
         result = @book_search[:result]
-        row(top: 48, height: 24) do
-          para Text.plain(@reader.fetch(:book).fetch("title")), width: result ? -230 : 1.0, size: 14, stroke: muted, wrap: "trim"
-          if result
-            para "#{result_count(result.data)} · #{result.source == :online ? 'متصل بالجامع' : 'دون اتصال'}", width: 230, size: 13, stroke: muted, align: "left"
-          end
+        if result
+          para "#{result_count(result.data)} · #{result.source == :online ? 'متصل بالجامع' : 'دون اتصال'}", top: 52, size: 14, stroke: muted
         end
-        scroll_area(top: 84, height: @content_height - 84, scroll: true, bottom_padding: 0) do
+        top = result ? 84 : 52
+        scroll_area(top:, height: @content_height - top, scroll: true, bottom_padding: 0) do
           if @book_search[:busy]
             para "جارٍ البحث في صفحات الكتاب…", size: 15, stroke: muted
           elsif @book_search[:error]

@@ -15,25 +15,26 @@ module Aljam3
           "ابحث في النصوص أو العناوين، ثم افتح الكتاب أو نزّله."
         end
         para description, size: 15, stroke: muted, margin_top: 8
-        search_scope_control(top: 64) unless authors
+        search_controls(top: 64) unless authors
         form_top = authors ? 72 : 112
         search_form(top: form_top)
+        sortable = @mode == :content && !@query.strip.empty? &&
+          (@search_scope == :downloaded || (@result ? @source != :online : %i[offline unavailable].include?(@connection)))
         row(top: form_top + 56) do
-          unless authors
-            tabs({ content: "النصوص", books: "العناوين" }, selected: @mode, width: 208) { |mode| switch_search_mode(mode) }
-            action("تصفية#{@filters.empty? ? '' : " · #{@filters.length}"}", icon: "sliders-horizontal",
-              width: 116, margin_left: 12) { open_filters }
+          para catalog_count, width: sortable ? -224 : 1.0, size: 14, stroke: muted
+          if sortable
+            para "الترتيب:", width: 52, margin_right: 8, size: 14, stroke: muted
+            dropdown({ relevance: "الأكثر صلة", library: "ترتيب المكتبة" }, selected: @search_order,
+              key: :search_order, tooltip: "ترتيب نتائج البحث", width: 172) do |order|
+              @search_order = order
+              request_catalog
+            end
           end
-          para catalog_count, width: authors ? 1.0 : -324, size: 14, stroke: muted, align: authors ? "right" : "left"
         end
-        result_top = form_top + 108
-        if @mode == :content && !@query.strip.empty? && (@search_scope == :downloaded || (@result ? @source != :online : %i[offline unavailable].include?(@connection)))
-          tabs({ relevance: "الأكثر صلة", library: "ترتيب المكتبة" }, selected: @search_order, width: 260,
-            right: 0, top: result_top) do |order|
-            @search_order = order
-            request_catalog
-          end
-          result_top += 52
+        result_top = form_top + 104
+        unless @filters.empty? || authors
+          active_filters(top: result_top)
+          result_top += 48
         end
         @results = scroll_area(top: result_top, height: [@content_height - result_top, 100].max) do
           if @busy && !@result
@@ -69,28 +70,65 @@ module Aljam3
       end
 
       def search_form(top:)
+        placeholder = if @screen == :authors
+          "ابحث عن اسم المؤلف…"
+        elsif @mode == :books
+          "ابحث عن عنوان كتاب…"
+        else
+          "ابحث عن كلمة أو عبارة في نصوص الكتب…"
+        end
         row(top:, height: 44) do
           @query_field = input(@query, width: -92, height: 44, margin_right: 12,
-            placeholder: @screen == :authors ? "اسم المؤلف" : "ابحث عن كلمة، عبارة، أو عنوان كتاب…",
-            tooltip: @screen == :authors ? "البحث عن مؤلف" : "البحث في الكتب والنصوص") { |field| @query = field.text }
+            placeholder:, tooltip: placeholder.delete_suffix("…")) { |field| @query = field.text }
           @query_field.finish = proc { request_catalog }
           action("بحث", icon: "search", width: 92, height: 44, variant: :solid) { request_catalog }
         end
       end
 
-      def search_scope_control(top:)
+      def search_controls(top:)
         row(top:) do
-          para "نطاق البحث", width: 92, size: 14, stroke: muted
-          tabs({ all: "كل المكتبة", downloaded: "كتبي المحمّلة" }, selected: @search_scope, width: 280) do |scope|
+          para "البحث في:", align: "left", margin_right: 8, size: 14, stroke: muted
+          dropdown({ content: "نصوص الكتب", books: "عناوين الكتب" }, selected: @mode,
+            key: :search_mode, tooltip: "البحث في النصوص أو العناوين", width: 168, margin_right: 20) { |mode| switch_search_mode(mode) }
+          para "ضمن:", align: "left", margin_right: 8, size: 14, stroke: muted
+          dropdown({ all: "كل المكتبة", downloaded: "كتبي المحمّلة" }, selected: @search_scope,
+            key: :search_scope, tooltip: "الكتب المشمولة في البحث", width: 176, margin_right: 20) do |scope|
             @search_scope = scope
             @screen = :browse if @screen == :saved && scope == :all
-            if @screen == :home && @query.empty?
-              draw_window
-            else
+            refresh_search
+          end
+          action("تصفية#{@filters.empty? ? '' : " · #{@filters.length}"}", icon: "sliders-horizontal", key: :filters,
+            width: 104) { open_filters }
+        end
+      end
+
+      def filter_label(key, id)
+        entity = case key
+        when :library then @libraries.find { |library| library.fetch("id") == id }
+        when :category then @categories.find { |category| category.fetch("id") == id }
+        when :author then @store.author(id)
+        end
+        entity ? Text.plain(entity.fetch("name")) : @scope_label || { library: "المكتبة", category: "التصنيف", author: "المؤلف" }.fetch(key)
+      end
+
+      def active_filters(top:)
+        row(top:) do
+          @filters.each_with_index do |(key, id), index|
+            label = filter_label(key, id)
+            gap = index < @filters.length - 1 ? 8 : 0
+            action(label, icon: "x", icon_pos: "left", tooltip: "إزالة التصفية: #{label}", key: [:clear_filter, key],
+              width: [224, (@main_width - (@filters.length - 1) * 8).fdiv(@filters.length)].min + gap,
+              margin_right: gap) do
+              @filters.delete(key)
+              @scope_label = nil
               request_catalog
             end
           end
         end
+      end
+
+      def refresh_search
+        @screen == :home && @query.strip.empty? ? draw_window : request_catalog
       end
 
       def switch_search_mode(mode)
@@ -98,7 +136,8 @@ module Aljam3
         @filters_by_mode[@mode] = @filters
         @mode = mode
         @filters = @filters_by_mode.fetch(mode, {})
-        request_catalog
+        @scope_label = nil
+        refresh_search
       end
 
       def catalog_count

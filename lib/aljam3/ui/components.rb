@@ -3,6 +3,7 @@
 module Aljam3
   module UI
     PAGE_MARGIN = 24
+    PAGE_TOP = 76
     COLUMN_GAP = 24
     SCROLL_GUTTER = 16
     STATUS_HEIGHT = 32
@@ -134,12 +135,19 @@ module Aljam3
         action("", icon:, tooltip: label, width: 36, variant: :ghost, **styles, &block)
       end
 
+      def dropdown(choices, selected:, key:, **styles, &select)
+        action(choices.fetch(selected), icon: "chevron-down", key:, **styles) do
+          open_dialog(:select, choices: choices.map { |value, label| [label, value] }, selected:, selection: select)
+        end
+      end
+
       def tabs(choices, selected:, width:, widths: {}, **position, &select)
         row(width:, **position) do
-          background surface, curve: CARD_RADIUS
-          choices.each do |value, label|
-            action(label, variant: :ghost, selected: value == selected,
-              width: widths.fetch(value, width / choices.length), height: 36) { select.call(value) }
+          choices.each_with_index do |(value, label), index|
+            gap = index < choices.length - 1 ? 8 : 0
+            action(label, selected: value == selected,
+              width: widths.fetch(value, (width - (choices.length - 1) * 8).fdiv(choices.length)) + gap,
+              margin_right: gap, height: 36) { select.call(value) }
           end
         end
       end

@@ -3,6 +3,13 @@
 require_relative "test_helper"
 
 class StoreTest < StoreTestCase
+  def test_selected_author_can_be_resolved_beyond_the_first_page
+    authors = 30.times.map { |index| { "id" => index + 1, "name" => "مؤلف #{index}" } }
+    @store.cache_authors(authors)
+    assert_equal authors.last, @store.author(30)
+    assert_nil @store.author(999)
+  end
+
   def test_arabic_search_normalizes_diacritics_tatweel_and_alef_and_preserves_original_text
     install_book
     hits = @store.search("العلم").fetch("pages")

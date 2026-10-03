@@ -39,7 +39,7 @@ module Aljam3
       @busy = false
       @search_pool_size = Store::Search::POOL_SIZE
       draw_window
-      every(0.1) { tick }
+      @ticker = every(0.1) { tick }
       keypress do |key|
         if key == :escape
           if @dialog
@@ -67,6 +67,7 @@ module Aljam3
         end
       end
       finish do
+        @ticker.remove
         @download_queue.close
         @workers.each(&:close)
         @reading.close
@@ -113,7 +114,7 @@ module Aljam3
       @viewport = [width, height]
       @progress_views = {}
       @main_width = @screen == :reader ? width - PAGE_MARGIN * 2 : [width - PAGE_MARGIN * 2, 1120].min
-      @content_height = [height - 84 - STATUS_HEIGHT - 16, 260].max
+      @content_height = [height - PAGE_TOP - STATUS_HEIGHT - 16, 260].max
       @drawing_dialog = false
       @editing_field = nil
       @redraw_pending = false
@@ -124,7 +125,7 @@ module Aljam3
         if @screen == :reader
           draw_reader
         else
-          stack(left: (width - @main_width) / 2 - SCROLL_GUTTER, top: 84,
+          stack(left: (width - @main_width) / 2 - SCROLL_GUTTER, top: PAGE_TOP,
             width: @main_width + SCROLL_GUTTER, padding_left: SCROLL_GUTTER, height: @content_height) do
             case @screen
             when :downloads then draw_downloads

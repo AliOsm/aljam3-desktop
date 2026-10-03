@@ -35,10 +35,11 @@ module Aljam3
 
       def draw_dialog
         type = @dialog.fetch(:type)
-        popup = %i[filters volumes reader_options reader_menu].include?(type) || @dialog_stack.any?
-        menu = type == :reader_menu
+        popup = %i[select filters volumes reader_options reader_menu].include?(type) || @dialog_stack.any?
+        menu = %i[select reader_menu].include?(type)
         requested_width, requested_height = case type
           when :filters then [408, 308]
+          when :select then [220, 12 + @dialog.fetch(:choices).length * 44]
           when :volumes then [360, choice_dialog_height]
           when :share then [480, 200]
           when :export then [520, [@reader.fetch(:files).length * 44 + 148, 544].min]
@@ -65,7 +66,7 @@ module Aljam3
           left, top = (width - panel_width) / 2, (height - panel_height) / 2
         end
         stack(left: 0, top: 0, width: width, height: height) do
-          background rgb(0, 0, 0, popup ? 0.10 : 0.28)
+          background rgb(0, 0, 0, type == :select ? 0 : popup ? 0.10 : 0.28)
           click do |_button, x, y|
             close_dialog unless (left..left + panel_width).cover?(x) && (top..top + panel_height).cover?(y)
           end
@@ -93,7 +94,7 @@ module Aljam3
             padding_left: SCROLL_GUTTER, height: @content_height) do
             case type
             when :filters then draw_filters
-            when :choices, :volumes then draw_choices
+            when :select, :choices, :volumes then draw_choices
             when :authors then draw_author_choices
             when :book_search then draw_book_search
             when :share then draw_share
@@ -129,10 +130,9 @@ module Aljam3
           choices = case key
                     when :library then @libraries.map { |entity| [library_name(entity), entity.fetch("id")] }
                     when :category then @categories.map { |entity| [entity.fetch("name"), entity.fetch("id")] }
-                    else @store.preference("authors", []).map { |entity| [Text.plain(entity.fetch("name")), entity.fetch("id")] }
+                    else []
                     end
-          scoped_label = @scope_label if filters[key] && filters[key] == @filters[key]
-          selected = choices.find { |_, id| id == filters[key] }&.first || scoped_label || "الجميع"
+          selected = filters[key] ? filter_label(key, filters[key]) : "الجميع"
           row(top: 32 + index * 48, height: 40) do
             para label, width: 76, size: 15
             action(selected, key: [:filter, key], tooltip: selected, icon: "chevron-down", width: -76, height: 40, align: "right") do
@@ -144,7 +144,7 @@ module Aljam3
                 open_dialog(:authors, nested: true, query: "", selection:)
                 request_authors
               else
-                open_dialog(:choices, nested: true, title: "اختر #{label}", query: "", choices: [["الجميع", nil], *choices], selection:)
+                open_dialog(:choices, nested: true, title: "اختر #{label}", query: "", choices: [["الجميع", nil], *choices], selected: filters[key], selection:)
               end
             end
           end
@@ -157,6 +157,7 @@ module Aljam3
             @filters = filters
             @scope_label = nil
             @dialog = @dialog_scroll = nil
+            @screen = :browse if @screen == :home && @query.strip.empty?
             request_catalog
           end
         end
@@ -181,13 +182,17 @@ module Aljam3
         choices = @dialog.fetch(:choices).select { |label, _| Text.normalize(label).include?(Text.normalize(@dialog.fetch(:query, ""))) }
         @choices.clear do
           choices.each_with_index do |(label, value), index|
-            selected = @dialog[:type] == :volumes && value.fetch("id") == @reader.fetch(:file).fetch("id")
+            selected = if @dialog[:type] == :volumes
+              value.fetch("id") == @reader.fetch(:file).fetch("id")
+            else
+              @dialog.key?(:selected) && value == @dialog[:selected]
+            end
             gap = index < choices.length - 1 ? 4 : 0
             control = action(label, tooltip: label, width: 1.0, height: 40 + gap, margin_bottom: gap, variant: :ghost, align: "right", selected:) do
               selection = @dialog.fetch(:selection)
               close_dialog { selection.call(value) }
             end
-            @dialog_first ||= control
+            @dialog_first = control if !@dialog_first || (selected && @dialog[:type] == :select)
           end
           para "لا توجد خيارات مطابقة.", stroke: muted if choices.empty?
         end
