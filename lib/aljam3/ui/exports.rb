@@ -51,8 +51,14 @@ module Aljam3
         path = export_destination(format, part: (@reader.fetch(:files).length > 1 ? file["name"] : nil))
         return unless path
 
-        save_file(key, path:, book_id: @reader.fetch(:book).fetch("id")) do
-          HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf")
+        book_id = @reader.fetch(:book).fetch("id")
+        source = @downloader.pdf_path(book_id, file.fetch("id")) if format == "pdf"
+        save_file(key, path:, book_id:) do
+          if source && File.file?(source)
+            FileUtils.cp(source, path)
+          else
+            HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf")
+          end
         end
       end
 

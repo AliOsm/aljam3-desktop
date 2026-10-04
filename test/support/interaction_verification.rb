@@ -219,6 +219,14 @@ class InteractionVerification
       path = File.join(folder, captured.last.fetch(:filename))
       check("#{format.upcase} export keeps its suggested extension and exact bytes", File.extname(path) == ".#{format}" && File.binread(path) == body.b && captured.last[:extensions] == [format])
     end
+    local = get(:downloader).pdf_path(@book.fetch("id"), file.fetch("id"))
+    FileUtils.mkdir_p(File.dirname(local))
+    File.binwrite(local, "%PDF-1.7\ndownloaded offline fixture\n%%EOF")
+    offline_file = file.merge("urls" => { "pdf" => "http://127.0.0.1:1/unavailable.pdf" })
+    @app.export_file(offline_file, "pdf")
+    wait_for_exports
+    path = File.join(folder, captured.last.fetch(:filename))
+    check("A downloaded PDF can be exported while its server is unreachable", File.binread(path) == File.binread(local))
     @app.save_page_image
     wait_for_exports
     path = File.join(folder, captured.last.fetch(:filename))

@@ -11,7 +11,15 @@ class ExportsTest < StoreTestCase
 
     def initialize(store, book)
       @store, @reader = store, { book: }
+      @file_operations = {}
     end
+
+    def prepare_export(file, downloader:)
+      @reader[:files] = [file]
+      @downloader = downloader
+    end
+
+    def save_file(_key, path:, book_id:, &work) = work.call
 
     def ask_save_file(**options)
       @options = options
@@ -40,6 +48,41 @@ class ExportsTest < StoreTestCase
       assert_nil view.export_destination("pdf")
       assert_equal @directory, @store.preference("export_directory")
     end
+  end
+
+  def test_downloaded_pdf_can_be_exported_without_a_network_connection
+    file = { "id" => 10, "urls" => { "pdf" => "https://example.test/book.pdf" } }
+    source = File.join(@directory, "downloaded.pdf")
+    File.binwrite(source, "%PDF-1.7\nlocal book")
+    downloader = Minitest::Mock.new
+    downloader.expect(:pdf_path, source, [book.fetch("id"), file.fetch("id")])
+    view = View.new(@store, book)
+    view.prepare_export(file, downloader:)
+    view.answer = File.join(@directory, "export.pdf")
+    offline = Object.new
+    def offline.download(*) = raise Aljam3::ConnectionError, "No network"
+
+    Aljam3::HTTP.stub(:new, offline) { view.export_file(file, "pdf") }
+
+    assert_equal File.binread(source), File.binread(view.answer)
+    downloader.verify
+  end
+
+  def test_uncached_pdf_and_other_formats_use_their_download_urls
+    urls = %w[pdf txt docx].to_h { |format| [format, "https://example.test/book.#{format}"] }
+    file = { "id" => 10, "urls" => urls }
+    downloader = Minitest::Mock.new
+    downloader.expect(:pdf_path, File.join(@directory, "missing.pdf"), [book.fetch("id"), file.fetch("id")])
+    view = View.new(@store, book)
+    view.prepare_export(file, downloader:)
+    http = Minitest::Mock.new
+    urls.each do |format, url|
+      view.answer = File.join(@directory, "export.#{format}")
+      http.expect(:download, view.answer, [url, view.answer], validate_pdf: format == "pdf")
+      Aljam3::HTTP.stub(:new, http) { view.export_file(file, format) }
+    end
+    http.verify
+    downloader.verify
   end
 
   def test_safe_names_keep_arabic_and_identify_volume_and_page
