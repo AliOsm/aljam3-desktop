@@ -187,6 +187,25 @@ class HTTPTest < Minitest::Test
     end
   end
 
+  def test_damaged_resume_metadata_restarts_the_download
+    ["{", "[]", "null", "{}", :invalid_validator].each do |metadata|
+      Dir.mktmpdir do |directory|
+        target = File.join(directory, "book.pdf")
+        pdf = "%PDF-1.7\ncomplete book"
+        request = nil
+        with_server(->(value) { request = value; response(pdf) }) do |url|
+          metadata = JSON.generate(url:, validator: 123) if metadata == :invalid_validator
+          File.binwrite("#{target}.part", "%PDF-old")
+          File.write("#{target}.part.json", metadata)
+          Aljam3::HTTP.new.download(url, target, resume: true)
+        end
+        assert_equal pdf, File.binread(target)
+        refute_match(/^Range:/i, request)
+        refute File.exist?("#{target}.part.json")
+      end
+    end
+  end
+
   def test_invalid_content_range_retries_from_the_start
     Dir.mktmpdir do |directory|
       target = File.join(directory, "book.pdf")

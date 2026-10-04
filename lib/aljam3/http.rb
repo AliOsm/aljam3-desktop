@@ -71,8 +71,8 @@ module Aljam3
       FileUtils.mkdir_p(File.dirname(destination))
       temporary = "#{destination}.part"
       metadata = "#{temporary}.json"
-      saved = JSON.parse(File.read(metadata)) if resume && File.file?(metadata)
-      offset = resume && saved&.fetch("url") == url && saved["validator"] && File.file?(temporary) ? File.size(temporary) : 0
+      saved = resume_metadata(metadata) if resume
+      offset = saved && saved["url"] == url && File.file?(temporary) ? File.size(temporary) : 0
       headers = { "Accept-Encoding" => "identity" }
       headers.merge!("Range" => "bytes=#{offset}-", "If-Range" => saved.fetch("validator")) if offset.positive?
       check.call
@@ -131,6 +131,13 @@ module Aljam3
     end
 
     private
+
+    def resume_metadata(path)
+      data = JSON.parse(File.read(path))
+      data if data.is_a?(Hash) && data["validator"].is_a?(String) && !data["validator"].empty?
+    rescue Errno::ENOENT, JSON::ParserError
+      nil
+    end
 
     def request(url, headers: {}, timeout: 8, redirects: 5, persistent: false, &block)
       uri = URI(url)
