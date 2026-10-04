@@ -39,6 +39,10 @@ app.every(0.1) do
     raise "Package verification timed out" if Process.clock_gettime(Process::CLOCK_MONOTONIC) - started > 45
     store = app.instance_variable_get(:@store)
     automation = Scarpe::Native::Automation.new(Shoes::DisplayService.display_service)
+    # Pixel assertions need the completed view, not a blended navigation frame.
+    automation.wait_frames
+    next if app.instance_variable_get(:@motion).active?
+
     case step
     when 0
       if app.instance_variable_get(:@screen) == :home
