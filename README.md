@@ -187,4 +187,4 @@ Database migrations run transactionally. Older libraries gain Arabic search, rec
 - [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar), Apache-2.0; see its included third-party notices for Lucene and stopwords.
 - [PDFium](https://pdfium.googlesource.com/pdfium/), revision `8ca5b735` (`chromium/8076`), built with pinned [pdfium-binaries scripts](https://github.com/bblanchon/pdfium-binaries) and the [page-tree seeking](packaging/pdfium/skip-page-branches.patch) and [failed-read handling](packaging/pdfium/handle-stream-read-errors.patch) patches; licenses are included under `vendor/pdfium` by setup.
 - Design and logo from [aljam3-web-app](https://github.com/ieasybooks/aljam3-web-app).
-- Noto Naskh Arabic UI and Kitab use SIL Open Font Licenses; Thmanyah has its own license. All are retained under `assets/fonts/`.
+- Noto Naskh Arabic UI and Kitab use SIL Open Font Licenses retained under `assets/fonts/`. Thmanyah's provenance and unresolved redistribution permission are documented in [asset provenance](assets/README.md).

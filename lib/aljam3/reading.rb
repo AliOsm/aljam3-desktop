@@ -45,7 +45,7 @@ module Aljam3
       return hit if hit["file_id"]
       return @store.find_page(hit.fetch("id")) if @store.downloaded?(book.fetch("id"))
 
-      # Search responses omit the file ID. Verify the page ID in each possible
+      # Older API responses omit the file ID. Verify the page ID in each possible
       # volume instead of guessing from the page number or database ID.
       book.fetch("files").each do |file|
         next if file.fetch("pages_count") < hit.fetch("number")
