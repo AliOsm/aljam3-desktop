@@ -32,6 +32,7 @@ module MotionReport
         gaps_over_33ms: gaps.count { |gap| gap > 1000.0 / 30 }, intervals: gaps.length }]
     end
     report = { ghost: benchmark.fetch("ghost"), frames: frames.length, transfer_bytes: benchmark.fetch("transfer_bytes"),
+      macos_activity: benchmark.fetch("macos_activity", false),
       frame_work_ms: distribution(work), interactions:, counters: native.fetch("counters"),
       note: "Frame intervals cover active transitions only. Headless runs measure work; ghost runs also include OS presentation scheduling." }
     busy_frames = samples.filter_map do |sample|

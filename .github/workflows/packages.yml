@@ -71,6 +71,11 @@ jobs:
         run: bundle exec ruby bin/smoke
       - name: Assemble standalone application
         run: bundle exec ruby bin/package
+      - name: Keep the invisible Mac benchmark from background throttling
+        if: runner.os == 'macOS'
+        run: |
+          clang -dynamiclib -framework Foundation packaging/macos_motion_activity.m -o "$RUNNER_TEMP/motion-activity.dylib"
+          echo "ALJAM3_MOTION_ACTIVITY=$RUNNER_TEMP/motion-activity.dylib" >> "$GITHUB_ENV"
       - name: Verify relocated app with its bundled Ruby
         env:
           # The relocated runtime renders the complete light/dark screenshot suite.
