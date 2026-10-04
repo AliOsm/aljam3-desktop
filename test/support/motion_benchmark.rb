@@ -12,10 +12,10 @@ class MotionBenchmark
     def call(_id, check:)
       bytes = "a" * 65_536
       File.open(@path, "wb") do |file|
-        2_000.times do |index|
+        10_000.times do |index|
           check.call
           file.write(bytes)
-          yield((index + 1).fdiv(2_000), "PDF", (index + 1) * bytes.size, 2_000 * bytes.size)
+          yield((index + 1).fdiv(10_000), "PDF", (index + 1) * bytes.size, 10_000 * bytes.size)
           sleep 0.02
         end
       end
@@ -45,16 +45,52 @@ class MotionBenchmark
     @app.instance_variable_set(:@download_queue, queue)
     queue.enqueue(book.merge("id" => 999_999))
     @app.tick
-    intervals = []
-    # Warm up shaped Arabic text before measuring transitions.
-    14.times do |index|
-      type = index.even? ? :reader_options : :share
-      started = Time.now.to_f
-      @app.open_dialog(type)
-      pace(0.24)
+    get(:ticker).remove
+    @samples = []
+    # Measure each active transition separately. Settled pauses must never count
+    # as dropped frames, and the first opening matters as well as warm repeats.
+    4.times do |round|
+      @round = round
+      %i[reader_options reader_menu share shortcuts bookmarks export].each do |type|
+        measure("#{type}/open") { @app.open_dialog(type) }
+        measure("#{type}/close") { @app.close_dialog }
+      end
+      @app.open_dialog(:reader_options)
+      settle
+      2.times do
+        measure("switch") { @automation.click({ id: get(:tashkeel_switch).linkable_id }) }
+      end
       @app.close_dialog
-      pace(0.14)
-      intervals << [started, Time.now.to_f] if index >= 2
+      settle
+      control = get(:copy_button)
+      measure("hover/enter") { @automation.hover(control.linkable_id) }
+      measure("hover/leave") { @automation.leave(control.linkable_id) }
+      measure("progress") { @app.smooth_progress(get(:activity_progress), round.even? ? 0.9 : 0.1) }
+      measure("reader_options/ruby_busy") do
+        @app.open_dialog(:reader_options)
+        @service.child.flush
+        sleep 0.09 # the renderer must keep presenting while Ruby is occupied
+      end
+      @app.close_dialog
+      settle
+    end
+    @app.navigate(:home)
+    @app.instance_variable_set(:@categories, AlignmentVerification::CATEGORIES)
+    @app.instance_variable_set(:@libraries, AlignmentVerification::LIBRARIES)
+    4.times do |round|
+      @round = round
+      measure("filters/open") { @app.open_filters }
+      measure("dropdown/open") do
+        @app.open_dialog(:select, nested: true, choices: [["الجميع", nil], ["المحمّلة", :downloaded]],
+          selected: nil, selection: ->(_) {})
+      end
+      measure("dropdown/close") { @app.close_dialog }
+      measure("filters/close") { @app.close_dialog }
+      measure("notification/open") do
+        @app.notify_download(book:, status: :done)
+        @app.update_notification
+      end
+      measure("notification/close") { @app.dismiss_notification }
     end
     raise "Background transfer did not progress" unless queue.current&.fetch(:bytes, 0).to_i.positive?
 
@@ -66,7 +102,7 @@ class MotionBenchmark
     pace(0.3)
     raise "Animation timer survived settling" if get(:motion).active?
 
-    { passed: true, ghost: ENV["SCARPE_NATIVE_GHOST"] == "1", intervals:, transfer_bytes: bytes,
+    { passed: true, ghost: ENV["SCARPE_NATIVE_GHOST"] == "1", samples: @samples, transfer_bytes: bytes,
       scene: "1160x820 split reader; real PDF page; long Arabic text; disk transfer and SQLite progress persistence" }
   ensure
     FileUtils.rm_f(File.join(@output, "transfer.bin"))
@@ -75,6 +111,25 @@ class MotionBenchmark
   private
 
   def get(name) = @app.instance_variable_get("@#{name}")
+
+  def measure(name)
+    @app.tick
+    started = Time.now.to_f
+    yield
+    settle
+    @samples << { name:, round: @round, started:, finished: Time.now.to_f }
+  end
+
+  def settle
+    deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 3
+    while get(:motion).active?
+      raise "Animation did not settle" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
+
+      @service.pump.step
+      @automation.frames if ENV["SCARPE_NATIVE_HEADLESS"] == "1"
+    end
+    @automation.wait_frames
+  end
 
   def pace(seconds)
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds

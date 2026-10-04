@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
 module Aljam3
-  # One clock and one timer for all active transitions. Retarget from the displayed
-  # value, never an old destination; an idle interface has no animation timer.
+  # Owns destinations and lifecycle; the native renderer owns frame timing.
+  # Navigation cancels obsolete jobs, and reduced motion completes immediately.
   class Motion
-    def initialize(clock:, schedule:)
-      @clock, @schedule = clock, schedule
-      @jobs = {}
-      @reduced = false
+    def initialize(driver:)
+      @driver, @jobs, @reduced = driver, {}, false
     end
 
     attr_reader :reduced
@@ -16,36 +14,20 @@ module Aljam3
       key = [view, values.keys.sort]
       return if @jobs[key]&.fetch(:values) == values
 
-      from = values.to_h { |property, target| [property, view.style.fetch(property, target).to_f] }
-      @jobs.delete(key)
-      if @reduced || duration.zero? || from == values
+      @jobs.keys.select { |target, properties| target.equal?(view) && (properties & values.keys).any? }.each { cancel_job(_1) }
+      if @reduced || duration.zero?
         view.style(**values)
         complete&.call
-        stop_if_idle
         return
       end
-      @jobs[key] = { view:, from:, values:, duration:, group:, complete:, started: @clock.call }
-      @timer ||= @schedule.call { tick }
-    end
-
-    def tick
-      now = @clock.call
-      @jobs.dup.each do |key, job|
+      job = { view:, values:, group:, complete: }
+      @jobs[key] = job
+      job[:token] = @driver.transition(view, duration:, **values) do
         next unless @jobs[key].equal?(job)
 
-        elapsed = ((now - job.fetch(:started)) / job.fetch(:duration)).clamp(0.0, 1.0)
-        amount = 1 - (1 - elapsed)**3
-        values = job.fetch(:values).to_h do |property, target|
-          start = job.fetch(:from).fetch(property)
-          [property, elapsed == 1 ? target : start + (target - start) * amount]
-        end
-        job.fetch(:view).style(**values)
-        if elapsed == 1
-          @jobs.delete(key)
-          job[:complete]&.call
-        end
+        @jobs.delete(key)
+        complete&.call
       end
-      stop_if_idle
     end
 
     def reduced=(value)
@@ -53,17 +35,16 @@ module Aljam3
       return unless value
 
       @jobs.dup.each do |key, job|
-        next unless @jobs.delete(key).equal?(job)
+        next unless @jobs[key].equal?(job)
 
+        cancel_job(key)
         job.fetch(:view).style(**job.fetch(:values))
         job[:complete]&.call
       end
-      stop_if_idle
     end
 
     def cancel(group = nil)
-      group ? @jobs.delete_if { |_key, job| job[:group] == group } : @jobs.clear
-      stop_if_idle
+      @jobs.keys.select { |key| group.nil? || @jobs.fetch(key)[:group] == group }.each { cancel_job(_1) }
     end
 
     def active?
@@ -72,11 +53,8 @@ module Aljam3
 
     private
 
-    def stop_if_idle
-      return if active?
-
-      @timer&.remove
-      @timer = nil
+    def cancel_job(key)
+      @driver.cancel_transition(@jobs.delete(key).fetch(:token))
     end
   end
 end

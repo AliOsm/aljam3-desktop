@@ -134,11 +134,12 @@ diff --git a/native/src/automation.rs b/native/src/automation.rs
 index f6fcf69..ef7aa21 100644
 --- a/native/src/automation.rs
 +++ b/native/src/automation.rs
-@@ -28,7 +28,14 @@
+@@ -28,7 +28,15 @@
      fn run_op(&mut self, req: u64, op: Op) -> Result<Option<Value>, (String, Value)> {
          let no_app = || ("no app to act on".to_string(), Value::Null);
          match op {
 +            Op::ReducedMotion => Ok(Some(json!(crate::preferences::reduced_motion()))),
++            Op::Properties { id } => Ok(Some(self.doc.get(id).map_or(Value::Null, |node| json!(node.props.0)))),
              Op::Ping => Ok(Some(json!("pong"))),
 +            Op::Clipboard { text } => {
 +                if let Some(text) = text {
@@ -149,6 +150,17 @@ index f6fcf69..ef7aa21 100644
              Op::Invalid(e) => Err((e, Value::Null)),
              Op::Dialog(dialog) => {
                  if self.opts.headless {
+@@ -131,9 +139,8 @@
+                 let app = self.app_for(app).ok_or_else(no_app)?;
+                 let n = n.min(limits::MAX_FRAMES);
+                 if self.opts.headless {
+-                    let scale = self.views[&app].scale;
+                     for _ in 0..n.max(1) {
+-                        self.picture(app, scale);
++                        self.offscreen_frame(app);
+                     }
+                     Ok(Some(json!(self.views[&app].frames)))
+                 } else {
 --- a/native/src/main.rs
 +++ b/native/src/main.rs
 @@ -1,6 +1,8 @@
@@ -164,7 +176,17 @@ diff --git a/native/src/protocol.rs b/native/src/protocol.rs
 index dee92bc..297c279 100644
 --- a/native/src/protocol.rs
 +++ b/native/src/protocol.rs
-@@ -73,6 +73,7 @@
+@@ -12,6 +12,9 @@
+     Hello { v: u64 },
+     Create(Create),
+     Props { id: Id, props: Map<String, Value> },
++    Transition { id: Id, token: u64, duration: f64, props: Map<String, Value> },
++    CancelTransition { token: u64 },
++    MotionClock { at: Option<f64> },
+     Destroy { id: Id },
+     Reparent { id: Id, parent: Option<Id>, index: Option<usize> },
+     Run { app: Option<Id> },
+@@ -73,6 +76,7 @@
  
  #[derive(Clone, Debug, PartialEq)]
  pub enum Op {
@@ -172,27 +194,52 @@ index dee92bc..297c279 100644
      Dialog(DialogRequest),
      Layout { app: Option<Id> },
      Snapshot { path: String, app: Option<Id>, scale: Option<f32> },
-@@ -96,6 +97,7 @@
+@@ -96,6 +100,8 @@
      A11y { app: Option<Id>, platform: bool },
      /// What a screen reader asks of one node: click, focus, set_value, expand or collapse.
      A11yAction { target: A11yTarget, action: String, value: Option<String>, app: Option<Id> },
 +    ReducedMotion,
++    Properties { id: Id },
      Ping,
      /// Anything we cannot run still gets a reply, with this error.
      Invalid(String),
-@@ -259,7 +261,9 @@
+@@ -186,6 +192,14 @@
+             props: obj.get("props").and_then(Value::as_object).cloned().unwrap_or_default(),
+         },
+         "destroy" => Incoming::Destroy { id: required(id(&obj, "id"), "id")? },
++        "transition" => Incoming::Transition {
++            id: required(id(&obj, "id"), "id")?,
++            token: required(obj.get("token").and_then(Value::as_u64), "token")?,
++            duration: required(obj.get("duration").and_then(Value::as_f64), "duration")?,
++            props: required(obj.get("props").and_then(Value::as_object).cloned(), "props")?,
++        },
++        "cancel_transition" => Incoming::CancelTransition { token: required(obj.get("token").and_then(Value::as_u64), "token")? },
++        "motion_clock" => Incoming::MotionClock { at: obj.get("at").and_then(Value::as_f64) },
+         "reparent" => Incoming::Reparent {
+             id: required(id(&obj, "id"), "id")?,
+             parent: id(&obj, "parent"),
+@@ -259,7 +273,10 @@
              value: obj.get("value").filter(|v| !v.is_null()).map(crate::props::value_text),
              app,
          },
 +        "reduced_motion" => Op::ReducedMotion,
++        "properties" => Op::Properties { id: required(id(obj, "id"), "id")? },
          "ping" => Op::Ping,
 +        "clipboard" => Op::Clipboard { text: s(obj, "text") },
          other => Op::Invalid(format!("unknown op `{other}`")),
      })
  }
+@@ -290,6 +307,7 @@
+ #[serde(tag = "t", rename_all = "snake_case")]
+ pub enum Outgoing {
+     Ready { v: u32, version: String },
++    TransitionEnd { token: u64, id: Id, props: Map<String, Value> },
+     Event { name: String, target: Option<Id>, args: Vec<Value> },
+     /// The pointer over one app's window: `[button held, x, y]`. Each app keeps its own, as
+     /// Shoes 3's `mouse` answers from app->mousex (s3_canvas.c).
 --- a/native/src/window.rs
 +++ b/native/src/window.rs
-@@ -29,7 +29,7 @@ use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, W
+@@ -29,7 +29,7 @@
  use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
  use winit::keyboard::{Key as WKey, ModifiersState, NamedKey};
  use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
@@ -201,7 +248,7 @@ index dee92bc..297c279 100644
  
  pub enum UserEvent {
      /// Every complete line stdin had ready, so a batch wakes the loop once.
-@@ -186,12 +186,23 @@ impl Shell {
+@@ -186,12 +186,23 @@
          let props = self.rt.doc.get(app).map(|n| n.props.clone()).unwrap_or_default();
          let title = self.rt.window_title(app);
          let resizable = !view.standalone && props.get("resizable").and_then(|v| v.as_bool()).unwrap_or(true);
@@ -225,9 +272,33 @@ index dee92bc..297c279 100644
          let attrs = if self.ghost { ghost::attributes(attrs) } else { attrs.with_active(!self.inactive) };
          let window = match el.create_window(attrs) {
              Ok(w) => Rc::new(w),
-diff --git a/native/tests/clipboard.rs b/native/tests/clipboard.rs
-new file mode 100644
-index 0000000..29f02a2
+@@ -376,6 +387,7 @@
+     fn redraw(&mut self, id: WindowId) {
+         let Some(win) = self.windows.get_mut(&id) else { return };
+         win.pacing.drawing(Instant::now());
++        self.rt.advance_transitions(Some(win.app));
+         let size = win.window.inner_size();
+         let (w, h) = (size.width.max(1), size.height.max(1));
+         let scale = win.window.scale_factor() as f32;
+@@ -605,7 +617,17 @@
+                 win.window.request_redraw();
+             }
+         }
+-        let next_frame = self.windows.values().filter_map(|w| w.pacing.due()).min();
++        let mut animation_frame = None;
++        if !self.rt.mid_batch {
++            for win in self.windows.values() {
++                if self.rt.motion.running(Some(win.app)) {
++                    let due = win.pacing.next_animation_frame(now);
++                    if due <= now { win.window.request_redraw(); }
++                    animation_frame = Some(animation_frame.map_or(due, |at: Instant| at.min(due)));
++                }
++            }
++        }
++        let next_frame = self.windows.values().filter_map(|w| w.pacing.due()).chain(animation_frame).min();
+         let wake = [self.deadline, self.orphaned_since.map(|t| t + QUIT_GRACE), tooltip_wake, next_frame]
+             .into_iter()
+             .flatten()
 --- /dev/null
 +++ b/native/tests/clipboard.rs
 @@ -0,0 +1,18 @@

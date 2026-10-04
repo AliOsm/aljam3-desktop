@@ -53,7 +53,7 @@ module Aljam3
         @motion.cancel(:dialog)
         @dialog_layer.inert = true
         @motion.to(@dialog_backdrop, opacity: 0.0, duration: 0.10, group: :dialog)
-        @motion.to(@dialog_panel, opacity: 0.0, top: @dialog_rest_top + @dialog_offset,
+        @motion.to(@dialog_panel, opacity: 0.0, displace_top: @dialog_offset,
           duration: 0.10, group: :dialog, complete: -> { finish_dialog_close(closed) })
       end
 
@@ -85,9 +85,9 @@ module Aljam3
         return unless enter
 
         @dialog_backdrop.opacity = 0.0
-        @dialog_panel.style(opacity: 0.0, top: @dialog_rest_top + @dialog_offset)
+        @dialog_panel.style(opacity: 0.0, displace_top: @dialog_offset)
         @motion.to(@dialog_backdrop, opacity: 1.0, duration: @dialog_duration, group: :dialog)
-        @motion.to(@dialog_panel, opacity: 1.0, top: @dialog_rest_top, duration: @dialog_duration, group: :dialog)
+        @motion.to(@dialog_panel, opacity: 1.0, displace_top: 0, duration: @dialog_duration, group: :dialog)
       end
 
       def refresh_dialog
@@ -147,7 +147,7 @@ module Aljam3
           authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
           reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
           remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, ""))
-        @dialog_panel = stack(left:, top:, width: panel_width, height: panel_height, opacity: 1.0,
+        @dialog_panel = stack(left:, top:, width: panel_width, height: panel_height, opacity: 1.0, displace_top: 0,
           accessibility_role: "dialog", accessibility_label: title.empty? ? "اختر" : title) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS

@@ -30,6 +30,7 @@ class MotionVerification
   def get(name) = @app.instance_variable_get("@#{name}")
   def set(**values) = values.each { |key, value| @app.instance_variable_set("@#{key}", value) }
   def advance(seconds) = @automation.advance(seconds)
+  def visual(view, property) = @automation.properties(view.linkable_id).fetch(property)
   def click(control) = @automation.click({ id: control.linkable_id })
 
   def check(name, condition)
@@ -61,18 +62,18 @@ class MotionVerification
     check("overlay opening keeps both reader panes and scroll position", get(:text_surface).equal?(text) &&
       get(:pdf_surface).equal?(pdf) && text.scroll_top == 180)
     check("background is inert from the first frame", get(:content_layer).style[:inert])
-    check("entrance starts transparent", panel.style[:opacity].zero?)
+    check("entrance starts transparent", visual(panel, :opacity).zero?)
     shot("popup-start")
     advance(0.05)
-    check("popup fades and moves toward its anchor", panel.style[:opacity].between?(0.1, 0.99) &&
-      (panel.style[:top] - get(:dialog_rest_top)).abs.between?(0.1, 5))
+    check("popup fades and moves toward its anchor", visual(panel, :opacity).between?(0.1, 0.99) &&
+      visual(panel, :displace_top).abs.between?(0.1, 5))
     shot("popup-midway")
     @automation.key("escape")
-    opacity = panel.style[:opacity]
+    opacity = visual(panel, :opacity)
     check("Escape reverses the in-progress entrance", !get(:dialog) && get(:closing_dialog) && !opacity.zero?)
     @automation.key("escape")
     advance(0.04)
-    check("exit continues smoothly from the interrupted value", panel.style[:opacity] < opacity)
+    check("exit continues smoothly from the interrupted value", visual(panel, :opacity) < opacity)
     advance(0.12)
     check("close restores trigger focus and releases background input", !@app.dialog_active? &&
       !get(:content_layer).style[:inert] && @automation.focused == trigger.linkable_id)
@@ -117,28 +118,28 @@ class MotionVerification
     click(toggle)
     check("switch semantics and text change immediately", !get(:reader)[:tashkeel] && !toggle.checked?)
     advance(0.04)
-    midway = toggle.style[:switch_position]
+    midway = visual(toggle, :switch_position)
     check("switch thumb has intermediate positions", midway.between?(0.1, 0.9))
     click(toggle)
-    check("rapid switch reversal has no visual jump", toggle.style[:switch_position] == midway)
+    check("rapid switch reversal has no visual jump", visual(toggle, :switch_position) == midway)
     advance(0.15)
-    check("switch ends at the latest requested value", toggle.style[:switch_position] == 1.0)
+    check("switch ends at the latest requested value", visual(toggle, :switch_position) == 1.0)
     @app.close_dialog
     advance(0.15)
     control = get(:copy_button)
     @automation.hover(control.linkable_id)
     advance(0.04)
-    check("button hover interpolates its color", control.style[:hover_amount].between?(0.1, 0.99))
+    check("button hover interpolates its color", visual(control, :hover_amount).between?(0.1, 0.99))
     @automation.leave(control.linkable_id)
     advance(0.15)
-    check("button leave settles and stops ticking", control.style[:hover_amount].zero? && !get(:motion).active?)
+    check("button leave settles and stops ticking", visual(control, :hover_amount).zero? && !get(:motion).active?)
     bar = get(:activity_progress)
     @app.smooth_progress(bar, 0.7)
     advance(0.05)
-    check("progress advances toward actual progress without overshooting", bar.fraction.positive? && bar.fraction < 0.7)
+    check("progress advances toward actual progress without overshooting", visual(bar, :fraction).positive? && visual(bar, :fraction) < 0.7)
     @app.smooth_progress(bar, 0.9)
     advance(0.20)
-    check("progress settles at the latest reported value", bar.fraction == 0.9 && !get(:motion).active?)
+    check("progress settles at the latest reported value", visual(bar, :fraction) == 0.9 && !get(:motion).active?)
   end
 
   def notifications
@@ -149,7 +150,7 @@ class MotionVerification
     @app.notify_download(book: AlignmentVerification::BOOKS.first, status: :done)
     @app.update_notification
     advance(0.05)
-    check("notification fades without stealing keyboard focus", get(:notification_layer).style[:opacity].between?(0.1, 0.99) &&
+    check("notification fades without stealing keyboard focus", visual(get(:notification_layer), :opacity).between?(0.1, 0.99) &&
       @automation.focused == field.linkable_id)
     @automation.type(" والعمل")
     check("typing continues during a notification entrance", field.text == "العلم والعمل")

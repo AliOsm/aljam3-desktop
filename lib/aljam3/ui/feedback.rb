@@ -48,7 +48,7 @@ module Aljam3
       def draw_feedback
         @notification_view = nil
         @notification_hover = @notification_focus = @notification_entering = false
-        @notification_layer = stack(left: 0, top: 0, width: 0, height: 0)
+        @notification_layer = stack(left: 0, top: 0, width: 0, height: 0, overlay: true)
         update_notification
       end
 
@@ -79,7 +79,7 @@ module Aljam3
         elsif !notice && @notification_view && !dialog_active?
           @notification_layer.inert = true
           @notification_view = nil
-          @motion.to(@notification_layer, opacity: 0.0, top: @notification_rest_top + 6,
+          @motion.to(@notification_layer, opacity: 0.0, displace_top: 6,
             duration: 0.10, group: :feedback, complete: -> { clear_notification })
           return
         else
@@ -95,7 +95,7 @@ module Aljam3
         @notification_layer.clear
         @action_views.delete([:notification, :close])
         @action_views.delete([:notification, :action])
-        @notification_layer.style(width: 0, height: 0, opacity: 1.0, inert: false)
+        @notification_layer.style(width: 0, height: 0, opacity: 1.0, displace_top: 0, inert: false)
       end
 
       def draw_notification(notice)
@@ -104,7 +104,7 @@ module Aljam3
         bottom_gap = @screen == :reader ? 92 : 12
         @notification_rest_top = height - STATUS_HEIGHT - bottom_gap - panel_height
         @notification_layer.style(left: width - PAGE_MARGIN - panel_width,
-          top: @notification_rest_top + 6, width: panel_width, height: panel_height, opacity: 0.0)
+          top: @notification_rest_top, displace_top: 6, width: panel_width, height: panel_height, opacity: 0.0)
         @drawing_notification = true
         @notification_layer.append do
           background @theme == :dark ? paper : surface, curve: CARD_RADIUS
@@ -130,7 +130,7 @@ module Aljam3
           end
         end
         @notification_entering = true
-        @motion.to(@notification_layer, opacity: 1.0, top: @notification_rest_top, duration: 0.18,
+        @motion.to(@notification_layer, opacity: 1.0, displace_top: 0, duration: 0.18,
           group: :feedback, complete: -> { @notification_entering = false })
         @notification_layer.hover { @notification_hover = true }
         @notification_layer.leave { @notification_hover = false }

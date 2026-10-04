@@ -154,7 +154,7 @@ module Aljam3
           connection_bar
         end
         @base_action_views = @action_views.dup
-        @dialog_layer = stack(left: 0, top: 0, width: width, height: height, hidden: true)
+        @dialog_layer = stack(left: 0, top: 0, width: width, height: height, hidden: true, overlay: true)
         render_dialog if @dialog
         draw_feedback
       end

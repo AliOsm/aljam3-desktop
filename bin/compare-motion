@@ -1,0 +1,22 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "../packaging/verify_runtime"
+require_relative "../packaging/motion_report"
+
+root = File.expand_path("..", __dir__)
+archives = Dir.glob(File.join(root, ".cache/motion-baseline-artifact/**/*.zip"))
+abort "Expected one baseline archive" unless archives.one?
+directory = File.join(root, ".cache/motion-baseline")
+FileUtils.mkdir_p(directory)
+command = Gem.win_platform? ? ["7z", "x", "-y", archives.first, "-o#{directory}"] : ["ditto", "-x", "-k", archives.first, directory]
+abort "Cannot unpack baseline" unless system(*command)
+bundle = File.join(directory, Gem.win_platform? ? "Aljam3" : "Aljam3.app")
+home = File.join(directory, "home")
+FileUtils.mkdir_p(home)
+FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(home, "data"))
+output = File.join(root, "dist/verification/motion-baseline")
+PackageVerification.call(bundle:, home:, output:, probe: File.join(root, "packaging/motion_probe.rb"))
+baseline = MotionReport.call(output)
+current = JSON.parse(File.read(File.join(root, "dist/verification/motion/performance.json")))
+File.write(File.join(root, "dist/verification/motion-comparison.json"), JSON.pretty_generate(before: baseline, after: current))

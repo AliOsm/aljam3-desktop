@@ -4,7 +4,7 @@
  
      # Tooltip text shown on hover (HTML title attribute)
      shoes_style :tooltip
-+    shoes_styles :opacity, :inert, :accessibility_role, :accessibility_label
++    shoes_styles :opacity, :inert, :overlay, :accessibility_role, :accessibility_label
 +    shoes_style :live # "polite" for non-interrupting status announcements
  
      # The click handler is this style (manual 1144-1151, ledger G10): click: proc { }
@@ -777,6 +777,25 @@
          scroller.top = self.scroll.get(&slot).copied().unwrap_or(0.0).clamp(0.0, scroller.max_top());
          if scroller.top != 0.0 {
              for &child in doc.children(slot) {
+@@ -751,6 +845,18 @@
+ }
+ 
+ impl Layout {
++    /// A visual displacement leaves flow and shaped text intact. Existing hit
++    /// testing, clipping, scrollbars and accessibility use these same boxes.
++    pub fn displace(&mut self, doc: &Doc, id: Id, dx: f32, dy: f32) -> bool {
++        if self.attached {
++            return false;
++        }
++        self.as_laid_out = None;
++        self.translate_subtree(doc, id, dx, dy);
++        self.assign_clips(doc, self.root, None);
++        true
++    }
++
+     /// Scrolls `slot` to `top` without laying anything out again: what it holds moves by the
+     /// difference, and clips are worked out anew, just as a fresh layout would place them.
+     /// Returns the top it settled on, clamped; None when `slot` does not scroll or the layout
 --- a/native/src/layout/tests.rs
 +++ b/native/src/layout/tests.rs
 @@ -82,6 +82,82 @@
@@ -1002,7 +1021,64 @@
 +}
 --- a/native/tests/protocol.rs
 +++ b/native/tests/protocol.rs
-@@ -516,6 +516,45 @@
+@@ -4,6 +4,56 @@
+ 
+ use common::{app, create, events, named, Harness};
+ use serde_json::{json, Value};
++
++fn motion_time(h: &mut Harness, at: f64) -> Vec<Value> {
++    h.feed(&json!({"t":"motion_clock","at":at}).to_string());
++    h.req(json!({"op":"frames","n":1})).0
++}
++
++#[test]
++fn native_transitions_reverse_from_displayed_values_and_complete_once() {
++    let mut h = Harness::new();
++    h.feed(&app(300, 200, &[
++        create(3, "Stack", 2, json!({"width":100,"height":100,"opacity":0.0,"displace_top":8.0})),
++        create(4, "Button", 3, json!({"text":"Hello"})),
++    ]));
++    motion_time(&mut h, 0.0);
++    h.feed(&json!({"t":"transition","id":3,"token":1,"duration":0.2,"props":{"opacity":1.0,"displace_top":0.0}}).to_string());
++    motion_time(&mut h, 0.1);
++    let props = h.value(json!({"op":"properties","id":3}));
++    assert_eq!(props["opacity"], 0.875);
++    assert_eq!(props["displace_top"], 1.0);
++    h.feed(&json!({"t":"cancel_transition","token":1}).to_string());
++    h.feed(&json!({"t":"transition","id":3,"token":2,"duration":0.1,"props":{"opacity":0.0,"displace_top":8.0}}).to_string());
++    let props = h.value(json!({"op":"properties","id":3}));
++    assert_eq!(props["opacity"], 0.875, "reversal has no jump");
++    motion_time(&mut h, 0.15);
++    let props = h.value(json!({"op":"properties","id":3}));
++    assert!((props["opacity"].as_f64().unwrap() - 0.109375).abs() < 1e-8);
++    let messages = motion_time(&mut h, 0.4);
++    let completed: Vec<_> = messages.iter().filter(|m| m["t"] == "transition_end").collect();
++    assert_eq!(completed.len(), 1);
++    assert_eq!(completed[0]["token"], 2);
++    assert_eq!(completed[0]["props"]["opacity"], 0.0);
++    assert!(motion_time(&mut h, 1.0).iter().all(|m| m["t"] != "transition_end"));
++    h.feed("{\"t\":\"motion_clock\",\"at\":null}\n{\"t\":\"flush\"}");
++    assert!(!h.rt.motion.running(None), "settled transitions schedule no frames");
++}
++
++#[test]
++fn removed_views_and_zero_distance_transitions_leave_no_running_jobs() {
++    let mut h = Harness::new();
++    h.feed(&app(300, 200, &[
++        create(3, "Progress", 2, json!({"fraction":0.5})),
++    ]));
++    let messages = h.feed(&json!({"t":"transition","id":3,"token":1,"duration":0.2,"props":{"fraction":0.5}}).to_string());
++    assert!(messages.iter().any(|m| m["t"] == "transition_end" && m["token"] == 1));
++    assert!(!h.rt.motion.running(None));
++    h.feed(&json!({"t":"transition","id":3,"token":2,"duration":0.2,"props":{"fraction":0.9}}).to_string());
++    assert!(h.rt.motion.running(Some(1)));
++    h.feed("{\"t\":\"destroy\",\"id\":3}\n{\"t\":\"flush\"}");
++    assert!(!h.rt.motion.running(None));
++}
+ 
+ #[test]
+ fn hello_world_lays_out_a_para() {
+@@ -516,6 +566,45 @@
  }
  
  #[test]
@@ -1048,7 +1124,7 @@
  fn resize_relayouts_and_tells_ruby() {
      let mut h = Harness::new();
      h.feed(&app(200, 100, &[create(3, "Flow", 2, json!({"height": 10}))]));
-@@ -1015,3 +1054,57 @@
+@@ -1015,3 +1104,57 @@
          .collect::<String>());
      assert_eq!(h.node(|n| n["id"] == 9)["text"], json!("Again kept"));
  }
@@ -1314,7 +1390,71 @@
          let mut current = Some(id);
 --- a/native/src/runtime.rs
 +++ b/native/src/runtime.rs
-@@ -300,6 +300,9 @@
+@@ -2,6 +2,7 @@
+ //! handler, shared by the window and the headless canvas.
+ 
+ mod repaint;
++pub mod motion;
+ mod startup;
+ pub mod stats;
+ 
+@@ -128,11 +129,13 @@
+     pub stats: Stats,
+     /// When each node last changed, for windows that repaint only what changed.
+     pub revisions: Revisions,
++    pub motion: motion::Motion,
+     damage: DamageMode,
+     /// SCARPE_NATIVE_DAMAGE=check: the last full paint per app, and headless, a frame per
+     /// app repainted in part alongside every picture.
+     last_full: HashMap<Id, Pixmap>,
+     checked_frames: HashMap<Id, (Pixmap, FrameMemory)>,
++    offscreen_frames: HashMap<Id, (Pixmap, FrameMemory)>,
+     /// System fonts still loading on another thread; the first layout waits for them.
+     fonts_loading: Option<FontsLoading>,
+     /// Something that could show a picture went away or changed: the next flush lets go of
+@@ -161,9 +164,11 @@
+             pending_frames: Vec::new(),
+             stats,
+             revisions: Revisions::default(),
++            motion: motion::Motion::default(),
+             damage: DamageMode::from_env(),
+             last_full: HashMap::new(),
+             checked_frames: HashMap::new(),
++            offscreen_frames: HashMap::new(),
+             fonts_loading: None,
+             pictures_to_check: false,
+         }
+@@ -209,6 +214,9 @@
+             }
+             Incoming::Create(c) => self.create(c),
+             Incoming::Props { id, props } => self.set_props(id, props),
++            Incoming::Transition { id, token, duration, props } => self.start_transition(id, token, duration, props),
++            Incoming::CancelTransition { token } => self.motion.cancel(token),
++            Incoming::MotionClock { at } => self.set_motion_clock(at),
+             Incoming::Destroy { id } => self.destroy(id),
+             Incoming::Reparent { id, parent, index } => {
+                 self.doc.reparent(id, parent, index);
+@@ -249,6 +257,7 @@
+             },
+             Incoming::Flush => self.flush(),
+             Incoming::Req { req, op } => {
++                self.advance_transitions(None);
+                 self.flush();
+                 if is_input(&op) {
+                     self.stats.input();
+@@ -288,6 +297,11 @@
+     }
+ 
+     fn set_props(&mut self, id: Id, props: Map<String, Value>) {
++        let displacement = self.doc.get(id).map(|node| {
++            let delta = |key| props.get(key).and_then(Value::as_f64)
++                .map_or(0.0, |to| to as f32 - node.props.f32(key).unwrap_or(0.0));
++            (delta("displace_left"), delta("displace_top"))
++        }).unwrap_or_default();
+         let new_text = props.get("text").map(crate::props::value_text);
+         let title = props.get("title").map(crate::props::value_text);
+         let resized = props.contains_key("width") || props.contains_key("height");
+@@ -300,6 +314,9 @@
              return;
          }
          self.revisions.touch(id);
@@ -1324,11 +1464,41 @@
          let kind = self.doc.get(id).map(|n| n.kind.clone());
          match kind {
              Some(Kind::App) => {
-@@ -664,10 +667,12 @@
+@@ -346,6 +363,12 @@
+             if !looks_only {
+                 // Else paint reads these straight from the props: the layout stands and the node repaints.
+                 view.layout = None;
++            } else if displacement != (0.0, 0.0) {
++                if let Some(layout) = &mut view.layout {
++                    if !layout.displace(&self.doc, id, displacement.0, displacement.1) {
++                        view.layout = None;
++                    }
++                }
+             }
+         }
+     }
+@@ -356,6 +379,7 @@
+             return;
+         }
+         let removed = self.doc.destroy(id);
++        self.motion.forget(&removed);
+         if removed.is_empty() {
+             return;
+         }
+@@ -422,6 +446,8 @@
+     }
+ 
+     fn close_view(&mut self, app: Id) {
++        self.motion.forget(&[app]);
++        self.offscreen_frames.remove(&app);
+         self.answer_what_waits_on(app, "app closed");
+         let Some(view) = self.views.remove(&app) else { return };
+         self.text.forget_layout(view.doc_root);
+@@ -664,10 +690,12 @@
  /// paint reads them from the node itself. A line's strokewidth is not one (its box includes the
  /// stroke), nor is anything a Para shapes into its text.
  fn changes_only_looks(kind: &Kind, key: &str) -> bool {
-+    if matches!(key, "opacity" | "inert") { return true; }
++    if matches!(key, "opacity" | "inert" | "displace_left" | "displace_top") { return true; }
      match kind {
 +        Kind::Button => key == "hover_amount",
          k if k.is_art() => matches!(key, "fill" | "stroke" | "cap"),
@@ -1340,15 +1510,26 @@
          Kind::Para | Kind::TextDrawable => matches!(key, "text_cursor" | "text_marker"),
 --- a/native/src/paint/mod.rs
 +++ b/native/src/paint/mod.rs
-@@ -401,7 +401,6 @@
+@@ -401,30 +401,82 @@
      canvas.pm.fill(BACKGROUND.to_skia());
      let layout = scene.layout;
      paint_run(scene, &mut canvas, &layout.order, only, 0);
 -    decor::scrollbars(&mut canvas, layout);
-     elements::list_box::paint_popup(&mut canvas, scene.view, scene.text);
+-    elements::list_box::paint_popup(&mut canvas, scene.view, scene.text);
++    paint_overlays(scene, &mut canvas);
++}
++
++fn paint_overlays(scene: &mut Scene, canvas: &mut Canvas) {
++    elements::list_box::paint_popup(canvas, scene.view, scene.text);
      if scene.view.popup.is_none() {
-         elements::tooltip::paint(&mut canvas, scene.view.tooltip.as_mut(), scene.text, layout.size);
-@@ -412,19 +411,68 @@
+-        elements::tooltip::paint(&mut canvas, scene.view.tooltip.as_mut(), scene.text, layout.size);
+-    }
+-    crate::dialogs::paint_modal(&mut canvas, scene.view, scene.text, layout.size);
++        elements::tooltip::paint(canvas, scene.view.tooltip.as_mut(), scene.text, scene.layout.size);
++    }
++    crate::dialogs::paint_modal(canvas, scene.view, scene.text, scene.layout.size);
+ }
+ 
  /// Paints a run of the paint order. A slot holding a mask paints the rest of its
  /// contents through the mask's alpha, as Shoes 3 does (s3_canvas.c:531-613). Masks nested
  /// deeper than limits::MAX_MASK_DEPTH paint unmasked: each level holds two frame-sized layers.
@@ -1428,7 +1609,7 @@
  }
  
  /// The laid-out Mask children of a slot.
-@@ -473,7 +521,7 @@
+@@ -473,7 +525,7 @@
          return;
      }
      match &node.kind {
@@ -1439,7 +1620,166 @@
          k if k.is_art() && shapes::in_shape(doc, node) => {}
 --- a/native/src/paint/damage.rs
 +++ b/native/src/paint/damage.rs
-@@ -256,6 +256,9 @@
+@@ -124,15 +124,30 @@
+ #[derive(Default)]
+ pub struct FrameMemory {
+     last: Option<Frame>,
++    underlay: Option<Underlay>,
++    underlay_builds: u64,
++    underlay_reuses: u64,
+ }
+ 
+ impl FrameMemory {
++    pub fn take_underlay_counts(&mut self) -> (u64, u64) {
++        (std::mem::take(&mut self.underlay_builds), std::mem::take(&mut self.underlay_reuses))
++    }
++
+     /// The next repaint paints everything.
+     pub fn forget(&mut self) {
+         self.last = None;
+-    }
+-}
+-
++        self.underlay = None;
++    }
++}
++
++struct Underlay {
++    frame: Frame,
++    prefix: Frame,
++    pixels: Pixmap,
++}
++
++#[derive(Clone)]
+ struct Frame {
+     revision: u64,
+     size: (u32, u32),
+@@ -146,6 +161,7 @@
+ }
+ 
+ /// One node as it was painted.
++#[derive(Clone)]
+ struct Look {
+     /// Where it can paint (logical px); None for a turned image, which may be anywhere.
+     bounds: Option<Rect>,
+@@ -158,12 +174,15 @@
+ pub fn repaint(scene: &mut Scene, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory, revisions: &Revisions) -> Repaint {
+     let hovered: HashSet<Id> = scene.view.hover_chain.iter().copied().collect();
+     let mut now = look_at(scene.doc, scene.layout, scene.view, &hovered, (frame.width(), frame.height()), scale, revisions.now());
++    if memory.underlay.is_some() && overlay_split(scene, &now).is_none() {
++        memory.underlay = None;
++    }
+     let plan = match &memory.last {
+         Some(before) => plan(before, &now, &changed_since(before, &now, scene.doc, revisions)),
+         None => Repaint::Everything,
+     };
+     match &plan {
+-        Repaint::Everything => super::paint(scene, frame, scale),
++        Repaint::Everything => paint_with_underlay(scene, frame, scale, memory, &now, revisions),
+         Repaint::Rects(rects) => {
+             for r in rects {
+                 paint_rect(scene, frame, scale, *r);
+@@ -182,9 +201,67 @@
+     plan
+ }
+ 
++/// A root overlay can fade without rerasterising the unchanged page beneath it.
++/// Keep exactly one window-sized underlay, invalidate it on any changed content,
++/// and release it when the last overlay disappears. No screenshot freezes live
++/// downloads, selection, scrolling, resizing, or a newly rendered PDF.
++fn overlay_split(scene: &Scene, now: &Frame) -> Option<usize> {
++    if scene.doc.get(scene.layout.root).is_some_and(|root| root.props.f32("opacity").unwrap_or(1.0) != 1.0) { return None; }
++    now.order.iter().position(|id| scene.doc.get(*id).is_some_and(|node|
++        node.parent == Some(scene.layout.root) && node.props.truthy("overlay") &&
++        scene.layout.rect(*id).is_some_and(|r| r.w > 0.0 && r.h > 0.0)))
++}
++
++fn paint_with_underlay(scene: &mut Scene, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory, now: &Frame, revisions: &Revisions) {
++    let Some(split) = overlay_split(scene, now) else {
++        memory.underlay = None;
++        super::paint(scene, frame, scale);
++        return;
++    };
++    let order = now.order[..split].to_vec();
++    let nodes = order.iter().filter_map(|id| now.nodes.get(id).map(|look| (*id, look.clone()))).collect::<HashMap<_, _>>();
++    let mut scrollers: Vec<_> = scene.layout.scrollers.iter().filter(|(id, _)| nodes.contains_key(id))
++        .map(|(id, s)| (*id, rect_bits(s.viewport), s.content_height.to_bits(), s.top.to_bits())).collect();
++    scrollers.sort_unstable();
++    let mut hash = DefaultHasher::new();
++    scrollers.hash(&mut hash);
++    let prefix = Frame { revision: now.revision, size: now.size, scale, overlaid: false,
++        scrolling: hash.finish(), order, nodes };
++    let mut saved = match memory.underlay.take() {
++        Some(saved) if saved.frame.size == now.size && saved.frame.scale == scale => saved,
++        _ => Underlay { frame: now.clone(), prefix: Frame { order: Vec::new(), nodes: HashMap::new(), ..prefix.clone() },
++            pixels: Pixmap::new(frame.width(), frame.height()).expect("same size as the frame") },
++    };
++    let changes = changed_since(&saved.frame, now, scene.doc, revisions);
++    match plan(&saved.prefix, &prefix, &changes) {
++        Repaint::Everything => {
++            saved.pixels.fill(super::BACKGROUND.to_skia());
++            super::paint_run(scene, &mut Canvas::new(&mut saved.pixels, scale), &prefix.order, None, 0);
++            memory.underlay_builds += 1;
++        }
++        Repaint::Rects(rects) => {
++            for rect in rects { paint_rect_order(scene, &mut saved.pixels, scale, rect, Some(&prefix.order)); }
++            memory.underlay_reuses += 1;
++        }
++        Repaint::Nothing => memory.underlay_reuses += 1,
++    }
++    saved.frame = now.clone();
++    saved.prefix = prefix;
++    memory.underlay = Some(saved);
++    let saved = memory.underlay.as_ref().unwrap();
++    frame.data_mut().copy_from_slice(saved.pixels.data());
++    let mut canvas = Canvas::new(frame, scale);
++    super::paint_run(scene, &mut canvas, &now.order[split..], None, 0);
++    super::paint_overlays(scene, &mut canvas);
++}
++
+ /// Paints one damaged rect and copies it into the frame.
+ fn paint_rect(scene: &mut Scene, frame: &mut Pixmap, scale: f32, r: PxRect) {
+-    let (part, (x0, y0)) = paint_padded(scene, (frame.width(), frame.height()), scale, r, true);
++    paint_rect_order(scene, frame, scale, r, None);
++}
++
++fn paint_rect_order(scene: &mut Scene, frame: &mut Pixmap, scale: f32, r: PxRect, order: Option<&[Id]>) {
++    let (part, (x0, y0)) = paint_padded(scene, (frame.width(), frame.height()), scale, r, true, order);
+     let (frame_w, part_w, row) = (frame.width() as usize * 4, part.width() as usize * 4, r.w as usize * 4);
+     let (dst, src) = (frame.data_mut(), part.data());
+     for y in 0..r.h as usize {
+@@ -196,14 +273,19 @@
+ 
+ /// A rect and a margin around it painted into a pixmap of their own, and where that pixmap
+ /// sits in the frame. `cull`: skip nodes that cannot reach it (verify paints without).
+-fn paint_padded(scene: &mut Scene, frame: (u32, u32), scale: f32, r: PxRect, cull: bool) -> (Pixmap, (i32, i32)) {
++fn paint_padded(scene: &mut Scene, frame: (u32, u32), scale: f32, r: PxRect, cull: bool, order: Option<&[Id]>) -> (Pixmap, (i32, i32)) {
+     let x0 = (r.x - MARGIN).max(0);
+     let y0 = (r.y - MARGIN).max(0);
+     let x1 = (r.x + r.w + MARGIN).min(frame.0 as i32);
+     let y1 = (r.y + r.h + MARGIN).min(frame.1 as i32);
+     let mut part = Pixmap::new((x1 - x0).max(1) as u32, (y1 - y0).max(1) as u32).expect("a damaged rect inside the frame");
+     let region = Rect::new(x0 as f32 / scale, y0 as f32 / scale, (x1 - x0) as f32 / scale, (y1 - y0) as f32 / scale);
+-    paint_nodes(scene, Canvas::at(&mut part, scale, (x0, y0)), cull.then_some(region));
++    if let Some(order) = order {
++        part.fill(super::BACKGROUND.to_skia());
++        super::paint_run(scene, &mut Canvas::at(&mut part, scale, (x0, y0)), order, cull.then_some(region), 0);
++    } else {
++        paint_nodes(scene, Canvas::at(&mut part, scale, (x0, y0)), cull.then_some(region));
++    }
+     (part, (x0, y0))
+ }
+ 
+@@ -231,7 +313,7 @@
+         return Err(format!("{stale} stale pixels after {plan:?}"));
+     }
+     for r in rects {
+-        let (part, at) = paint_padded(scene, (frame.width(), frame.height()), scale, *r, false);
++        let (part, at) = paint_padded(scene, (frame.width(), frame.height()), scale, *r, false, None);
+         let wrong = (0..r.h as usize)
+             .flat_map(|y| (0..r.w as usize).map(move |x| (x, y)))
+             .filter(|(x, y)| {
+@@ -256,6 +338,9 @@
      }
      let mut changed = HashSet::new();
      for id in revisions.changed_after(before.revision) {
@@ -1451,7 +1791,65 @@
          } else if let Some(painted) = painted_ancestor(doc, now, id) {
 --- a/native/tests/damage.rs
 +++ b/native/tests/damage.rs
-@@ -546,3 +546,24 @@
+@@ -99,6 +99,57 @@
+     assert_eq!(window.repaint(&mut h), Repaint::Nothing);
+     feed(&mut h, &[]);
+     assert_eq!(window.repaint(&mut h), Repaint::Nothing, "a flush that changed nothing");
++}
++
++#[test]
++fn overlay_underlay_is_reused_and_invalidated_without_stale_pixels() {
++    for scale in [1.0, 1.25, 2.0] {
++        let mut h = Harness::new();
++        busy_scene(&mut h);
++        feed(&mut h, &[
++            create(20, "Stack", 2, json!({"left":0,"top":0,"width":480,"height":320,"overlay":true})),
++            create(21, "Background", 20, json!({"fill":{"rgba":[0,0,0,80]},"opacity":0.1})),
++            create(22, "Stack", 20, json!({"left":280,"top":40,"width":180,"height":160,"opacity":0.1,"displace_top":-5})),
++            create(23, "Background", 22, json!({"fill":{"rgba":[255,255,255,255]},"curve":8})),
++            create(24, "Para", 22, json!({"text_items":["خيارات القراءة"],"size":18})),
++            create(25, "Button", 22, json!({"text":"Close"})),
++        ]);
++        let mut window = Window::open(&mut h, scale);
++        let built = h.rt.stats.counter("underlay_builds");
++        for step in 1..=5 {
++            props(&mut h, 21, json!({"opacity":step as f64 / 5.0}));
++            props(&mut h, 22, json!({"opacity":step as f64 / 5.0,"displace_top":-5.0 + step as f64}));
++            window.repaint(&mut h); // compares the retained frame to a fresh full paint
++        }
++        assert!(h.rt.stats.counter("underlay_reuses") >= 4);
++        assert!(h.rt.stats.counter("underlay_builds") <= built + 1);
++        props(&mut h, 8, json!({"text_items":["Background download finished"]}));
++        window.repaint(&mut h);
++        let changed = h.rt.stats.counter("underlay_builds");
++        props(&mut h, 21, json!({"opacity":0.5}));
++        window.repaint(&mut h);
++        assert!(h.rt.stats.counter("underlay_reuses") >= 5);
++        assert!(h.rt.stats.counter("underlay_builds") <= changed + 1);
++        feed(&mut h, &[json!({"t":"destroy","id":20})]);
++        window.repaint(&mut h);
++    }
++}
++
++#[test]
++fn displacement_moves_text_clips_and_hit_boxes_without_a_layout_pass() {
++    let mut h = Harness::new();
++    busy_scene(&mut h);
++    let before = h.rt.layout_of(APP).unwrap().clone();
++    let layouts = h.rt.stats.to_json()["phases"]["layout"]["n"].clone();
++    props(&mut h, 4, json!({"displace_left":5.5,"displace_top":-3.25}));
++    let displaced = h.rt.layout_of(APP).unwrap().clone();
++    assert_eq!(h.rt.stats.to_json()["phases"]["layout"]["n"], layouts);
++    assert_eq!(displaced.rect(9), before.rect(9).map(|r| r.translate(5.5,-3.25)));
++    assert!(std::rc::Rc::ptr_eq(&before.texts[&8].shaped.buffer, &displaced.texts[&8].shaped.buffer));
++    h.rt.views.get_mut(&APP).unwrap().layout = None;
++    let fresh = h.rt.layout_of(APP).unwrap();
++    assert_eq!(displaced.boxes, fresh.boxes);
++    assert_eq!(displaced.scrollers, fresh.scrollers);
+ }
+ 
+ #[test]
+@@ -546,3 +597,24 @@
      props(&mut h, 3, json!({"stroke": {"rgba": [0, 0, 255, 255]}}));
      window.repaint(&mut h);
  }
@@ -1476,3 +1874,320 @@
 +    }
 +    assert_eq!(window.repaint(&mut h), Repaint::Nothing);
 +}
+--- a/native/src/headless.rs
++++ b/native/src/headless.rs
+@@ -27,8 +27,10 @@
+     std::thread::spawn(move || read_batches(input, |batch| batches.send(batch).is_ok()));
+     let mut closing_at = exit_after.map(|after| Instant::now() + after);
+     let mut orphaned_at: Option<Instant> = None;
++    let mut last_frame = Instant::now();
+     loop {
+-        let due = closing_at.or(orphaned_at.map(|at| at + QUIT_GRACE));
++        let animation = (!rt.mid_batch && rt.motion.running(None)).then_some(last_frame + Duration::from_secs_f64(1.0 / 60.0));
++        let due = [closing_at, orphaned_at.map(|at| at + QUIT_GRACE), animation].into_iter().flatten().min();
+         let batch = match due {
+             None => arrived.recv().map_err(|_| RecvTimeoutError::Disconnected),
+             Some(at) => arrived.recv_timeout(at.saturating_duration_since(Instant::now())),
+@@ -47,7 +49,8 @@
+                     }
+                 }
+             }
+-            Err(RecvTimeoutError::Timeout) if closing_at.take().is_some() => {
++            Err(RecvTimeoutError::Timeout) if closing_at.is_some_and(|at| Instant::now() >= at) => {
++                closing_at = None;
+                 let running: Vec<_> = rt.views.iter().filter(|(_, view)| view.running).map(|(app, _)| *app).collect();
+                 if running.is_empty() {
+                     return 0;
+@@ -58,7 +61,16 @@
+                 orphaned_at = Some(Instant::now());
+             }
+             // Ruby never answered `closed` with `quit`.
+-            Err(RecvTimeoutError::Timeout) => return 0,
++            Err(RecvTimeoutError::Timeout) if orphaned_at.is_some_and(|at| Instant::now() >= at + QUIT_GRACE) => return 0,
++            Err(RecvTimeoutError::Timeout) => {
++                last_frame = Instant::now();
++                rt.advance_transitions(None);
++                let apps: Vec<_> = rt.views.iter().filter(|(_, view)| view.running && view.dirty).map(|(app, _)| *app).collect();
++                for app in apps {
++                    rt.offscreen_frame(app);
++                }
++                rt.out.flush();
++            }
+             Err(RecvTimeoutError::Disconnected) => break,
+         }
+     }
+--- a/native/src/runtime/repaint.rs
++++ b/native/src/runtime/repaint.rs
+@@ -29,6 +29,24 @@
+ }
+ 
+ impl Runtime {
++    /// Headless frame requests use the same retained surface as real windows.
++    /// Full snapshots remain an independent rendering path for pixel checks.
++    pub fn offscreen_frame(&mut self, app: Id) {
++        let Some(view) = self.views.get(&app) else { return };
++        let scale = view.scale;
++        let Some((w, h)) = crate::limits::picture_size(view.size, scale) else { return };
++        let (mut frame, mut memory) = match self.offscreen_frames.remove(&app) {
++            Some(kept) if kept.0.width() == w && kept.0.height() == h => kept,
++            _ => match Pixmap::new(w, h) {
++                Some(frame) => (frame, FrameMemory::default()),
++                None => return,
++            },
++        };
++        self.repaint(app, &mut frame, scale, &mut memory);
++        self.offscreen_frames.insert(app, (frame, memory));
++        self.frame_presented(app);
++    }
++
+     /// Brings a window's last frame up to date, repainting only what changed since `memory`
+     /// last saw it (paint::damage). The view is clean afterwards.
+     pub fn repaint(&mut self, app: Id, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory) -> Repaint {
+@@ -44,6 +62,9 @@
+         let Some(layout) = layout.as_ref() else { return Repaint::Nothing };
+         let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
+         let plan = damage::repaint(&mut scene, frame, scale, memory, &self.revisions);
++        let (built, reused) = memory.take_underlay_counts();
++        self.stats.count("underlay_builds", built);
++        self.stats.count("underlay_reuses", reused);
+         *frames += 1;
+         *dirty = false;
+         self.stats.since(Phase::Paint, started);
+--- /dev/null
++++ b/native/src/runtime/motion.rs
+@@ -0,0 +1,114 @@
++//! Short visual transitions run beside painting, independently of Ruby's event
++//! loop. A late frame samples elapsed time once; it never replays missed steps.
++
++use super::Runtime;
++use crate::props::Id;
++use crate::protocol::Outgoing;
++use serde_json::{Map, Value};
++use std::collections::BTreeMap;
++use std::time::Instant;
++
++pub const PROPERTIES: &[&str] = &["opacity", "displace_left", "displace_top", "hover_amount", "switch_position", "fraction"];
++
++struct Transition {
++    id: Id,
++    app: Id,
++    from: Map<String, Value>,
++    to: Map<String, Value>,
++    duration: f64,
++    started: Option<f64>,
++}
++
++pub struct Motion {
++    origin: Instant,
++    frozen: Option<f64>,
++    jobs: BTreeMap<u64, Transition>,
++}
++
++impl Default for Motion {
++    fn default() -> Self {
++        Self { origin: Instant::now(), frozen: None, jobs: BTreeMap::new() }
++    }
++}
++
++impl Motion {
++    fn now(&self) -> f64 { self.frozen.unwrap_or_else(|| self.origin.elapsed().as_secs_f64()) }
++
++    pub fn running(&self, app: Option<Id>) -> bool {
++        self.frozen.is_none() && self.jobs.values().any(|job| app.is_none_or(|app| job.app == app))
++    }
++
++    pub fn cancel(&mut self, token: u64) { self.jobs.remove(&token); }
++
++    pub fn forget(&mut self, ids: &[Id]) { self.jobs.retain(|_, job| !ids.contains(&job.id) && !ids.contains(&job.app)); }
++}
++
++impl Runtime {
++    pub fn start_transition(&mut self, id: Id, token: u64, duration: f64, to: Map<String, Value>) {
++        let Some(node) = self.doc.get(id) else { return };
++        let Some(app) = self.doc.app_of(id) else { return };
++        if !duration.is_finite() || duration < 0.0 || to.is_empty() ||
++            !to.iter().all(|(key, value)| PROPERTIES.contains(&key.as_str()) && value.as_f64().is_some_and(f64::is_finite)) {
++            self.out.send(Outgoing::Log { level: "warn".into(), msg: "Invalid visual transition".into() });
++            return;
++        }
++        let from: Map<String, Value> = to.iter().map(|(key, value)| {
++            let value = node.props.0.get(key).filter(|v| v.is_number()).unwrap_or(value).clone();
++            (key.clone(), value)
++        }).collect();
++        // Reversals start at the last displayed values, not a destination or an
++        // extrapolated value that never reached the screen.
++        self.motion.jobs.retain(|_, job| job.id != id || !job.to.keys().any(|key| to.contains_key(key)));
++        if duration == 0.0 || from.iter().all(|(key, value)| value.as_f64() == to[key].as_f64()) {
++            self.set_props(id, to.clone());
++            self.out.send(Outgoing::TransitionEnd { token, id, props: to });
++            return;
++        }
++        let started = self.motion.frozen;
++        self.motion.jobs.insert(token, Transition { id, app, from, to, duration: duration.min(60.0), started });
++        if let Some(view) = self.views.get_mut(&app) { view.dirty = true; }
++    }
++
++    pub fn set_motion_clock(&mut self, at: Option<f64>) {
++        let before = self.motion.now();
++        let was_frozen = self.motion.frozen.is_some();
++        self.motion.frozen = at;
++        let after = self.motion.now();
++        // Freezing/unfreezing preserves elapsed time. Advancing a frozen clock
++        // intentionally changes it, for deterministic native interaction tests.
++        if at.is_none() || !was_frozen {
++            for job in self.motion.jobs.values_mut() {
++                if let Some(started) = &mut job.started { *started += after - before; }
++            }
++        }
++        self.advance_transitions(None);
++    }
++
++    pub fn advance_transitions(&mut self, app: Option<Id>) {
++        if self.mid_batch { return; }
++        let now = self.motion.now();
++        let mut updates = Vec::new();
++        self.motion.jobs.retain(|token, job| {
++            if app.is_some_and(|app| job.app != app) { return true; }
++            if self.doc.get(job.id).is_none() { return false; }
++            let started = *job.started.get_or_insert(now);
++            let elapsed = if job.duration == 0.0 { 1.0 } else { ((now - started) / job.duration).clamp(0.0, 1.0) };
++            let amount = 1.0 - (1.0 - elapsed).powi(3);
++            let props = job.to.iter().map(|(key, to)| {
++                let from = job.from[key].as_f64().unwrap();
++                let value = if elapsed == 1.0 { to.clone() } else { Value::from(from + (to.as_f64().unwrap() - from) * amount) };
++                (key.clone(), value)
++            }).collect::<Map<_, _>>();
++            updates.push((job.id, props, (elapsed == 1.0).then_some(*token)));
++            elapsed < 1.0
++        });
++        for (id, props, completed) in updates {
++            let moved = props.contains_key("displace_top") || props.contains_key("displace_left");
++            self.set_props(id, props.clone());
++            if let Some(app) = self.doc.app_of(id).filter(|_| moved) { self.push_layout(app); }
++            if let Some(token) = completed {
++                self.out.send(Outgoing::TransitionEnd { token, id, props });
++            }
++        }
++    }
++}
+--- a/native/src/window/pacing.rs
++++ b/native/src/window/pacing.rs
+@@ -48,6 +48,10 @@
+ 
+     pub fn due(&self) -> Option<Instant> {
+         self.due
++    }
++
++    pub fn next_animation_frame(&self, now: Instant) -> Instant {
++        self.started[0].map_or(now, |last| last + self.interval)
+     }
+ 
+     /// A frame started drawing.
+--- a/lib/scarpe/native/display_service.rb
++++ b/lib/scarpe/native/display_service.rb
+@@ -69,13 +69,15 @@
+ 
+       @headless = Scarpe::Native.truthy_env?("SCARPE_NATIVE_HEADLESS")
+       @ghost = Scarpe::Native.truthy_env?("SCARPE_NATIVE_GHOST")
+-      @clock = Clock.new
++      @clock = Clock.new { |at| child.post(t: "motion_clock", at:) }
+       @timers = Timers.new
+       @builtins = Builtins.new(self, interactive: !@headless && !@ghost)
+       @automation = Automation.new(self)
+       @pump = Pump.new(self)
+       @programs = Programs.new(self)
+       @open_apps = {} # every app that has run => whether its window is still open
++      @transitions = {}
++      @transition_token = 0
+       @child_log = Shoes::Log.logger("scarpe-native")
+ 
+       on_bus("run", nil) { run_latest_app }
+@@ -151,6 +153,31 @@
+     # Ends a wait of the pump's early, from any thread.
+     def wake!
+       @child&.wake!
++    end
++
++    # Send destinations once. Rust samples alongside presentation; Ruby receives
++    # completion and never schedules individual visual frames.
++    def transition(view, duration:, **values, &complete)
++      token = (@transition_token += 1)
++      @transitions[token] = [view.linkable_id, complete]
++      child.post(t: "transition", token:, id: view.linkable_id, duration:, props: values)
++      token
++    end
++
++    def cancel_transition(token)
++      @transitions.delete(token)
++      child.post(t: "cancel_transition", token:)
++    end
++
++    def transition_ended(message)
++      id, complete = @transitions.delete(message["token"])
++      return unless id
++
++      props = message.fetch("props")
++      display_drawable(id)&.update(props)
++      drawable = lacci_drawable(id)
++      props.each { |key, value| drawable&.instance_variable_set("@#{key}", value) }
++      guarded("transition completion") { complete&.call }
+     end
+ 
+     # Rust -> Lacci
+@@ -163,6 +190,7 @@
+       when "layout" then laid_out(message["rects"])
+       when "resize" then resized(message["app"], message["w"], message["h"])
+       when "scroll" then lacci_drawable(message["id"])&.instance_variable_set(:@scroll_top, message["top"])
++      when "transition_end" then transition_ended(message)
+       when "closed" then closed(message["app"])
+       when "log" then log_from_child(message["level"].to_s, message["msg"])
+       when "console" then guarded("console key") { Shoes.show_console }
+@@ -354,6 +382,7 @@
+ 
+     def forget(id)
+       timers.remove(id)
++      @transitions.delete_if { |_token, (target, _)| target == id }
+       @display_drawable_for.delete(id)
+       Shoes::DisplayService.layout_cache.delete(id)
+     end
+--- a/lib/scarpe/native/timers.rb
++++ b/lib/scarpe/native/timers.rb
+@@ -4,12 +4,17 @@
+   # Monotonic time that tests can stop. Once frozen, it only moves when told to, so
+   # Shoes-Spec's advance(seconds) fires exactly the timers due in that span.
+   class Clock
++    def initialize(&changed)
++      @changed = changed
++    end
++
+     def now
+       @frozen_at || monotonic
+     end
+ 
+     def freeze!
+       @frozen_at ||= monotonic
++      @changed&.call(@frozen_at)
+     end
+ 
+     def frozen?
+@@ -18,6 +23,7 @@
+ 
+     def travel_to(time)
+       @frozen_at = time if frozen? && time > @frozen_at
++      @changed&.call(@frozen_at) if frozen?
+     end
+ 
+     private
+--- a/lib/scarpe/native/automation.rb
++++ b/lib/scarpe/native/automation.rb
+@@ -95,6 +95,10 @@
+       request(:focused)
+     end
+ 
++    def properties(id)
++      request(:properties, id:).transform_keys(&:to_sym)
++    end
++
+     # The accessibility tree as a screen reader meets it (DESIGN 12): the window's Hash, with
+     # Symbol keys, each node's :children inside it. platform: what AppKit hands VoiceOver,
+     # read from a real window (macOS).

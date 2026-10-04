@@ -8,8 +8,7 @@ module Aljam3
       MOTION_CHOICES = { "system" => "حسب إعدادات النظام", "full" => "مفعّلة", "reduced" => "تقليل الحركة" }.freeze
 
       def setup_motion
-        @motion = Aljam3::Motion.new(clock: -> { Shoes::DisplayService.display_service.clock.now },
-          schedule: ->(&frame) { with_slot(document_root) { animate(60, &frame) } })
+        @motion = Aljam3::Motion.new(driver: Shoes::DisplayService.display_service)
         @motion_preference = @store.preference("motion", "system")
         refresh_motion_preference
       end
