@@ -4,10 +4,12 @@
 require_relative "../lib/aljam3"
 
 path = ARGV.fetch(0, ".cache/benchmark/library.sqlite3")
+abort "Expected an existing benchmark fixture" unless File.file?(path)
 prefixes = ARGV.fetch(1, "2 3 4")
 abort "Expected space-separated positive prefix lengths" unless prefixes.match?(/\A[1-9](?: [1-9])*\z/)
 store = Aljam3::Store.new(path, background: false)
 db = store.instance_variable_get(:@db)
+raise "Not a marked benchmark fixture" unless store.preference("benchmark:pages")
 $stdout.sync = true
 clock = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
 started = clock.call

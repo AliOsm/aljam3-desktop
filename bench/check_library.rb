@@ -65,12 +65,29 @@ begin
   end
 
   query = "الله"
-  # The rank cursor is an independent, exhaustive reference for the app's
-  # bounded BM25 plan. Compare across the five-page cache boundary as well.
-  expected = db.execute("SELECT rowid FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rank LIMIT 72", [Aljam3::Text.match_query(query)]).map { |row| row.fetch("rowid") }
-  actual = (1..6).flat_map { |page| store.search(query, page:).fetch("pages").map { |hit| hit.fetch("id") } }
+  # Independently construct the accepted first-10K candidate pool. Relevance
+  # uses this pool's statistics, not the full library's document frequencies.
+  match = Aljam3::Text.match_query(query)
+  limit = Aljam3::Store::Search::POOL_SIZE
+  db.execute("CREATE VIRTUAL TABLE temp.reference_pool USING fts5(content, tokenize='sqlite_tokenizer_ar disable_stopwords')")
+  db.execute(<<~SQL, [match, limit])
+    INSERT INTO reference_pool(rowid, content)
+    SELECT p.id, p.content FROM pages_fts JOIN pages p ON p.id=pages_fts.rowid
+      JOIN files f ON f.id=p.file_id JOIN books b ON b.id=f.book_id
+    WHERE pages_fts MATCH ? AND b.downloaded_at IS NOT NULL
+    ORDER BY pages_fts.rowid LIMIT ?
+  SQL
+  expected = db.execute("SELECT rowid FROM reference_pool WHERE reference_pool MATCH ? ORDER BY bm25(reference_pool), rowid LIMIT 72", [match]).map { |row| row.fetch("rowid") }
+  actual = (1..6).flat_map do |page|
+    result = store.search(query, page:)
+    raise "Ranking exceeded the candidate cap" unless result.dig("ranking", "candidates") == limit
+    raise "Missing pool expansion" unless result.dig("ranking", "has_more") && result.dig("ranking", "next_pool_size") == limit * 2
+    result.fetch("pages").map { |hit| hit.fetch("id") }
+  end
   raise "Ranked pagination differs" unless actual == expected
   report[:ranked_pages_verified] = 6
+  report[:ranking_candidates] = limit
+  db.execute("DROP TABLE reference_pool")
 
   expected = db.execute("SELECT rowid FROM pages_fts WHERE pages_fts MATCH ? ORDER BY rowid LIMIT 72", [Aljam3::Text.match_query(query)]).map { |row| row.fetch("rowid") }
   actual = (1..6).flat_map { |page| store.search(query, page:, order: "library").fetch("pages").map { |hit| hit.fetch("id") } }
@@ -79,7 +96,7 @@ begin
 
   store.cancel_search
   searching = Thread.new do
-    store.search("في")
+    store.search("في", pool_size: 100_000)
   rescue Aljam3::Store::Worker::Cancelled
     :cancelled
   end
