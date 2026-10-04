@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "pdf"
+require_relative "instance"
 require_relative "ui/theme"
 require_relative "ui/components"
 require_relative "ui/catalog"
@@ -20,8 +21,14 @@ module Aljam3
     include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation
 
     def setup
-      %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
       directory = Aljam3.data_directory
+      @instance = Instance.acquire(directory)
+      unless @instance
+        alert("الجامع مفتوح بالفعل. انتقل إلى النافذة المفتوحة لمتابعة القراءة.")
+        close
+        return
+      end
+      %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
       @store = Store.new(File.join(directory, "library.sqlite3"))
       @theme = initial_theme
       apply_theme
@@ -86,6 +93,8 @@ module Aljam3
         @workers.each(&:close)
         @reading.close
         @store.close
+      ensure
+        @instance.close
       end
       @network_worker.submit(-> { [@library.categories, @library.libraries] }) do |data, error|
         next if error
