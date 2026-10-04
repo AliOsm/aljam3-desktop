@@ -85,6 +85,14 @@ class ReadingTest < StoreTestCase
     assert_raises(Aljam3::ResponseError) { @reading.locate(volumes, { "id" => 999, "number" => 2 }) }
   end
 
+  def test_search_hit_with_a_file_id_does_not_fetch_each_volume
+    hit = { "id" => 201, "number" => 2, "file_id" => 20 }
+    @api.error = Aljam3::ConnectionError.new("No volume lookup should be needed")
+
+    assert_same hit, @reading.locate(book, hit)
+    assert_empty @api.calls
+  end
+
   def test_incomplete_download_cannot_supply_offline_reading
     install_book(1, complete: false)
     @api.error = Aljam3::ConnectionError.new("Offline")
