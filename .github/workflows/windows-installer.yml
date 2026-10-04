@@ -18,6 +18,8 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       BUILD_RUN_ID: ${{ inputs.build_run_id }}
+      # A cold install downloads the sample book and renders the full screenshot suite.
+      ALJAM3_VERIFY_TIMEOUT: '180'
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
