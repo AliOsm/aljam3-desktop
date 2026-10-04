@@ -46,7 +46,7 @@ description = "Check online/offline reading, dialogs, RTL layout, and themes in 
 run = "bundle exec ruby bin/verify-ui"
 
 [tasks.verify-layout]
-description = "Check shared edges, card alignment, focus outlines, and status bars at two window sizes"
+description = "Check shared edges, card alignment, focus outlines, and status bars at three window sizes, including the minimum"
 run = "bundle exec ruby bin/verify-layout"
 
 [tasks.verify-feedback]
