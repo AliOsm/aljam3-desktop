@@ -118,9 +118,17 @@ class PDFNavigationVerification
           raise "Latest page pixels differ from the local PDF" unless File.binread(image.path) == File.binread(local.path)
           raise "The UI is displaying an obsolete image" unless get(:page_image).url == image.path
         end
+        image = get(:reader).fetch(:image)
+        original = File.binread(image.path)
+        File.binwrite(image.path, "damaged temporary image")
+        @app.render_pdf
+        drain(:render_worker)
+        raise "Damaged cache left a PDF error" if get(:reader)[:pdf_error]
+        raise "Damaged cache was not regenerated" unless File.binread(image.path) == original
+        raise "Repaired page was not displayed" unless get(:page_image)&.url == image.path
         @automation.wait_frames
         { cycles: scenarios.size, cancelled_image_reads: scenarios.size, scenarios: scenarios.uniq,
-          latest_page: 6, latest_zoom: 1.25, latest_pixels_match: true, range_requests: requests.size }
+          latest_page: 6, latest_zoom: 1.25, latest_pixels_match: true, repaired_cache: true, range_requests: requests.size }
       end
     end
   ensure

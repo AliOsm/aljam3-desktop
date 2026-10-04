@@ -91,10 +91,8 @@ module Aljam3
       key = Digest::SHA256.hexdigest("#{identity}:#{page}:#{width}")
       target = File.join(@cache, "#{key}.png")
       PDFium::LOCK.synchronize do
-        if File.file?(target)
-          image = ChunkyPNG::Datastream.from_file(target).header_chunk
-          return Image.new(target, image.width, image.height)
-        end
+        cached = cached_image(target)
+        return cached if cached
         access = PDFium::FileAccess.new(source, check:) if source.is_a?(RemotePDF)
         document = access ? PDFium.load_custom_document(access, nil) : PDFium.load_document(source, nil)
         access&.check!
@@ -128,6 +126,23 @@ module Aljam3
         PDFium.close_page(pdf_page) if pdf_page && !pdf_page.null?
         PDFium.close_document(document) if document && !document.null?
       end
+    end
+
+    private
+
+    def cached_image(path)
+      return unless File.file?(path)
+
+      stream = ChunkyPNG::Datastream.from_file(path)
+      header = stream.header_chunk
+      unless header && header.width.positive? && header.height.positive? && stream.data_chunks.any?
+        raise ChunkyPNG::ExpectationFailed, "Incomplete cached image."
+      end
+
+      Image.new(path, header.width, header.height)
+    rescue ChunkyPNG::Exception
+      File.unlink(path)
+      nil
     end
   end
 end

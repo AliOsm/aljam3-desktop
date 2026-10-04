@@ -6,6 +6,23 @@ require_relative "support/range_pdf"
 require "timeout"
 
 class PDFCacheTest < Minitest::Test
+  def test_damaged_cached_images_are_regenerated_from_the_pdf
+    Dir.mktmpdir do |directory|
+      source = File.join(directory, "book.pdf")
+      File.binwrite(source, RangePDF.image_document(pages: 1))
+      pdf = Aljam3::PDF.new(cache: File.join(directory, "renders"))
+      image = pdf.render(source, page: 1, width: 240)
+      original = File.binread(image.path)
+      damaged = original.dup
+      damaged.setbyte(45, damaged.getbyte(45) ^ 1)
+      ["", original.byteslice(0, 40), damaged, ChunkyPNG::Datastream::SIGNATURE + original.byteslice(-12, 12)].each do |bytes|
+        File.binwrite(image.path, bytes)
+        assert_equal image, pdf.render(source, page: 1, width: 240)
+        assert_equal original, File.binread(image.path)
+      end
+    end
+  end
+
   def test_clearing_waits_for_an_active_cached_render
     Dir.mktmpdir do |directory|
       source = File.join(directory, "book.pdf")
