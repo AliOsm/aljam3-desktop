@@ -23,7 +23,7 @@ run = "bundle exec rake test"
 
 [tasks.test-native]
 description = "Check native input, button styles, keyboard controls, and accessibility"
-run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test text_input --test protocol --test a11y --test golden --test clipboard"
+run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test text_input --test protocol --test a11y --test golden --test clipboard --test damage"
 
 [tasks.package]
 description = "Build a standalone app on macOS arm64 or Windows x64"
@@ -48,6 +48,18 @@ run = "bundle exec ruby bin/verify-ui"
 [tasks.verify-layout]
 description = "Check shared edges, card alignment, focus outlines, and status bars at two window sizes"
 run = "bundle exec ruby bin/verify-layout"
+
+[tasks.verify-feedback]
+description = "Check inline feedback, background notifications, focus, downloads, and exports headlessly"
+run = "bundle exec ruby bin/verify-ui feedback"
+
+[tasks.verify-motion]
+description = "Check interrupted transitions, focus isolation, reduced motion, and idle timers"
+run = "bundle exec ruby bin/verify-ui motion"
+
+[tasks.benchmark-motion]
+description = "Measure animation rendering with a PDF and background disk transfer"
+run = "bundle exec ruby bin/verify-ui motion_benchmark"
 
 [tasks.benchmark-data]
 description = "Prepare the public catalog and sampled OCR text for scale measurements"

@@ -39,6 +39,7 @@ class AlignmentVerification
   end
 
   def call
+    @app.choose_motion("reduced") # Static checks; motion has its own timed interaction probe.
     parsed = Object.new.extend(FontHelper).parse_font(Aljam3::UI::HEADING_FONT)
     check("heading font resolves to the bundled family at its native weight", Shoes::FONTS.include?(parsed[4]) && parsed[2] == "500")
     store = @app.instance_variable_get(:@store)

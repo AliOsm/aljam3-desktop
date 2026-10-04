@@ -42,7 +42,8 @@ module Aljam3
         @store.toggle_bookmark(@reader.fetch(:book).fetch("id"), file_id: @reader.fetch(:file).fetch("id"),
           number: @reader.fetch(:number), excerpt: page_text.gsub(/\s+/, " ")[0, 180])
         @bookmarks = @store.bookmarks(@reader.fetch(:book).fetch("id"))
-        draw_window
+        @bookmark_button&.style(icon: asset_path("icons", bookmarked? ? "bookmark-check" : "bookmark"),
+          color: bookmarked? ? accent : "transparent", toggled: bookmarked?, tooltip: bookmarked? ? "إزالة الفاصل" : "حفظ فاصل · Ctrl/⌘ D")
       end
 
       def draw_bookmarks
@@ -100,7 +101,8 @@ module Aljam3
           para "إظهار التشكيل", width: -96, size: 16
           state = para @reader[:tashkeel] ? "مفعّل" : "متوقف", width: 56, size: 13, stroke: muted, align: "center"
           @tashkeel_switch = check(checked: @reader[:tashkeel], variant: "switch", tooltip: "إظهار التشكيل",
-            width: 40, height: 36, color: primary, background_color: line_color, direction: "rtl") do
+            width: 40, height: 36, color: primary, background_color: line_color, direction: "rtl", switch_position: @reader[:tashkeel] ? 1.0 : 0.0) do |control|
+            @motion.to(control, switch_position: control.checked? ? 1.0 : 0.0, duration: 0.12, group: :dialog)
             toggle_tashkeel
             state.text = @reader[:tashkeel] ? "مفعّل" : "متوقف"
           end

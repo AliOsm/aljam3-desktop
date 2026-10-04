@@ -80,7 +80,7 @@ module Aljam3
         author = book["author"]
         para text_link(Text.plain(author&.fetch("name")), stroke: muted) { browse_scope(:author, author) if author },
           left: PAGE_MARGIN + 184, top: PAGE_TOP + 36, width: @main_width - 184, size: 14
-        para availability_label(book), left: PAGE_MARGIN, top: PAGE_TOP + 36, width: 176, size: 13, stroke: muted, align: "left"
+        @reader_availability = para availability_label(book), left: PAGE_MARGIN, top: PAGE_TOP + 36, width: 176, size: 13, stroke: muted, align: "left"
         reader_toolbar(PAGE_TOP + 68)
         pane_top = PAGE_TOP + 132
         unless @reader.fetch(:query).empty?
@@ -105,8 +105,9 @@ module Aljam3
           background surface, curve: CARD_RADIUS
           row do
             action("بحث", icon: "search", width: 88, variant: :ghost) { open_book_search }
-            icon_button(bookmarked? ? "bookmark-check" : "bookmark", bookmarked? ? "إزالة الفاصل" : "حفظ فاصل · Ctrl/⌘ D", selected: bookmarked?) { toggle_reader_bookmark }
-            @copy_button = icon_button("copy", "نسخ نص الصفحة", state: page_text.strip.empty? ? "disabled" : nil) { copy_page }
+            @bookmark_button = icon_button(bookmarked? ? "bookmark-check" : "bookmark", bookmarked? ? "إزالة الفاصل" : "حفظ فاصل · Ctrl/⌘ D",
+              selected: bookmarked?, toggled: bookmarked?) { toggle_reader_bookmark }
+            @copy_button = icon_button("copy", "نسخ نص الصفحة", live: "polite", state: page_text.strip.empty? ? "disabled" : nil) { copy_page }
             action("خيارات القراءة", width: 128, variant: :ghost) { open_dialog(:reader_options) }
             icon_button("ellipsis", "أدوات الكتاب") { open_dialog(:reader_menu) }
             stack(width: reader_pdf? ? -728 : -620, height: 1)
@@ -133,7 +134,7 @@ module Aljam3
         @text_pane = stack(left:, top:, width:, height:) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
-          @text_surface = stack(width: 1.0, height:, scroll: !@dialog, direction: "rtl") do
+          @text_surface = stack(width: 1.0, height:, scroll: true, direction: "rtl") do
             stack(margin: 20) do
               if @reader[:text_error]
                 para @reader[:text_error], size: 15, stroke: muted
@@ -152,12 +153,7 @@ module Aljam3
       end
 
       def copy_page
-        self.clipboard = page_text
-        control = @copy_button
-        control.style(icon: asset_path("icons", "check"), tooltip: "تم النسخ")
-        timer(2) do
-          control.style(icon: asset_path("icons", "copy"), tooltip: "نسخ نص الصفحة") if control == @copy_button && @screen == :reader
-        end
+        copy_with_feedback(page_text, control: @copy_button)
       end
 
       def change_text_size(change)
@@ -177,7 +173,7 @@ module Aljam3
         @pdf_pane = stack(left: PAGE_MARGIN, top:, width:, height:) do
           background surface, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
-          @pdf_surface = stack(width: 1.0, height:, scroll: !@dialog, direction: "rtl")
+          @pdf_surface = stack(width: 1.0, height:, scroll: true, direction: "rtl")
         end
         draw_pdf_image
       end
@@ -309,47 +305,6 @@ module Aljam3
           else
             para "جارٍ تحميل الكتاب المصوّر…", margin: 24, size: 15, stroke: muted
           end
-        end
-      end
-
-      def save_page_image
-        path = ask_save_file
-        return if !path || path.empty?
-
-        FileUtils.cp(@reader.fetch(:image).path, path)
-      end
-
-      def draw_export
-        downloaded = @downloaded_ids.include?(@reader.fetch(:book).fetch("id"))
-        action(downloaded ? "متاح دون اتصال" : "تنزيل الكتاب للقراءة دون اتصال", icon: downloaded ? "check" : "download",
-          width: 1.0, state: downloaded ? "disabled" : nil) { queue_download(@reader.fetch(:book)) }
-        @export_feedback = para @dialog.fetch(:feedback, "احفظ نسخة بصيغة PDF أو نص أو Word."), top: 48, size: 14, stroke: muted
-        files = @reader.fetch(:files)
-        scroll_area(top: 76, height: @content_height - 76, scroll: true, bottom_padding: 0) do
-          files.each_with_index do |file, index|
-            gap = index < files.length - 1 ? 8 : 0
-            row(height: 36 + gap, margin_bottom: gap) do
-              para file.fetch("name"), width: -234, size: 15, wrap: "trim" if files.length > 1
-              %w[pdf txt docx].each_with_index do |format, format_index|
-                margin = format_index < 2 ? 8 : 0
-                action(format.upcase, width: files.length == 1 ? (@main_width - 16).fdiv(3) + margin : 78,
-                  margin_right: margin, state: file.dig("urls", format).to_s.empty? ? "disabled" : nil) { export_file(file, format) }
-              end
-            end
-          end
-        end
-      end
-
-      def export_file(file, format)
-        path = ask_save_file
-        return if !path || path.empty?
-
-        dialog = @dialog
-        @export_feedback.text = dialog[:feedback] = "جارٍ حفظ الملف…"
-        @export_worker.submit(-> { HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf") }) do |_result, error|
-          next unless @dialog.equal?(dialog)
-
-          @export_feedback.text = dialog[:feedback] = error ? error_message(error) : "تم حفظ الملف"
         end
       end
     end

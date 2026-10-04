@@ -20,6 +20,8 @@ module Aljam3
 
       def format_bytes(bytes)
         return "الحجم غير معروف" unless bytes
+        return "#{bytes} بايت" if bytes < 1024
+        return "\u2066#{(bytes / 1024.0).round(1)} KB\u2069" if bytes < 1_048_576
         return "\u2066#{(bytes / 1_073_741_824.0).round(2)} GB\u2069" if bytes >= 1_073_741_824
 
         "\u2066#{(bytes / 1_048_576.0).round(1)} MB\u2069"
@@ -43,13 +45,11 @@ module Aljam3
           end
           stack(width: -634, height: 1)
           action("كتبي المحمّلة", width: 140) { navigate(:saved) }
-          action("مسح الصور المؤقتة", width: 206, variant: :ghost) do
-            FileUtils.rm_f(Dir.glob(File.join(Aljam3.data_directory, "renders/*.png")))
-            @storage_feedback = "تم تحرير مساحة الصور المؤقتة. ستُنشأ مجددًا عند القراءة."
-            draw_window
-          end
+          @clear_cache_button = action(@clearing_cache ? "جارٍ مسح الصور…" : "مسح الصور المؤقتة", width: 206,
+            variant: :ghost, state: @clearing_cache ? "disabled" : nil) { clear_image_cache }
         end
-        para @storage_feedback || "يمكنك إيقاف التنزيل ومتابعته. يُحفظ تقدمك عند إغلاق التطبيق.", top: 124, size: 14, stroke: muted
+        @storage_feedback_view = para @storage_feedback || "يمكنك إيقاف التنزيل ومتابعته. يُحفظ تقدمك عند إغلاق التطبيق.",
+          top: 124, size: 14, stroke: muted, live: "polite"
         @results = scroll_area(top: 164, height: @content_height - 164) do
           page, filter = @download_page || 1, @download_filter || :all
           count = @store.download_count(filter:)
@@ -102,11 +102,17 @@ module Aljam3
           action("إزالة النسخة المحمّلة", icon: "trash-2", key: [:remove_download, id], width: 180, variant: :ghost) { confirm_remove_download(download.fetch(:book)) }
         when :downloading, :queued
           action("إيقاف مؤقت", icon: "pause", width: 144, margin_left: 12) { @download_queue.pause(id); draw_window }
-          action("إلغاء التنزيل", width: 124, variant: :ghost) { @download_queue.cancel(id); draw_window }
+          action("إلغاء التنزيل", width: 124, variant: :ghost) { cancel_download(id) }
         when :paused, :failed
           action(download[:status] == :paused ? "متابعة التنزيل" : "إعادة المحاولة", icon: "play", width: 158, margin_left: 12) { queue_download(download.fetch(:book)) }
-          action("إلغاء التنزيل", width: 124, variant: :ghost) { @download_queue.cancel(id); draw_window }
+          action("إلغاء التنزيل", width: 124, variant: :ghost) { cancel_download(id) }
         end
+      end
+
+      def cancel_download(id)
+        @download_queue.cancel(id)
+        resolve_download_failure(id)
+        refresh_download_state
       end
 
       def confirm_remove_download(book)
@@ -137,10 +143,41 @@ module Aljam3
             else
               close_dialog
               request_catalog if @screen == :saved
+              @notifications.push(:removed) do |count|
+                { message: count == 1 ? "تمت إزالة النسخة المحمّلة" : "تمت إزالة #{count} نسخ محمّلة",
+                  detail: "مواضع القراءة والفواصل محفوظة." }
+              end
             end
           end
         end
         action("احتفاظ بالكتاب", top: @content_height - 36, right: 154, width: 144, state: @dialog[:busy] ? "disabled" : nil) { close_dialog }
+      end
+
+      def clear_image_cache
+        return if @clearing_cache
+
+        @clearing_cache = true
+        @clear_cache_button.style(text: "جارٍ مسح الصور…", state: "disabled")
+        @export_worker.submit(-> {
+          Dir.glob(File.join(Aljam3.data_directory, "renders/*.png")).sum do |path|
+            bytes = File.size(path)
+            File.unlink(path)
+            bytes
+          rescue Errno::ENOENT
+            0
+          end
+        }) do |bytes, error|
+          @clearing_cache = false
+          @storage_feedback = error ? error_message(error) : (bytes.zero? ? "لا توجد صور مؤقتة لحذفها." : "تم تحرير #{format_bytes(bytes)} من الصور المؤقتة.")
+          if @screen == :downloads
+            @storage_feedback_view.text = @storage_feedback
+            @clear_cache_button.style(text: "مسح الصور المؤقتة", state: @dialog ? "disabled" : nil)
+          else
+            @notifications.push(:cache, persistent: !error.nil?) do |_count|
+              { error: !error.nil?, message: @storage_feedback, detail: "ستُنشأ صور الصفحات مجددًا عند القراءة." }
+            end
+          end
+        end
       end
     end
   end

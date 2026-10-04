@@ -10,10 +10,13 @@ require_relative "ui/dialogs"
 require_relative "ui/browsing"
 require_relative "ui/downloads"
 require_relative "ui/reader_tools"
+require_relative "ui/feedback"
+require_relative "ui/exports"
+require_relative "ui/motion"
 
 module Aljam3
   module UI
-    include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools
+    include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion
 
     def setup
       %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
@@ -21,6 +24,7 @@ module Aljam3
       @store = Store.new(File.join(directory, "library.sqlite3"))
       @theme = initial_theme
       apply_theme
+      setup_motion
       @api = API.new(base_url: ENV.fetch("ALJAM3_API_URL", "https://aljam3.com"))
       @library = Library.new(api: @api, store: @store)
       @downloader = Downloader.new(api: @api, store: @store, directory: File.join(directory, "books"))
@@ -28,7 +32,9 @@ module Aljam3
       @pdf = PDF.new(cache: File.join(directory, "renders"))
       @network_worker, @render_worker, @page_worker, @export_worker = Array.new(4) { Worker.new }
       @workers = [@network_worker, @render_worker, @page_worker, @export_worker]
-      @download_queue = Downloads.new(store: @store, downloader: @downloader)
+      @notifications = Notifications.new
+      @file_operations = {}
+      @download_queue = Downloads.new(store: @store, downloader: @downloader) { |download| notify_download(download) }
       @downloaded_ids = @store.downloaded_ids
       @categories, @libraries = @store.preference("categories", []), @store.preference("libraries", [])
       @screen, @mode, @query = :home, :content, ""
@@ -40,9 +46,10 @@ module Aljam3
       @search_pool_size = Store::Search::POOL_SIZE
       draw_window
       @ticker = every(0.1) { tick }
+      @preference_ticker = every(2) { refresh_motion_preference if @motion_preference == "system" }
       keypress do |key|
         if key == :escape
-          if @dialog
+          if dialog_active?
             close_dialog
           elsif @screen == :reader
             @page_field.text = @reader.fetch(:number).to_s if @page_field
@@ -51,14 +58,14 @@ module Aljam3
         elsif %i[control_f alt_f].include?(key)
           if @dialog&.dig(:type) == :book_search
             @book_query_field&.focus
-          elsif !@dialog
+          elsif !dialog_active?
             @screen == :reader ? open_book_search : @query_field&.focus
           end
-        elsif @screen == :reader && !@dialog
+        elsif @screen == :reader && !dialog_active?
           reader_keypress(key)
         end
       end
-      motion { |x, _y| resize_reader_split(x) if @split_drag && !@dialog }
+      motion { |x, _y| resize_reader_split(x) if @split_drag && !dialog_active? }
       release do
         if @split_drag
           @split_drag = false
@@ -68,6 +75,8 @@ module Aljam3
       end
       finish do
         @ticker.remove
+        @preference_ticker.remove
+        @motion.cancel
         @download_queue.close
         @workers.each(&:close)
         @reading.close
@@ -77,40 +86,43 @@ module Aljam3
         next if error
 
         @categories, @libraries = data
-        refresh_window if %i[home categories].include?(@screen) || @dialog&.dig(:type) == :filters
+        refresh_dialog if @dialog&.dig(:type) == :filters
+        refresh_window if %i[home categories].include?(@screen)
       end
     end
 
     def tick
       @workers.each(&:drain)
-      redraw = @download_queue.tick
-      @downloaded_ids = @store.downloaded_ids if redraw
+      render_dialog if @dialog_redraw_pending && @dialog && !@editing_field
+      refresh_download_state if @download_queue.tick
       if @connection != @api.connection
         @connection = @api.connection
-        redraw = true
+        update_connection
       end
-      @redraw_pending ||= redraw
-      if @redraw_pending && !@split_drag && !@editing_field
+      if @redraw_pending && !@split_drag && !@editing_field && !dialog_active? && !@notification_focus
         draw_window
         @redraw_pending = false
       end
       @progress_views.each do |id, view|
         next unless (download = @download_queue.entry(id))
 
-        view.fetch(:bar).fraction = download.fetch(:fraction)
+        smooth_progress(view.fetch(:bar), download.fetch(:fraction))
         view.fetch(:label).text = download_message(download)
       end
       if @viewport != [width, height]
         draw_window
         render_pdf if reader_pdf?
       end
+      tick_feedback
     end
 
     def draw_window
+      @motion.cancel
+      @closing_dialog = nil
       @dialog[:scroll] = @dialog_results.scroll_top if @dialog && @dialog_results
-      scroll = @dialog_scroll&.fetch(:results) || @results&.scroll_top || 0
-      text_scroll = @dialog_scroll&.fetch(:text) || @text_surface&.scroll_top || 0
-      pdf_scroll = @dialog_scroll&.fetch(:pdf) || @pdf_surface&.scroll_top || 0
+      scroll = @results&.scroll_top || 0
+      text_scroll = @text_surface&.scroll_top || 0
+      pdf_scroll = @pdf_surface&.scroll_top || 0
       @viewport = [width, height]
       @progress_views = {}
       @main_width = @screen == :reader ? width - PAGE_MARGIN * 2 : [width - PAGE_MARGIN * 2, 1120].min
@@ -119,25 +131,32 @@ module Aljam3
       @editing_field = nil
       @redraw_pending = false
       @action_views = {}
+      @last_content_focus = nil
+      @activity_button = @activity_progress = nil
       clear do
         background paper
-        navigation
-        if @screen == :reader
-          draw_reader
-        else
-          stack(left: (width - @main_width) / 2 - SCROLL_GUTTER, top: PAGE_TOP,
-            width: @main_width + SCROLL_GUTTER, padding_left: SCROLL_GUTTER, height: @content_height) do
-            case @screen
-            when :downloads then draw_downloads
-            when :home then @query.strip.empty? ? draw_home : draw_catalog
-            when :categories then draw_categories
-            when :opening then empty_state("جارٍ فتح الكتاب…", "نحمّل الصفحة المطلوبة للقراءة.")
-            else draw_catalog
+        @content_layer = stack(left: 0, top: 0, width: width, height: height, inert: !!@dialog) do
+          navigation
+          if @screen == :reader
+            draw_reader
+          else
+            stack(left: (width - @main_width) / 2 - SCROLL_GUTTER, top: PAGE_TOP,
+              width: @main_width + SCROLL_GUTTER, padding_left: SCROLL_GUTTER, height: @content_height) do
+              case @screen
+              when :downloads then draw_downloads
+              when :home then @query.strip.empty? ? draw_home : draw_catalog
+              when :categories then draw_categories
+              when :opening then empty_state("جارٍ فتح الكتاب…", "نحمّل الصفحة المطلوبة للقراءة.")
+              else draw_catalog
+              end
             end
           end
+          connection_bar
         end
-        connection_bar
-        draw_dialog if @dialog
+        @base_action_views = @action_views.dup
+        @dialog_layer = stack(left: 0, top: 0, width: width, height: height, hidden: true)
+        render_dialog if @dialog
+        draw_feedback
       end
       @results.scroll_top = scroll if @results
       @text_surface.scroll_top = text_scroll if @screen == :reader && @text_surface
@@ -145,7 +164,7 @@ module Aljam3
     end
 
     def refresh_window
-      @editing_field ? @redraw_pending = true : draw_window
+      @editing_field || dialog_active? ? @redraw_pending = true : draw_window
     end
 
     def navigation
@@ -239,30 +258,42 @@ module Aljam3
     def source_label
       return @result ? "المحفوظ على جهازك · جارٍ التحديث…" : "جارٍ البحث…" if @busy
 
-      { online: "متصل بالجامع", offline: "دون اتصال · الفهرس المحفوظ", local: "الخدمة غير متاحة · الفهرس المحفوظ",
+      local = @mode == :content && !@query.strip.empty? ? "البحث في الكتب المحمّلة · دون اتصال" : "دون اتصال · الفهرس المحفوظ"
+      { online: "متصل بالجامع", offline: local, local: local,
         downloaded: "في كتبك المحمّلة فقط", cached: "الفهرس المحفوظ على جهازك" }.fetch(@source, "الجامع لسطح المكتب")
     end
 
     def queue_download(book)
-      @download_queue.enqueue(book)
-      draw_window
+      return unless @download_queue.enqueue(book)
+
+      resolve_download_failure(book.fetch("id"))
+      refresh_download_state
+    end
+
+    def refresh_download_state
+      @downloaded_ids = @store.downloaded_ids
+      @download_states = @store.download_state_counts
+      update_activity
+      if @screen == :reader
+        @reader_availability.text = availability_label(@reader.fetch(:book))
+        update_export_download if @dialog&.dig(:type) == :export
+      elsif dialog_active? || @notification_focus
+        @redraw_pending = true
+      else
+        refresh_window
+      end
     end
 
     def connection_bar
-      message = case @connection
-                when :offline then "دون اتصال · كتبك المحمّلة متاحة"
-                when :unavailable then "الجامع غير متاح الآن · كتبك المحمّلة متاحة"
-                when :online then "متصل بالجامع"
-                else "جارٍ التحقق من الاتصال…"
-                end
       @connection_bar = stack(left: 0, top: height - STATUS_HEIGHT, width: width, height: STATUS_HEIGHT) do
         background surface
         separator(width: 1.0)
         row(left: (width - @main_width) / 2, top: 2, width: @main_width, height: STATUS_HEIGHT - 4) do
-          para message, width: -126, size: 13, stroke: muted, wrap: "trim"
-          if %i[offline unavailable].include?(@connection)
-            action("إعادة الاتصال", width: 126, height: 28, size: 13, variant: :ghost) { refresh_connection }
-          end
+          @connection_text = para connection_message, width: -484, size: 13, stroke: muted, wrap: "trim", live: "polite"
+          @reconnect_button = action("إعادة الاتصال", width: 126, height: 28, size: 13, variant: :ghost,
+            hidden: !%i[offline unavailable].include?(@connection)) { refresh_connection }
+          row(width: 330, height: 28) { draw_activity }
+          icon_button("sliders-horizontal", "إعدادات الحركة", width: 28, height: 28) { open_dialog(:motion_settings) }
         end
       end
     end
@@ -281,7 +312,7 @@ module Aljam3
       when RemoteFileChangedError then "تغيّر ملف الكتاب على المصدر. أعد تحميل الصفحة."
       when ConnectionError then "تعذّر الاتصال. تحقق من الإنترنت ثم أعد المحاولة."
       when ResponseError then "تعذّر الوصول إلى المكتبة (#{error.status}). أعد المحاولة لاحقًا."
-      when Errno::ENOSPC then "لا توجد مساحة كافية لتنزيل الكتاب."
+      when Errno::ENOSPC then "لا توجد مساحة كافية لحفظ الملف."
       else "تعذّر إكمال العملية. أعد المحاولة."
       end
     end

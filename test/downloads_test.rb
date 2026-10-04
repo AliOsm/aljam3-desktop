@@ -6,7 +6,7 @@ require "timeout"
 class DownloadsTest < StoreTestCase
   class Transfer
     attr_reader :started, :cancelled
-    attr_accessor :error, :progresses
+    attr_accessor :error, :cancel_error, :progresses
 
     def initialize(store)
       @store = store
@@ -32,14 +32,19 @@ class DownloadsTest < StoreTestCase
     def finish = @finish << true
     def disk_usage(_id) = 100
     def repair_download_sizes(after: 0) = nil
-    def cancel(id) = @cancelled << id
+    def cancel(id)
+      raise @cancel_error if @cancel_error
+
+      @cancelled << id
+    end
     def remove(id) = @store.discard_download(id)
   end
 
   def setup
     super
     @transfer = Transfer.new(@store)
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer)
+    @finished = []
+    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer) { |download| @finished << download }
   end
 
   def teardown
@@ -60,7 +65,7 @@ class DownloadsTest < StoreTestCase
 
   def restart
     @queue.close
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer)
+    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer) { |download| @finished << download }
   end
 
   def test_pause_survives_restart_and_resume_completes
@@ -115,6 +120,20 @@ class DownloadsTest < StoreTestCase
     pump_until { @queue.entries.dig(2, :bytes) == 40 }
   end
 
+  def test_cancellation_failure_can_be_retried_without_starting_a_transfer
+    @queue.enqueue(book)
+    @transfer.cancel_error = Errno::EACCES.new("test file is busy")
+    @queue.cancel(1)
+    pump_until { @queue.entry(1)[:status] == :failed }
+    assert_equal "cancel", @finished.last.fetch(:failure)
+    assert @transfer.started.empty?
+    @transfer.cancel_error = nil
+    @queue.cancel(1)
+    pump_until { !@queue.entry(1) }
+    assert_equal [1], @transfer.cancelled
+    assert_equal 1, @finished.length
+  end
+
   def test_closing_while_a_pause_or_cancel_is_pending_honors_it
     @queue.enqueue(book)
     pump_until { @queue.entries.dig(1, :bytes) == 40 }
@@ -143,5 +162,35 @@ class DownloadsTest < StoreTestCase
     @queue.remove(1)
     refute @store.downloaded?(1)
     assert_empty @store.downloads
+  end
+
+  def test_a_completed_book_announces_once_and_does_not_replay_after_restart
+    assert @queue.enqueue(book)
+    refute @queue.enqueue(book)
+    @transfer.finish
+    pump_until { @store.downloaded?(1) }
+    pump_until { @finished.any? }
+    assert_equal [:done], @finished.map { |entry| entry[:status] }
+    assert_equal 1, @finished.first.dig(:book, "id")
+    refute @queue.enqueue(book)
+    restart
+    @queue.tick
+    assert_equal 1, @finished.length
+  end
+
+  def test_failures_notify_once_but_pauses_and_progress_stay_quiet
+    @queue.enqueue(book)
+    pump_until { @queue.current&.fetch(:bytes, nil) == 40 }
+    @queue.pause(1)
+    pump_until { @queue.entry(1)[:status] == :paused }
+    assert_empty @finished
+    assert_equal({ paused: 1 }, @store.download_state_counts)
+    @transfer.error = Aljam3::ConnectionError.new("Offline")
+    @queue.enqueue(book)
+    pump_until { @finished.any? }
+    assert_equal [:failed], @finished.map { |entry| entry[:status] }
+    assert_equal({ failed: 1 }, @store.download_state_counts)
+    10.times { @queue.tick }
+    assert_equal 1, @finished.length
   end
 end

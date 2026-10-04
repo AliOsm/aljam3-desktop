@@ -68,14 +68,14 @@ module Aljam3
         book_id = @book_search.fetch(:book_id)
         request_number = (@book_search[:request_number] || 0) + 1
         @book_search.merge!(busy: true, error: nil, result: nil, request_number:)
-        draw_window
+        render_dialog
         @network_worker.submit(-> {
           @library.search(query, book_id:, page:, pool_size:) if @dialog.equal?(dialog) && @book_search[:request_number] == request_number
         }) do |result, error|
           next unless @dialog.equal?(dialog) && @book_search[:request_number] == request_number
 
           @book_search.merge!(busy: false, result:, error: error && error_message(error))
-          refresh_window
+          refresh_dialog
         end
       end
     end

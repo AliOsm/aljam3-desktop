@@ -5,8 +5,9 @@ require_relative "worker"
 module Aljam3
   # SQLite owns the queue. Only the current transfer lives in memory.
   class Downloads
-    def initialize(store:, downloader:)
+    def initialize(store:, downloader:, &on_finish)
       @store, @downloader = store, downloader
+      @on_finish = on_finish
       @worker, @cleanup, @progress = Worker.new, Worker.new, Queue.new
       @store.recover_downloads.each { |id| finish_stop(id, :cancelled) }
       repair_sizes
@@ -14,6 +15,7 @@ module Aljam3
 
     def entries(**options) = @store.downloads(**options)
     def entry(id) = @active == id ? @entry : @store.download(id)
+    def current = @entry
 
     def enqueue(book)
       id = book.fetch("id")
@@ -22,7 +24,8 @@ module Aljam3
 
       @store.cache_books([book])
       @store.save_download(id, { fraction: 0, queued_at: Time.now.utc.iso8601(6), **(previous || {}),
-        book:, status: :queued, message: "في قائمة الانتظار" })
+        book:, status: :queued, failure: nil, message: "في قائمة الانتظار" })
+      true
     end
 
     def pause(id) = stop(id, :paused)
@@ -103,7 +106,11 @@ module Aljam3
         return if @closing
 
         @cleanup.submit(-> { @downloader.cancel(id); @store.forget_download(id) }) do |_result, error|
-          @store.save_download(id, entry(id).merge(status: :failed, message: "تعذّر إلغاء التنزيل. حاول مرة أخرى.")) if error
+          if error
+            failed = entry(id).merge(status: :failed, failure: "cancel", message: "تعذّر إلغاء التنزيل. حاول مرة أخرى.")
+            @store.save_download(id, failed)
+            @on_finish&.call(failed)
+          end
           @changed = true
         end
       else
@@ -136,6 +143,7 @@ module Aljam3
           @entry.merge!(status: :failed, message:)
           persist
         end
+        @on_finish&.call(@entry.dup) if %i[done failed].include?(@entry[:status])
         @active = @entry = nil
         @progress_dirty = false
         @changed = true

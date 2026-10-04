@@ -26,8 +26,8 @@ class BookSearchTest < StoreTestCase
       @book_search = { query: "العلم", book_id: 1 }
     end
 
-    def draw_window; end
-    def refresh_window; end
+    def render_dialog; end
+    def refresh_dialog; end
     def error_message(error) = error.message
   end
 

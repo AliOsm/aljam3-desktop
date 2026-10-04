@@ -4,6 +4,7 @@
 require "json"
 load File.expand_path("../../app.rb", __dir__)
 app = Shoes.APPS.first
+app.choose_motion("reduced")
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
 step = 0
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -74,7 +75,7 @@ app.every(0.1) do
 
       result = search.fetch(:result)
       raise "Online book search failed" unless result.source == :online && result.data.fetch("pages").any?
-      raise "Reader remains interactive under dialog" unless app.instance_variable_get(:@page_field).state == "disabled"
+      raise "Reader remains interactive under dialog" unless app.instance_variable_get(:@content_layer).style[:inert]
       shot.call("book-search")
       app.instance_variable_get(:@dialog_results).scroll_top = 180
       automation.wait_frames

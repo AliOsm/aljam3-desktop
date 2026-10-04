@@ -5,6 +5,7 @@ require_relative "aljam3/downloader"
 require_relative "aljam3/downloads"
 require_relative "aljam3/reading"
 require_relative "aljam3/worker"
+require_relative "aljam3/notifications"
 
 module Aljam3
   ROOT = File.expand_path("..", __dir__)

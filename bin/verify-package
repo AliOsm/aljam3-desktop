@@ -21,6 +21,10 @@ output = File.join(root, "dist/verification")
 FileUtils.mkdir_p([scratch, output])
 FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(scratch, "data"))
 PackageVerification.call(bundle:, home: scratch, output:)
+PackageVerification.call(bundle:, home: scratch, output: File.join(output, "motion"),
+  probe: File.join(root, "packaging/motion_probe.rb"))
+require_relative "../packaging/motion_report"
+MotionReport.call(File.join(output, "motion"))
 if windows
   require_relative "../packaging/verify_windows_launcher"
   WindowsLauncherVerification.call(bundle:, home: scratch, output:)

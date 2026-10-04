@@ -56,7 +56,7 @@ diff --git a/native/tests/golden.rs b/native/tests/golden.rs
 index cfbce00..e61ad7f 100644
 --- a/native/tests/golden.rs
 +++ b/native/tests/golden.rs
-@@ -133,3 +133,56 @@ fn shading_a_few_levels_off_still_matches() {
+@@ -133,3 +133,76 @@
          assert_eq!(mismatch(&shaded, &golden(scene)), None, "{scene}");
      }
  }
@@ -112,4 +112,24 @@ index cfbce00..e61ad7f 100644
 +    ]));
 +    assert_eq!(h.value(json!({"op":"pixel","x":30,"y":14})), json!([74,69,67,255]));
 +    assert_eq!(h.value(json!({"op":"pixel","x":180,"y":14})), json!([174,71,33,255]));
++}
++
++#[test]
++fn group_opacity_composites_overlapping_children_once() {
++    use common::{app, create};
++    let mut h = Harness::new();
++    h.feed(&app(120, 100, &[
++        create(3, "Background", 2, json!({"fill":"#ffffff"})),
++        create(4, "Stack", 2, json!({"left":10,"top":10,"width":80,"height":70,"opacity":0.5})),
++        create(5, "Background", 4, json!({"fill":"#ff0000"})),
++        create(6, "Stack", 4, json!({"left":10,"top":10,"width":50,"height":40})),
++        create(7, "Background", 6, json!({"fill":"#0000ff"})),
++    ]));
++    let pixel = h.value(json!({"op":"pixel","x":30,"y":30}));
++    assert_eq!(pixel, json!([128,128,255,255]), "the red sibling must not bleed through blue");
++    h.feed(&json!({"t":"props","id":6,"props":{"opacity":0.5}}).to_string());
++    let nested = h.value(json!({"op":"pixel","x":30,"y":30}));
++    assert!(nested[0].as_u64().unwrap().abs_diff(191) <= 1 && nested[2].as_u64().unwrap().abs_diff(191) <= 1, "{nested}");
++    h.feed(&json!({"t":"props","id":4,"props":{"opacity":0.0}}).to_string());
++    assert_eq!(h.value(json!({"op":"pixel","x":30,"y":30})), json!([255,255,255,255]));
 +}

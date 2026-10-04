@@ -35,6 +35,13 @@ module Aljam3
         end
       end
 
+      def download_state_counts
+        @reader.call do |db|
+          db.execute("SELECT state, count(*) AS count FROM downloads WHERE state != 'done' GROUP BY state")
+            .to_h { |row| [row.fetch("state").to_sym, row.fetch("count")] }
+        end
+      end
+
       def download_bytes
         @reader.call do |db|
           db.get_first_value(<<~SQL)

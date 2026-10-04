@@ -3,34 +3,95 @@
 module Aljam3
   module UI
     module Dialogs
+      def dialog_active?
+        @dialog || @closing_dialog
+      end
+
       def open_dialog(type, nested: false, **data)
         @editing_field = nil
         @dialog[:scroll] = @dialog_results.scroll_top if @dialog && @dialog_results
-        @dialog_results = nil
-        @dialog_scroll ||= { results: @results&.scroll_top || 0, text: @text_surface&.scroll_top || 0, pdf: @pdf_surface&.scroll_top || 0 }
         @dialog_stack ||= []
         @dialog_stack << @dialog if nested && @dialog
         @dialog_stack.clear unless nested
         return_focus = @dialog&.dig(:type) == :reader_menu ? @dialog[:return_focus] : @last_action_key
+        return_control = @dialog&.dig(:return_control) || @last_content_focus
         anchor = nested && @dialog ? @dialog[:anchor] : @last_action_rect
-        @dialog = { type:, anchor:, return_focus:, **data }
-        draw_window
+        @dialog = { type:, anchor:, return_focus:, return_control:, **data }
+        @closing_dialog = nil
+        @dialog_redraw_pending = false
+        @dialog_results = nil
+        @content_layer.inert = true
+        update_notification
+        render_dialog(enter: true)
         (@dialog_first || @dialog_close)&.focus
       end
 
       def close_dialog
+        return unless @dialog
+
         closed = @dialog
         @editing_field = nil
-        was_search = closed&.dig(:type) == :book_search
-        @store.cancel_search if was_search
+        if closed[:type] == :book_search
+          @store.cancel_search
+          @book_search[:busy] = false
+        end
         @dialog = @dialog_stack&.pop
         @dialog_results = nil
-        @book_search[:busy] = false if was_search
-        @dialog_scroll = nil if block_given? && !@dialog
+        if @dialog
+          yield if block_given?
+          render_dialog(enter: true)
+          (@action_views[closed[:return_focus]] || @dialog_first || @dialog_close)&.focus
+          return
+        end
+        @closing_dialog = closed
         yield if block_given?
-        draw_window
-        @dialog_scroll = nil unless @dialog
-        @action_views[closed[:return_focus]]&.focus if closed
+        unless @closing_dialog.equal?(closed)
+          @action_views[closed[:return_focus]]&.focus unless @dialog
+          return
+        end
+
+        @motion.cancel(:dialog)
+        @dialog_layer.inert = true
+        @motion.to(@dialog_backdrop, opacity: 0.0, duration: 0.10, group: :dialog)
+        @motion.to(@dialog_panel, opacity: 0.0, top: @dialog_rest_top + @dialog_offset,
+          duration: 0.10, group: :dialog, complete: -> { finish_dialog_close(closed) })
+      end
+
+      def finish_dialog_close(closed)
+        return unless @closing_dialog.equal?(closed)
+
+        @dialog_layer.clear
+        @dialog_layer.hidden = true
+        @closing_dialog = @dialog_scroll = nil
+        @content_layer.inert = false
+        @action_views = @base_action_views.dup
+        control = closed[:return_control]
+        control = @action_views[closed[:return_focus]] unless control && Shoes::DisplayService.layout_cache.key?(control.linkable_id)
+        control&.focus
+        update_notification
+      end
+
+      def render_dialog(enter: false)
+        return unless @dialog
+
+        @dialog_redraw_pending = false
+        @dialog[:scroll] = @dialog_results.scroll_top if @dialog_results
+        @motion.cancel(:dialog)
+        @action_views = @base_action_views.dup
+        @dialog_results = nil
+        @dialog_layer.clear
+        @dialog_layer.style(hidden: false, inert: false)
+        @dialog_layer.append { draw_dialog }
+        return unless enter
+
+        @dialog_backdrop.opacity = 0.0
+        @dialog_panel.style(opacity: 0.0, top: @dialog_rest_top + @dialog_offset)
+        @motion.to(@dialog_backdrop, opacity: 1.0, duration: @dialog_duration, group: :dialog)
+        @motion.to(@dialog_panel, opacity: 1.0, top: @dialog_rest_top, duration: @dialog_duration, group: :dialog)
+      end
+
+      def refresh_dialog
+        @editing_field ? @dialog_redraw_pending = true : render_dialog
       end
 
       def draw_dialog
@@ -38,6 +99,7 @@ module Aljam3
         popup = %i[select filters volumes reader_options reader_menu].include?(type) || @dialog_stack.any?
         menu = %i[select reader_menu].include?(type)
         requested_width, requested_height = case type
+          when :motion_settings then [440, 160]
           when :filters then [408, 308]
           when :select then [220, 12 + @dialog.fetch(:choices).length * 44]
           when :volumes then [360, choice_dialog_height]
@@ -65,10 +127,15 @@ module Aljam3
         else
           left, top = (width - panel_width) / 2, (height - panel_height) / 2
         end
+        @dialog_rest_top = top
+        @dialog_offset = popup ? (anchor && top < anchor[1] ? 5 : -5) : 8
+        @dialog_duration = popup ? 0.14 : 0.20
         stack(left: 0, top: 0, width: width, height: height) do
-          background rgb(0, 0, 0, type == :select ? 0 : popup ? 0.10 : 0.28)
+          @dialog_backdrop = background rgb(0, 0, 0, type == :select ? 0 : popup ? 0.10 : 0.28), opacity: 1.0
           click do |_button, x, y|
-            close_dialog unless (left..left + panel_width).cover?(x) && (top..top + panel_height).cover?(y)
+            bounds = Shoes::DisplayService.layout_cache[@dialog_panel.linkable_id]
+            px, py, pw, ph = bounds || [left, top, panel_width, panel_height]
+            close_dialog unless (px..px + pw).cover?(x) && (py..py + ph).cover?(y)
           end
         end
         @drawing_dialog = true
@@ -76,14 +143,15 @@ module Aljam3
         padding, body_top = menu ? 8 : 16, menu ? 8 : 64
         @main_width, @content_height = panel_width - padding * 2, panel_height - body_top - padding
         @dialog_close = @dialog_first = nil
-        @dialog_panel = stack(left:, top:, width: panel_width, height: panel_height) do
+        title = @dialog.fetch(:title, { motion_settings: "إعدادات الحركة", filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
+          authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
+          reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
+          remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, ""))
+        @dialog_panel = stack(left:, top:, width: panel_width, height: panel_height, opacity: 1.0,
+          accessibility_role: "dialog", accessibility_label: title.empty? ? "اختر" : title) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
           unless menu
-            title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
-              authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
-              reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
-              remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, ""))
             row(left: padding, top: 12, width: @main_width) do
               para title, width: -36, size: 20, font: HEADING_FONT
               @dialog_close = icon_button("x", "إغلاق") { close_dialog }
@@ -93,6 +161,7 @@ module Aljam3
           stack(left: padding - SCROLL_GUTTER, top: body_top, width: @main_width + SCROLL_GUTTER,
             padding_left: SCROLL_GUTTER, height: @content_height) do
             case type
+            when :motion_settings then draw_motion_settings
             when :filters then draw_filters
             when :select, :choices, :volumes then draw_choices
             when :authors then draw_author_choices
@@ -151,7 +220,7 @@ module Aljam3
         end
         separator(top: 180)
         row(top: 192) do
-          action("مسح التصفية", width: 124, variant: :ghost) { filters.clear; draw_window }
+          action("مسح التصفية", width: 124, variant: :ghost) { filters.clear; render_dialog }
           stack(width: -228, height: 1)
           action("تطبيق", width: 104, variant: :solid) do
             @filters = filters
@@ -203,12 +272,12 @@ module Aljam3
       def request_authors(page: 1)
         dialog = @dialog
         dialog[:busy] = true
-        draw_window
+        render_dialog
         @network_worker.submit(-> { @library.authors(query: dialog.fetch(:query), page:) }) do |result, error|
           next unless @dialog.equal?(dialog)
 
           dialog.merge!(busy: false, result:, error: error && error_message(error))
-          refresh_window
+          refresh_dialog
         end
       end
 
@@ -248,12 +317,11 @@ module Aljam3
       end
 
       def draw_share
-        @share_feedback = para "رابط إلى الصفحة الحالية على الجامع.", size: 15, stroke: muted
+        para "رابط إلى الصفحة الحالية على الجامع.", size: 15, stroke: muted
         url = "https://aljam3.com/ar/#{@reader.fetch(:book).fetch('id')}/#{@reader.fetch(:file).fetch('id')}/#{@reader.fetch(:number)}"
         input(url, top: 32, width: 1.0, state: "readonly", align: "left", tooltip: "رابط الصفحة")
-        action("نسخ الرابط", icon: "copy", top: 84, right: 0, width: 132, variant: :solid) do
-          self.clipboard = url
-          @share_feedback.text = "تم نسخ الرابط"
+        action("نسخ الرابط", icon: "copy", top: 84, right: 0, width: 132, variant: :solid, live: "polite") do |control|
+          copy_with_feedback(url, control:, label: "نسخ الرابط")
         end
       end
     end

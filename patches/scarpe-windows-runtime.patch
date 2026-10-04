@@ -20,7 +20,7 @@ diff --git a/lacci/lib/shoes/app.rb b/lacci/lib/shoes/app.rb
 index 279d1db..cd78984 100644
 --- a/lacci/lib/shoes/app.rb
 +++ b/lacci/lib/shoes/app.rb
-@@ -24,7 +24,7 @@ class Shoes
+@@ -24,7 +24,7 @@
      # `owner` method returns the parent app.
      attr_reader :owner
  
@@ -29,7 +29,7 @@ index 279d1db..cd78984 100644
  
      # This is defined to avoid the linkable-id check in the Shoes-style method_missing def'n
      attr_reader :features
-@@ -59,6 +59,7 @@ class Shoes
+@@ -59,6 +59,7 @@
        resizable: true,
        features: [],
        owner: nil,
@@ -37,7 +37,17 @@ index 279d1db..cd78984 100644
        &app_code_body
      )
        log_init('Shoes::App')
-@@ -545,6 +546,10 @@ class Shoes::App < Shoes::Drawable
+@@ -542,9 +543,20 @@
+     Shoes::DisplayService.mouse_state_of(linkable_id)
+   end
+ 
++  # The OS accessibility preference. The native backend queries the desktop directly.
++  def reduced_motion?
++    Shoes::DisplayService.clear_builtin_response
++    Shoes::DisplayService.dispatch_event("builtin", nil, "reduced_motion", [])
++    Shoes::DisplayService.consume_builtin_response == true
++  end
++
    # Read the system clipboard contents.
    # Returns the clipboard text as a string, or "" if empty/unavailable.
    def clipboard
@@ -48,7 +58,7 @@ index 279d1db..cd78984 100644
      if RUBY_PLATFORM =~ /darwin/
        `pbpaste 2>/dev/null`.to_s
      elsif RUBY_PLATFORM =~ /linux/
-@@ -558,6 +563,10 @@ class Shoes::App < Shoes::Drawable
+@@ -558,6 +570,10 @@
  
    # Write text to the system clipboard.
    def clipboard=(text)
@@ -59,14 +69,13 @@ index 279d1db..cd78984 100644
      if RUBY_PLATFORM =~ /darwin/
        IO.popen("pbcopy", "w") { |p| p.write(text.to_s) }
      elsif RUBY_PLATFORM =~ /linux/
-diff --git a/lib/scarpe/native/builtins.rb b/lib/scarpe/native/builtins.rb
-index 094e681..5a6fdf6 100644
 --- a/lib/scarpe/native/builtins.rb
 +++ b/lib/scarpe/native/builtins.rb
-@@ -44,6 +44,10 @@ module Scarpe::Native
+@@ -44,6 +44,11 @@
  
      def answer(cmd_name, args)
        return dialog(cmd_name, args[0], args[1]) if DIALOGS.include?(cmd_name)
++      return @service.child.request(:reduced_motion)["value"] if cmd_name == "reduced_motion"
 +      if cmd_name == "clipboard"
 +        fields = args.empty? ? {} : { text: args.first.to_s }
 +        return @service.child.request(:clipboard, **fields)["value"]
@@ -74,8 +83,6 @@ index 094e681..5a6fdf6 100644
  
        if cmd_name == "font"
          @service.register_font(args.first)
-diff --git a/lib/scarpe/native/child.rb b/lib/scarpe/native/child.rb
-index c2e1581..2fda410 100644
 --- a/lib/scarpe/native/child.rb
 +++ b/lib/scarpe/native/child.rb
 @@ -95,13 +95,14 @@ module Scarpe::Native
@@ -127,9 +134,11 @@ diff --git a/native/src/automation.rs b/native/src/automation.rs
 index f6fcf69..ef7aa21 100644
 --- a/native/src/automation.rs
 +++ b/native/src/automation.rs
-@@ -29,6 +29,12 @@ impl Runtime {
+@@ -28,7 +28,14 @@
+     fn run_op(&mut self, req: u64, op: Op) -> Result<Option<Value>, (String, Value)> {
          let no_app = || ("no app to act on".to_string(), Value::Null);
          match op {
++            Op::ReducedMotion => Ok(Some(json!(crate::preferences::reduced_motion()))),
              Op::Ping => Ok(Some(json!("pong"))),
 +            Op::Clipboard { text } => {
 +                if let Some(text) = text {
@@ -140,8 +149,6 @@ index f6fcf69..ef7aa21 100644
              Op::Invalid(e) => Err((e, Value::Null)),
              Op::Dialog(dialog) => {
                  if self.opts.headless {
-diff --git a/native/src/main.rs b/native/src/main.rs
-index 4f030aa..50f6d96 100644
 --- a/native/src/main.rs
 +++ b/native/src/main.rs
 @@ -1,6 +1,8 @@
@@ -157,7 +164,7 @@ diff --git a/native/src/protocol.rs b/native/src/protocol.rs
 index dee92bc..297c279 100644
 --- a/native/src/protocol.rs
 +++ b/native/src/protocol.rs
-@@ -73,6 +73,7 @@ pub struct DialogRequest {
+@@ -73,6 +73,7 @@
  
  #[derive(Clone, Debug, PartialEq)]
  pub enum Op {
@@ -165,16 +172,24 @@ index dee92bc..297c279 100644
      Dialog(DialogRequest),
      Layout { app: Option<Id> },
      Snapshot { path: String, app: Option<Id>, scale: Option<f32> },
-@@ -260,6 +261,7 @@ fn op_fields(obj: &Map<String, Value>) -> Result<Op, ParseError> {
+@@ -96,6 +97,7 @@
+     A11y { app: Option<Id>, platform: bool },
+     /// What a screen reader asks of one node: click, focus, set_value, expand or collapse.
+     A11yAction { target: A11yTarget, action: String, value: Option<String>, app: Option<Id> },
++    ReducedMotion,
+     Ping,
+     /// Anything we cannot run still gets a reply, with this error.
+     Invalid(String),
+@@ -259,7 +261,9 @@
+             value: obj.get("value").filter(|v| !v.is_null()).map(crate::props::value_text),
              app,
          },
++        "reduced_motion" => Op::ReducedMotion,
          "ping" => Op::Ping,
 +        "clipboard" => Op::Clipboard { text: s(obj, "text") },
          other => Op::Invalid(format!("unknown op `{other}`")),
      })
  }
-diff --git a/native/src/window.rs b/native/src/window.rs
-index 32453c9..0bbce32 100644
 --- a/native/src/window.rs
 +++ b/native/src/window.rs
 @@ -29,7 +29,7 @@ use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, W

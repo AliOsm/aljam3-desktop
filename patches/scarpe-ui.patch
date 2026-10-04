@@ -1,21 +1,48 @@
+--- a/lacci/lib/shoes/drawable.rb
++++ b/lacci/lib/shoes/drawable.rb
+@@ -323,6 +323,8 @@
+ 
+     # Tooltip text shown on hover (HTML title attribute)
+     shoes_style :tooltip
++    shoes_styles :opacity, :inert, :accessibility_role, :accessibility_label
++    shoes_style :live # "polite" for non-interrupting status announcements
+ 
+     # The click handler is this style (manual 1144-1151, ledger G10): click: proc { }
+     # when the drawable is made, or whatever block click was last given.
 --- a/lacci/lib/shoes/drawables/button.rb
 +++ b/lacci/lib/shoes/drawables/button.rb
-@@ -5,6 +5,9 @@
+@@ -5,8 +5,14 @@
      include Shoes::Focusable
  
      shoes_styles :text, :width, :height, :top, :left, :color, :padding_top, :padding_bottom, :text_color, :size, :font_size, :tooltip, :icon, :icon_pos, :font, :stroke
 +    shoes_styles :variant, :border_color, :disabled_color
 +    shoes_styles :align
 +    shoes_styles :focus_inset
++    shoes_style :hover_amount
++    shoes_style :toggled
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
-     shoes_events :click
+-    shoes_events :click
++    shoes_events :click, :focus_changed
++    attr_writer :focus_changed
  
+     opt_init_args :text
+     # Creates a new Button object.
+@@ -43,6 +49,7 @@
+       bind_self_event("click") do
+         @click&.call(self)
+       end
++      bind_self_event("focus_changed") { |focused| @focus_changed&.call(self, focused) }
+ 
+       create_display_drawable
+     end
 --- a/lacci/lib/shoes/drawables/check.rb
 +++ b/lacci/lib/shoes/drawables/check.rb
-@@ -5,6 +5,7 @@
+@@ -4,7 +4,8 @@
+   class Check < Shoes::Drawable
      include Shoes::Focusable
  
-     shoes_styles :checked
+-    shoes_styles :checked
++    shoes_styles :checked, :switch_position
 +    shoes_styles :variant, :color, :background_color, :direction, :tooltip
      shoes_style :state # nil, "readonly" or "disabled" (manual 1410-1421, ledger G4)
      shoes_events :click
@@ -64,12 +91,44 @@
    include Shoes::DrawContext
 --- a/native/src/a11y.rs
 +++ b/native/src/a11y.rs
-@@ -192,14 +192,21 @@
+@@ -20,7 +20,7 @@
+ use crate::props::{Id, TextItem};
+ use crate::runtime::Runtime;
+ use crate::text::TextEngine;
+-use accesskit::{Action, ActionData, ActionRequest, Affine, HasPopup, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
++use accesskit::{Action, ActionData, ActionRequest, Affine, HasPopup, Live, Node, NodeId, Role, Toggled, Tree, TreeId, TreeUpdate};
+ use serde_json::{json, Map, Value};
+ use std::collections::{HashMap, HashSet};
+ use std::sync::atomic::{AtomicBool, Ordering};
+@@ -152,7 +152,7 @@
+ 
+     /// Laid out, and something a person reads or works.
+     fn takes_part(&self, id: Id) -> bool {
+-        self.layout.boxes.contains_key(&id)
++        !self.doc.is_inert(id) && self.layout.boxes.contains_key(&id)
+             && self.doc.get(id).is_some_and(|n| {
+                 !(n.kind.is_art() || n.kind.is_decor() || matches!(n.kind, Kind::Mask | Kind::SubscriptionItem | Kind::App | Kind::Unknown(_)))
+             })
+@@ -185,21 +185,34 @@
+         }
+         let built = match node.kind {
+             Kind::DocumentRoot | Kind::Stack | Kind::Flow | Kind::Widget => {
+-                let mut n = Node::new(Role::GenericContainer);
++                let dialog = node.props.str("accessibility_role") == Some("dialog");
++                let mut n = Node::new(if dialog { Role::Dialog } else { Role::GenericContainer });
++                if dialog { n.set_modal(); }
++                if let Some(label) = node.props.str("accessibility_label") { n.set_label(label.to_string()); }
+                 n.set_children(self.children(id));
+                 Some(n)
+             }
              Kind::Para | Kind::TextDrawable => self.text_block(id),
              Kind::Button => {
                  let mut n = Node::new(Role::Button);
 -                n.set_label(node.props.text("text").unwrap_or_default());
 +                n.set_label(node.props.text("text").filter(|t| !t.trim().is_empty()).or_else(|| tooltip(node)).unwrap_or_default());
++                if let Some(toggled) = node.props.get("toggled").and_then(Value::as_bool) {
++                    n.set_toggled(if toggled { Toggled::True } else { Toggled::False });
++                }
                  works(&mut n, node, &[Action::Click, Action::Focus]);
                  Some(n)
              }
@@ -89,7 +148,17 @@
                  works(&mut n, node, &[Action::Click, Action::Focus]);
                  Some(n)
              }
-@@ -330,6 +337,11 @@
+@@ -241,6 +254,9 @@
+         }
+         if let Some(tip) = tooltip(node) {
+             n.set_description(tip);
++        }
++        if node.props.str("live") == Some("polite") {
++            n.set_live(Live::Polite);
+         }
+         self.nodes.push((nid, n));
+         Some(nid)
+@@ -330,6 +346,11 @@
          let text = self.view.fields.get(&node.id).map(|f| f.text()).or_else(|| node.props.text("text")).unwrap_or_default();
          n.set_value(if secret { text.chars().map(|_| text_field::BULLET).collect() } else { text });
          n.set_labelled_by(self.label_beside(before).into_iter().collect::<Vec<_>>());
@@ -101,6 +170,34 @@
          if readonly(node) {
              n.set_read_only();
              works(&mut n, node, &[Action::Click, Action::Focus]);
+@@ -515,7 +536,7 @@
+             if !shown {
+                 return Err(format!("{} {id} is not laid out", node.class));
+             }
+-            if disabled(node) {
++            if disabled(node) || self.doc.is_inert(node.id) {
+                 return Err(format!("{} {id} is disabled", node.class));
+             }
+             (node.kind.clone(), clickable_image(node), readonly(node))
+@@ -557,7 +578,7 @@
+     /// drawable, a para's runs of text, take no action.
+     fn option_action(&mut self, app: Id, list_box: Id, index: usize, action: Action) -> Result<(), String> {
+         let node = self.doc.get(list_box).filter(|n| n.kind == Kind::ListBox).ok_or_else(|| format!("part {index} of {list_box} takes no action"))?;
+-        if disabled(node) {
++        if disabled(node) || self.doc.is_inert(node.id) {
+             return Err(format!("ListBox {list_box} is disabled"));
+         }
+         let item = list_box::items(node).get(index).cloned().ok_or_else(|| format!("the list box has no item {index}"))?;
+@@ -699,6 +720,9 @@
+     }
+     if let Some(toggled) = node.toggled() {
+         out.insert("toggled".into(), if toggled == Toggled::Mixed { json!("mixed") } else { json!(toggled == Toggled::True) });
++    }
++    if data.live() == Some(Live::Polite) {
++        out.insert("live".into(), json!("polite"));
+     }
+     if let Some(v) = node.numeric_value() {
+         out.insert("numeric".into(), json!({"value": v, "min": node.min_numeric_value(), "max": node.max_numeric_value()}));
 --- a/native/src/elements/button.rs
 +++ b/native/src/elements/button.rs
 @@ -1,9 +1,10 @@
@@ -154,7 +251,7 @@
      let ((dx, dy), _) = arrange(node, w, h - SHADOW, (shaped.width, shaped.height));
      Label { shaped, dx, dy }
  }
-@@ -140,24 +153,47 @@
+@@ -140,24 +153,48 @@
  ) {
      let (bx, r) = (lbox.rect, face(lbox.rect));
      let clip = lbox.clip;
@@ -178,10 +275,11 @@
 +    if flat {
 +        let variant = node.props.str("variant").unwrap();
 +        let color = node.props.color("color").unwrap_or(Color::WHITE);
++        let hover = node.props.f32("hover_amount").unwrap_or(if state.hovered { 1.0 } else { 0.0 }).clamp(0.0, 1.0);
 +        let fill = if variant == "ghost" && color.is_invisible() {
-+            label_color(node).with_alpha(if state.pressed { 24 } else if state.hovered { 12 } else { 0 })
++            label_color(node).with_alpha(if state.pressed { 24 } else { (12.0 * hover).round() as u8 })
 +        } else {
-+            tint(color, if state.pressed { 0.92 } else if state.hovered { 0.97 } else { 1.0 })
++            tint(color, if state.pressed { 0.92 } else { 1.0 - 0.03 * hover })
 +        };
 +        if state.focused && !node.props.truthy("focus_inset") {
 +            focus_ring_in(canvas, r, RADIUS, node.props.color("stroke").unwrap_or(super::ACCENT), clip);
@@ -241,7 +339,7 @@
      let b = box_rect(lbox.rect);
      let clip = lbox.clip;
      if state.focused {
-@@ -47,3 +51,18 @@
+@@ -47,3 +51,21 @@
          canvas.stroke_rounded(b, 4.0, border, 1.0, clip);
      }
  }
@@ -251,10 +349,13 @@
 +    let track = Rect::new(r.x + (r.w - 36.0) / 2.0, r.y + (r.h - 20.0) / 2.0, 36.0, 20.0);
 +    let checked = node.props.truthy("checked");
 +    let accent = node.props.color("color").unwrap_or(ACCENT);
-+    let fill = if checked { accent } else { node.props.color("background_color").unwrap_or(FIELD_BORDER) };
++    let position = node.props.f32("switch_position").unwrap_or(if checked { 1.0 } else { 0.0 }).clamp(0.0, 1.0);
++    let off = node.props.color("background_color").unwrap_or(FIELD_BORDER);
++    let mix = |a: u8, b: u8| (a as f32 + (b as f32 - a as f32) * position).round() as u8;
++    let fill = Color::rgba(mix(off.r, accent.r), mix(off.g, accent.g), mix(off.b, accent.b), mix(off.a, accent.a));
 +    canvas.fill_rounded(track, 10.0, fill, lbox.clip);
-+    let on_right = checked != (node.props.str("direction") == Some("rtl"));
-+    let thumb = Rect::new(track.x + if on_right { 18.0 } else { 2.0 }, track.y + 2.0, 16.0, 16.0);
++    let offset = if node.props.str("direction") == Some("rtl") { 1.0 - position } else { position };
++    let thumb = Rect::new(track.x + 2.0 + 16.0 * offset, track.y + 2.0, 16.0, 16.0);
 +    canvas.fill_rounded(thumb, 8.0, Color::WHITE, lbox.clip);
 +    if state.focused {
 +        focus_ring_in(canvas, r, 6.0, accent, lbox.clip);
@@ -441,20 +542,74 @@
 +}
 --- a/native/src/input.rs
 +++ b/native/src/input.rs
-@@ -896,9 +896,13 @@
+@@ -408,7 +408,7 @@
+ /// on the line.
+ fn covers(doc: &Doc, layout: &Layout, id: Id, x: f32, y: f32) -> bool {
+     let Some(node) = doc.get(id) else { return false };
+-    if node.kind.is_decor() || id == layout.root {
++    if node.kind.is_decor() || id == layout.root || doc.is_inert(id) {
+         return false;
+     }
+     let Some(b) = layout.boxes.get(&id) else { return false };
+@@ -520,7 +520,7 @@
+         layout
+             .subscriptions
+             .iter()
+-            .filter(|&&item| api(&self.doc, item) == Some(name))
++            .filter(|&&item| !self.doc.is_inert(item) && api(&self.doc, item) == Some(name))
+             .filter_map(|&item| {
+                 let parent = self.doc.get(item)?.parent?;
+                 Some((item, layout.boxes.get(&parent)?.clone()))
+@@ -894,11 +894,20 @@
+     }
+ 
      pub fn set_focus(&mut self, app: Id, id: Option<Id>) {
++        if id.is_some_and(|i| self.doc.is_inert(i)) { return; }
          let Some(view) = self.views.get_mut(&app) else { return };
          if view.ui.focus != id {
-+            if let Some(previous) = view.ui.focus.filter(|i| self.doc.get(*i).is_some_and(|n| n.kind.is_text_input())) {
++            if let Some(previous) = view.ui.focus.filter(|i| self.doc.get(*i).is_some_and(|n| n.kind.is_text_input() || n.kind == Kind::Button)) {
 +                self.out.event("focus_changed", Some(previous), vec![json!(false)]);
 +            }
              view.ui.focus = id;
-             if let Some(node) = id.and_then(|i| self.doc.get(i)).filter(|n| n.kind.is_text_input()) {
-                 text_field::ensure(&mut view.ui.fields, node, &mut self.text.fonts);
-+                self.out.event("focus_changed", Some(node.id), vec![json!(true)]);
+-            if let Some(node) = id.and_then(|i| self.doc.get(i)).filter(|n| n.kind.is_text_input()) {
+-                text_field::ensure(&mut view.ui.fields, node, &mut self.text.fonts);
++            if let Some(node) = id.and_then(|i| self.doc.get(i)) {
++                if node.kind.is_text_input() {
++                    text_field::ensure(&mut view.ui.fields, node, &mut self.text.fonts);
++                }
++                if node.kind.is_text_input() || node.kind == Kind::Button {
++                    self.out.event("focus_changed", Some(node.id), vec![json!(true)]);
++                }
              }
              self.request_redraw(app);
          }
+@@ -978,7 +987,7 @@
+     fn editable_focus(&self, app: Id) -> Option<Id> {
+         let id = self.views.get(&app)?.ui.focus?;
+         let node = self.doc.get(id).filter(|n| n.kind.is_text_input())?;
+-        (!crate::elements::readonly(node) && !crate::elements::disabled(node)).then_some(id)
++        (!self.doc.is_inert(id) && !crate::elements::readonly(node) && !crate::elements::disabled(node)).then_some(id)
+     }
+ 
+     /// Text an input method committed (a dead key's accent, a word of Japanese): into the
+@@ -1035,7 +1044,7 @@
+         if self.popup_key(app, &key) {
+             return;
+         }
+-        let focus = self.views[&app].ui.focus.filter(|id| self.doc.get(*id).is_some_and(|n| !crate::elements::disabled(n)));
++        let focus = self.views[&app].ui.focus.filter(|id| !self.doc.is_inert(*id) && self.doc.get(*id).is_some_and(|n| !crate::elements::disabled(n)));
+         let focus_kind = focus.and_then(|id| self.doc.get(id)).map(|n| n.kind.clone());
+         let tab = key.key == Key::Named(Named::Tab) && !key.modified();
+         // A button, check, radio or list box takes keys only while it shows its focus ring,
+@@ -1130,7 +1139,7 @@
+             .order
+             .iter()
+             .copied()
+-            .filter(|id| self.doc.get(*id).is_some_and(|n| n.kind.is_focusable() && !crate::elements::disabled(n)) && layout.visible_rect(*id).is_some())
++            .filter(|id| !self.doc.is_inert(*id) && self.doc.get(*id).is_some_and(|n| n.kind.is_focusable() && !crate::elements::disabled(n)) && layout.visible_rect(*id).is_some())
+             .collect();
+         if order.is_empty() {
+             return false;
 --- a/native/src/layout/mod.rs
 +++ b/native/src/layout/mod.rs
 @@ -12,7 +12,7 @@
@@ -709,7 +864,39 @@
  #[test]
 --- a/native/src/paint/decor.rs
 +++ b/native/src/paint/decor.rs
-@@ -51,7 +51,7 @@
+@@ -8,14 +8,15 @@
+ use tiny_skia::{FillRule, LineJoin, Stroke, Transform};
+ 
+ /// Fills the slot's box (or the background's own width/height), rounded by `curve`.
+-pub fn background(canvas: &mut Canvas, node: &Node, lbox: &LBox, images: &mut ImageCache) {
++pub fn background(canvas: &mut Canvas, node: &Node, lbox: &LBox, images: &mut ImageCache, opacity: f32) {
+     let Some(paint) = node.props.paint("fill") else { return };
+     if !paint.is_visible() {
+         return;
+     }
+     let curve = node.props.f32("curve").unwrap_or(0.0);
+     let Some(path) = canvas.rect_path(lbox.rect, curve, 0.0) else { return };
+-    with_shader(&paint, lbox.rect, images, |shader| {
++    with_shader(&paint, lbox.rect, images, |mut shader| {
++        shader.apply_opacity(opacity);
+         canvas.fill_path(&path, shader, FillRule::Winding, Transform::identity(), lbox.clip);
+     });
+ }
+@@ -41,17 +42,17 @@
+ const SCROLLBAR: Color = Color::rgba(0, 0, 0, 90);
+ 
+ /// A thin overlay thumb on every slot whose content overflows it.
+-pub fn scrollbars(canvas: &mut Canvas, layout: &Layout) {
+-    for (id, s) in &layout.scrollers {
++pub fn scrollbar(canvas: &mut Canvas, layout: &Layout, id: crate::props::Id) {
++    if let Some(s) = layout.scrollers.get(&id) {
+         if s.max_top() <= 0.5 {
+-            continue;
++            return;
+         }
+         let v = s.viewport;
+-        let clip = layout.boxes.get(id).and_then(|b| b.clip);
++        let clip = layout.boxes.get(&id).and_then(|b| b.clip);
          let track = v.h - 4.0;
          let thumb = (track * v.h / s.content_height).max(24.0).min(track);
          let y = v.y + 2.0 + (track - thumb) * (s.top / s.max_top());
@@ -721,10 +908,28 @@
  }
 --- a/native/tests/a11y.rs
 +++ b/native/tests/a11y.rs
-@@ -80,6 +80,24 @@
+@@ -80,6 +80,42 @@
      assert_eq!(button["actions"], json!(["click", "focus"]));
      let laid = h.node(|n| n["id"] == 3);
      assert_eq!(button["bounds"], json!([laid["x"], laid["y"], laid["w"], laid["h"]]), "where the layout put it");
++}
++
++#[test]
++fn quiet_feedback_exposes_live_text_and_bookmark_state_without_moving_focus() {
++    let mut h = Harness::new();
++    h.feed(&app(400, 240, &[
++        create(3, "Button", 2, json!({"text": "Bookmark", "toggled": false})),
++        create(4, "Para", 2, json!({"text_items": ["Online"], "live": "polite"})),
++    ]));
++    h.req(json!({"op": "click", "target": {"id": 3}}));
++    h.feed(&format!("{}\n{}\n{}\n", json!({"t": "props", "id": 3, "props": {"toggled": true}}),
++        json!({"t": "props", "id": 4, "props": {"text_items": ["Offline books"]}}), json!({"t": "flush"})));
++    let button = one(&mut h, "button");
++    assert_eq!(button["toggled"], json!(true));
++    assert_eq!(button["focused"], json!(true));
++    let status = nodes(&mut h).into_iter().find(|n| n["id"] == 4).unwrap();
++    assert_eq!(status["live"], json!("polite"));
++    assert_eq!(status["value"], json!("Offline books"));
 +}
 +
 +#[test]
@@ -746,7 +951,7 @@
  }
  
  #[test]
-@@ -543,3 +561,19 @@
+@@ -543,3 +579,48 @@
      let (b2, b1) = (bounds(&at_2x), bounds(&at_1x));
      assert_eq!(b2, b1.iter().map(|v| v * 2.0).collect::<Vec<_>>(), "AccessKit counts device pixels");
  }
@@ -765,6 +970,35 @@
 +    let mut h = Harness::new();
 +    h.feed(&app(200, 100, &[create(3, "EditLine", 2, json!({"text":"", "tooltip":"Search books"}))]));
 +    assert_eq!(one(&mut h, "text_input")["name"], json!("Search books"));
++}
++
++#[test]
++fn inert_content_is_painted_but_cannot_take_pointer_keyboard_or_accessibility_input() {
++    let mut h = Harness::new();
++    h.feed(&app(300, 200, &[
++        create(3, "Stack", 2, json!({"width":140,"height":100})),
++        create(4, "EditLine", 3, json!({"text":"kept","width":100})),
++        create(5, "Button", 3, json!({"text":"Behind"})),
++        create(6, "Button", 2, json!({"text":"Dialog", "left":160,"top":20})),
++    ]));
++    h.feed(r#"{"t":"focus","id":4}"#);
++    h.feed(r#"{"t":"props","id":3,"props":{"inert":true}}"#);
++    assert_eq!(h.value(json!({"op":"focused"})), Value::Null);
++    assert!(!tree(&mut h).to_string().contains("Behind"));
++    let (events, _) = h.req(json!({"op":"click","target":{"id":5}}));
++    assert!(!events.iter().any(|e| e["name"] == "click" && e["target"] == 5));
++    h.feed(r#"{"t":"focus","id":4}"#);
++    assert_eq!(h.value(json!({"op":"focused"})), Value::Null);
++    let (_, denied) = h.req(json!({"op":"a11y_action","id":5,"action":"click"}));
++    assert!(denied["error"].is_string());
++    h.value(json!({"op":"key","key":"tab"}));
++    assert_eq!(h.value(json!({"op":"focused"})), json!(6));
++    h.value(json!({"op":"key","key":"tab"}));
++    assert_eq!(h.value(json!({"op":"focused"})), json!(6));
++    h.feed(r#"{"t":"props","id":3,"props":{"inert":false}}"#);
++    assert!(tree(&mut h).to_string().contains("Behind"));
++    h.feed(r#"{"t":"focus","id":4}"#);
++    assert_eq!(h.value(json!({"op":"focused"})), json!(4));
 +}
 --- a/native/tests/protocol.rs
 +++ b/native/tests/protocol.rs
@@ -874,7 +1108,7 @@
 +}
 --- a/native/tests/text_input.rs
 +++ b/native/tests/text_input.rs
-@@ -270,3 +270,125 @@
+@@ -270,3 +270,143 @@
      assert!(bold.len() * 10 > plain.len() * 13, "bold puts down at least 30% more ink: {} against {}", plain.len(), bold.len());
      assert!(lean(&italic) > lean(&plain) + 0.5, "italic leans right: {:.2} against {:.2}", lean(&plain), lean(&italic));
  }
@@ -999,4 +1233,246 @@
 +    assert_eq!(focused.len(), 2);
 +    assert_eq!((focused[0].1.clone(), focused[0].2.clone()), (json!(3), json!([false])));
 +    assert_eq!((focused[1].1.clone(), focused[1].2.clone()), (json!(4), json!([true])));
++}
++#[test]
++fn buttons_report_focus_so_timed_notifications_can_wait_for_keyboard_users() {
++    let mut h = Harness::new();
++    h.feed(&app(400, 240, &[
++        create(3, "EditLine", 2, json!({"text": "Search"})),
++        create(4, "Button", 2, json!({"text": "Dismiss"})),
++    ]));
++    h.req(json!({"op": "click", "target": {"id": 3}}));
++    let (messages, _) = h.req(json!({"op": "key", "key": "tab"}));
++    let changes = events(&messages);
++    let focused = named(&changes, "focus_changed");
++    assert_eq!(focused.len(), 2);
++    assert_eq!((focused[1].1.clone(), focused[1].2.clone()), (json!(4), json!([true])));
++    let (messages, _) = h.req(json!({"op": "key", "key": "shift_tab"}));
++    let changes = events(&messages);
++    let focused = named(&changes, "focus_changed");
++    assert_eq!((focused[0].1.clone(), focused[0].2.clone()), (json!(4), json!([false])));
++}
+--- a/native/src/lib.rs
++++ b/native/src/lib.rs
+@@ -15,6 +15,7 @@
+ pub mod limits;
+ pub mod paint;
+ pub mod props;
++pub mod preferences;
+ pub mod protocol;
+ pub mod runtime;
+ pub mod style;
+--- /dev/null
++++ b/native/src/preferences.rs
+@@ -0,0 +1,28 @@
++//! Desktop accessibility preferences, without shell commands or console processes.
++
++#[cfg(target_os = "windows")]
++pub fn reduced_motion() -> bool {
++    #[link(name = "user32")]
++    unsafe extern "system" {
++        fn SystemParametersInfoW(action: u32, param: u32, value: *mut std::ffi::c_void, flags: u32) -> i32;
++    }
++    let mut animations: i32 = 1;
++    // SPI_GETCLIENTAREAANIMATION writes a BOOL to an initialized, writable pointer.
++    unsafe { SystemParametersInfoW(0x1042, 0, (&mut animations as *mut i32).cast(), 0); }
++    animations == 0
++}
++
++#[cfg(target_os = "macos")]
++pub fn reduced_motion() -> bool {
++    use objc2::{class, msg_send, runtime::AnyObject};
++    // NSWorkspace's shared instance lives for the process; the accessibility getter is BOOL.
++    unsafe {
++        let workspace: *mut AnyObject = msg_send![class!(NSWorkspace), sharedWorkspace];
++        let reduced: bool = msg_send![workspace, accessibilityDisplayShouldReduceMotion];
++        reduced
++    }
++}
++
++// The packaged targets are Windows and macOS. Linux retains the explicit app preference.
++#[cfg(not(any(target_os = "windows", target_os = "macos")))]
++pub fn reduced_motion() -> bool { false }
+--- a/native/src/doc.rs
++++ b/native/src/doc.rs
+@@ -460,6 +460,16 @@
+         out
+     }
+ 
++    /// An inert subtree stays painted, but takes no input or accessibility focus.
++    pub fn is_inert(&self, id: Id) -> bool {
++        let mut current = Some(id);
++        while let Some(node) = current.and_then(|i| self.get(i)) {
++            if node.props.truthy("inert") { return true; }
++            current = node.parent;
++        }
++        false
++    }
++
+     /// Whether `id` is `ancestor` or sits somewhere inside it.
+     pub fn is_descendant_of(&self, id: Id, ancestor: Id) -> bool {
+         let mut current = Some(id);
+--- a/native/src/runtime.rs
++++ b/native/src/runtime.rs
+@@ -300,6 +300,9 @@
+             return;
+         }
+         self.revisions.touch(id);
++        let inert_focus: Vec<_> = self.views.iter().filter_map(|(app, v)|
++            v.ui.focus.filter(|i| self.doc.is_inert(*i)).map(|_| *app)).collect();
++        for app in inert_focus { self.set_focus(app, None); }
+         let kind = self.doc.get(id).map(|n| n.kind.clone());
+         match kind {
+             Some(Kind::App) => {
+@@ -664,10 +667,12 @@
+ /// paint reads them from the node itself. A line's strokewidth is not one (its box includes the
+ /// stroke), nor is anything a Para shapes into its text.
+ fn changes_only_looks(kind: &Kind, key: &str) -> bool {
++    if matches!(key, "opacity" | "inert") { return true; }
+     match kind {
++        Kind::Button => key == "hover_amount",
+         k if k.is_art() => matches!(key, "fill" | "stroke" | "cap"),
+         Kind::Background | Kind::Border => matches!(key, "fill" | "stroke" | "strokewidth" | "curve"),
+-        Kind::Check | Kind::Radio => key == "checked",
++        Kind::Check | Kind::Radio => matches!(key, "checked" | "switch_position"),
+         Kind::Progress | Kind::Slider => key == "fraction",
+         Kind::EditLine | Kind::EditBox => key == "text",
+         Kind::Para | Kind::TextDrawable => matches!(key, "text_cursor" | "text_marker"),
+--- a/native/src/paint/mod.rs
++++ b/native/src/paint/mod.rs
+@@ -401,7 +401,6 @@
+     canvas.pm.fill(BACKGROUND.to_skia());
+     let layout = scene.layout;
+     paint_run(scene, &mut canvas, &layout.order, only, 0);
+-    decor::scrollbars(&mut canvas, layout);
+     elements::list_box::paint_popup(&mut canvas, scene.view, scene.text);
+     if scene.view.popup.is_none() {
+         elements::tooltip::paint(&mut canvas, scene.view.tooltip.as_mut(), scene.text, layout.size);
+@@ -412,19 +411,68 @@
+ /// Paints a run of the paint order. A slot holding a mask paints the rest of its
+ /// contents through the mask's alpha, as Shoes 3 does (s3_canvas.c:531-613). Masks nested
+ /// deeper than limits::MAX_MASK_DEPTH paint unmasked: each level holds two frame-sized layers.
+-fn paint_run(scene: &mut Scene, canvas: &mut Canvas, ids: &[Id], only: Option<Rect>, mask_depth: usize) {
++fn paint_run(scene: &mut Scene, canvas: &mut Canvas, ids: &[Id], only: Option<Rect>, depth: usize) {
+     let mut i = 0;
+     while i < ids.len() {
+-        let masks = if mask_depth < crate::limits::MAX_MASK_DEPTH { masks_in(scene, ids[i]) } else { Vec::new() };
+-        if masks.is_empty() {
+-            paint_node(scene, canvas, ids[i], only);
+-            i += 1;
+-        } else {
+-            let end = subtree_end(scene.doc, ids, i);
+-            paint_masked(scene, canvas, &ids[i + 1..end], &masks, only, mask_depth + 1);
+-            i = end;
+-        }
+-    }
++        let id = ids[i];
++        let end = subtree_end(scene.doc, ids, i);
++        let opacity = scene.doc.get(id).and_then(|n| n.props.f32("opacity")).unwrap_or(1.0).clamp(0.0, 1.0);
++        if opacity > 0.0 {
++            if opacity < 1.0 && scene.doc.get(id).is_some_and(|n| n.kind == Kind::Background) {
++                if let (Some(node), Some(lbox)) = (scene.doc.get(id), scene.layout.boxes.get(&id)) {
++                    decor::background(canvas, node, lbox, scene.images, opacity);
++                }
++            } else if opacity < 1.0 && depth < crate::limits::MAX_MASK_DEPTH {
++                paint_translucent(scene, canvas, &ids[i..end], only, depth + 1, opacity);
++            } else {
++                paint_group(scene, canvas, &ids[i..end], only, depth);
++            }
++        }
++        i = end;
++    }
++}
++
++// A popup needs a layer only as large as its visible ink, not a window-sized
++// allocation and blend on every frame. Reuse the damage bounds, including text overhang.
++fn paint_translucent(scene: &mut Scene, canvas: &mut Canvas, ids: &[Id], only: Option<Rect>, depth: usize, opacity: f32) {
++    let mut bounds: Option<Rect> = None;
++    let window = Rect::new(0.0, 0.0, scene.layout.size.0, scene.layout.size.1);
++    for id in ids {
++        let (Some(node), Some(lbox)) = (scene.doc.get(*id), scene.layout.boxes.get(id)) else { continue };
++        let rect = damage::paint_bounds(node, lbox, scene.layout.texts.get(id)).unwrap_or(window);
++        bounds = Some(match bounds {
++            None => rect,
++            Some(b) => {
++                let (x, y) = (b.x.min(rect.x), b.y.min(rect.y));
++                Rect::new(x, y, b.right().max(rect.right()) - x, b.bottom().max(rect.bottom()) - y)
++            }
++        });
++    }
++    let Some(b) = bounds else { return };
++    let (ox, oy) = canvas.origin;
++    let x = (b.x * canvas.scale - 4.0).floor().clamp(ox as f32, (ox + canvas.pm.width() as i32) as f32) as i32;
++    let y = (b.y * canvas.scale - 4.0).floor().clamp(oy as f32, (oy + canvas.pm.height() as i32) as f32) as i32;
++    let right = (b.right() * canvas.scale + 4.0).ceil().clamp(ox as f32, (ox + canvas.pm.width() as i32) as f32) as i32;
++    let bottom = (b.bottom() * canvas.scale + 4.0).ceil().clamp(oy as f32, (oy + canvas.pm.height() as i32) as f32) as i32;
++    if right <= x || bottom <= y { return; }
++    if let Some(mut layer) = Pixmap::new((right - x) as u32, (bottom - y) as u32) {
++        paint_group(scene, &mut Canvas::at(&mut layer, canvas.scale, (x, y)), ids, only, depth);
++        let paint = PixmapPaint { opacity, ..PixmapPaint::default() };
++        canvas.pm.draw_pixmap(x - ox, y - oy, layer.as_ref(), &paint, Transform::identity(), None);
++    }
++}
++
++// Composite a group once: independently fading its overlapping children is incorrect.
++fn paint_group(scene: &mut Scene, canvas: &mut Canvas, ids: &[Id], only: Option<Rect>, depth: usize) {
++    let id = ids[0];
++    let masks = if depth < crate::limits::MAX_MASK_DEPTH { masks_in(scene, id) } else { Vec::new() };
++    paint_node(scene, canvas, id, only);
++    if masks.is_empty() {
++        paint_run(scene, canvas, &ids[1..], only, depth);
++    } else {
++        paint_masked(scene, canvas, &ids[1..], &masks, only, depth + 1);
++    }
++    decor::scrollbar(canvas, scene.layout, id);
+ }
+ 
+ /// The laid-out Mask children of a slot.
+@@ -473,7 +521,7 @@
+         return;
+     }
+     match &node.kind {
+-        Kind::Background => decor::background(canvas, node, lbox, scene.images),
++        Kind::Background => decor::background(canvas, node, lbox, scene.images, 1.0),
+         Kind::Border => decor::border(canvas, node, lbox, scene.images),
+         // Art inside a shape block is painted with its shape, as one path.
+         k if k.is_art() && shapes::in_shape(doc, node) => {}
+--- a/native/src/paint/damage.rs
++++ b/native/src/paint/damage.rs
+@@ -256,6 +256,9 @@
+     }
+     let mut changed = HashSet::new();
+     for id in revisions.changed_after(before.revision) {
++        if doc.get(id).is_some_and(|n| n.kind.is_slot()) {
++            changed.extend(now.order.iter().copied().filter(|child| doc.is_descendant_of(*child, id)));
++        }
+         if now.nodes.contains_key(&id) || before.nodes.contains_key(&id) {
+             changed.insert(id);
+         } else if let Some(painted) = painted_ancestor(doc, now, id) {
+--- a/native/tests/damage.rs
++++ b/native/tests/damage.rs
+@@ -546,3 +546,24 @@
+     props(&mut h, 3, json!({"stroke": {"rgba": [0, 0, 255, 255]}}));
+     window.repaint(&mut h);
+ }
++
++#[test]
++fn fading_and_moving_groups_including_scrollbars_match_full_repaints() {
++    let mut h = Harness::new();
++    h.feed(&app(480, 320, &[
++        create(3, "Background", 2, json!({"fill":"#ffffff"})),
++        create(4, "Stack", 2, json!({"left":20,"top":20,"width":200,"height":150,"scroll":true,"opacity":1.0})),
++        create(5, "Background", 4, json!({"fill":"#ae4721","curve":6})),
++        create(6, "Stack", 4, json!({"width":150,"height":600})),
++        create(7, "Para", 6, json!({"text_items":["A panel that fades with its text and scrollbar."]})),
++        create(8, "Button", 6, json!({"text":"Choice"})),
++    ]));
++    let mut window = Window::open(&mut h, 2.0);
++    for opacity in [0.8, 0.3, 0.0, 0.2, 1.0] {
++        props(&mut h, 4, json!({"opacity":opacity}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"top":20.0 + opacity * 8.0}));
++        window.repaint(&mut h);
++    }
++    assert_eq!(window.repaint(&mut h), Repaint::Nothing);
 +}

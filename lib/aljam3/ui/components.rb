@@ -15,7 +15,7 @@ module Aljam3
       end
 
       def scroll_area(bottom_padding: 16, **styles, &block)
-        area = stack(left: -SCROLL_GUTTER, width: @main_width + SCROLL_GUTTER, direction: "rtl", scroll: !@dialog, **styles) do
+        area = stack(left: -SCROLL_GUTTER, width: @main_width + SCROLL_GUTTER, direction: "rtl", scroll: true, **styles) do
           stack(margin: [SCROLL_GUTTER, 0, 0, bottom_padding], &block)
         end
         if @drawing_dialog
@@ -99,35 +99,36 @@ module Aljam3
       def action(label, icon: nil, variant: :outline, selected: false, key: nil, **styles, &block)
         color = selected ? accent : { solid: primary, outline: card_color, ghost: "transparent" }.fetch(variant)
         styles[:icon] = asset_path("icons", icon, theme: variant == :solid && !selected ? :dark : @theme) if icon
-        styles[:state] = "disabled" if @dialog && !@drawing_dialog
         styles[:height] ||= 36 + styles.fetch(:margin_top, 0) + styles.fetch(:margin_bottom, 0)
         styles[:icon_pos] ||= %w[arrow-left chevron-down].include?(icon) ? "left" : "right"
         key ||= styles[:tooltip] || label
         control = button(label, variant: variant.to_s, color:, text_color: variant == :solid && !selected ? "#ffffff" : ink,
-          border_color: line_color, disabled_color: @dialog && !@drawing_dialog ? rgb(0, 0, 0, 0) : card_color, stroke: primary, focus_inset: true, **styles) do |clicked|
+          border_color: line_color, disabled_color: card_color, stroke: primary, focus_inset: true, hover_amount: 0.0, **styles) do |clicked|
           @editing_field = nil
           @last_action_key = key
           @last_action_rect = Shoes::DisplayService.layout_cache[clicked.linkable_id]&.first(4)
           block&.call(clicked)
         end
+        animate_hover(control)
+        feedback = @drawing_notification || @drawing_dialog
+        control.focus_changed = proc { |focused_control, focused| @last_content_focus = focused_control if focused && !feedback }
         (@action_views ||= {})[key] = control
         control
       end
 
       def input(text = "", **styles, &block)
-        styles[:state] = "disabled" if @dialog && !@drawing_dialog
         field = edit_line(text, align: "right", disabled_color: card_color, placeholder_color: muted, focus_inset: true, focus_color: primary, **styles) do |control|
           block&.call(control)
         end
+        dialog = @drawing_dialog
         field.focus_changed = proc do |control, focused|
           @editing_field = focused ? control : nil if focused || @editing_field == control
+          @last_content_focus = control if focused && !dialog
         end
         field
       end
 
       def text_link(text, **styles, &block)
-        return span(text, **styles) if @dialog && !@drawing_dialog
-
         link(text, **styles) { @editing_field = nil; block.call }
       end
 
@@ -137,7 +138,7 @@ module Aljam3
 
       def dropdown(choices, selected:, key:, **styles, &select)
         action(choices.fetch(selected), icon: "chevron-down", key:, **styles) do
-          open_dialog(:select, choices: choices.map { |value, label| [label, value] }, selected:, selection: select)
+          open_dialog(:select, nested: !!@dialog, choices: choices.map { |value, label| [label, value] }, selected:, selection: select)
         end
       end
 

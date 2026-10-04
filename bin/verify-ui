@@ -9,24 +9,32 @@ require "timeout"
 require "json"
 
 root = File.expand_path("..", __dir__)
-output = File.join(root, ".cache/preview/parity")
+probe = ARGV.empty? ? "ui" : ARGV.shift
+abort "Usage: bin/verify-ui [feedback|motion|motion_benchmark]" unless %w[ui feedback motion motion_benchmark].include?(probe) && ARGV.empty?
+output = File.join(root, ".cache/preview/#{probe == 'ui' ? 'parity' : probe}")
 FileUtils.mkdir_p(output)
-FileUtils.rm_f(File.join(output, "passed.json"))
+%w[passed.json failed.txt].each { |name| FileUtils.rm_f(File.join(output, name)) }
 Dir.mktmpdir("aljam3-ui-") do |scratch|
   env = {
-    "HOME" => scratch, "BUNDLE_GEMFILE" => File.join(root, "Gemfile"),
+    "HOME" => scratch, "USERPROFILE" => scratch, "LOCALAPPDATA" => scratch, "BUNDLE_GEMFILE" => File.join(root, "Gemfile"),
     "ALJAM3_DATA_DIR" => File.join(scratch, "data"), "ALJAM3_VERIFY_OUTPUT" => output,
-    "ALJAM3_API_URL" => "https://aljam3.com", "SCARPE_NATIVE_HEADLESS" => "1",
-    "SCARPE_NATIVE_BIN" => File.join(root, "vendor/scarpe/native/target/release/scarpe-native"),
-    "PATH" => "#{root}/vendor/scarpe/spec/support/fakebin:#{ENV.fetch('PATH')}",
+    "ALJAM3_API_URL" => probe == "ui" ? "https://aljam3.com" : "http://127.0.0.1:1", "SCARPE_NATIVE_HEADLESS" => "1",
+    "SCARPE_NATIVE_BIN" => File.join(root, "vendor/scarpe/native/target/release/scarpe-native#{Gem.win_platform? ? '.exe' : ''}"),
+    "PATH" => [File.join(root, "vendor/scarpe/spec/support/fakebin"), ENV.fetch("PATH")].join(File::PATH_SEPARATOR),
+    "ALJAM3_BENCHMARK_PDF" => File.join(root, ".cache/smoke/books/1/1.pdf"),
+    "SCARPE_NATIVE_STATS" => probe == "motion_benchmark" ? output : nil,
     "SPEC_TRAP_FILE" => File.join(scratch, "trapped.txt"), "SPEC_CLIPBOARD_FILE" => File.join(scratch, "clipboard.txt")
   }
   text, status = Timeout.timeout(120) do
     Open3.capture2e(env, RbConfig.ruby, "-I#{root}/vendor/scarpe/lib", File.join(root, "vendor/scarpe/exe/scarpe"),
-      "--native", File.join(root, "test/support/ui_probe.rb"))
+      "--native", File.join(root, "test/support/#{probe}_probe.rb"))
   end
   puts text unless text.empty?
   report = File.join(output, "passed.json")
   abort "Native UI verification failed; see #{output}." unless status.success? && File.file?(report)
   puts File.read(report)
+  if probe == "motion_benchmark"
+    require_relative "../packaging/motion_report"
+    MotionReport.call(output)
+  end
 end
