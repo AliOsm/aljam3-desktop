@@ -72,6 +72,18 @@ module Aljam3
       FileUtils.mkdir_p(cache)
     end
 
+    def clear_cache
+      PDFium::LOCK.synchronize do
+        Dir.glob(File.join(@cache, "*.png{,.tmp}")).sum do |path|
+          bytes = File.size(path)
+          File.unlink(path)
+          bytes
+        rescue Errno::ENOENT
+          0
+        end
+      end
+    end
+
     def render(source, page:, width:, check: -> {})
       check.call
       width = Integer(width).clamp(240, 2400)

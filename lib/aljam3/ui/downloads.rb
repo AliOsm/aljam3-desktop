@@ -158,15 +158,7 @@ module Aljam3
 
         @clearing_cache = true
         @clear_cache_button.style(text: "جارٍ مسح الصور…", state: "disabled")
-        @export_worker.submit(-> {
-          Dir.glob(File.join(Aljam3.data_directory, "renders/*.png")).sum do |path|
-            bytes = File.size(path)
-            File.unlink(path)
-            bytes
-          rescue Errno::ENOENT
-            0
-          end
-        }) do |bytes, error|
+        @render_worker.submit(-> { @pdf.clear_cache }) do |bytes, error|
           @clearing_cache = false
           @storage_feedback = error ? error_message(error) : (bytes.zero? ? "لا توجد صور مؤقتة لحذفها." : "تم تحرير #{format_bytes(bytes)} من الصور المؤقتة.")
           if @screen == :downloads

@@ -67,7 +67,8 @@ module Aljam3
         return unless path
 
         source = @reader.fetch(:image).path
-        save_file([:image, path], path:, book_id: @reader.fetch(:book).fetch("id")) { FileUtils.cp(source, path) }
+        # Images are exported before later renders or cache clearing can evict them.
+        save_file([:image, path], path:, book_id: @reader.fetch(:book).fetch("id"), worker: @render_worker) { FileUtils.cp(source, path) }
       end
 
       def export_destination(format, **details)
@@ -80,10 +81,10 @@ module Aljam3
         path
       end
 
-      def save_file(key, path:, book_id:, &work)
+      def save_file(key, path:, book_id:, worker: @export_worker, &work)
         return if @file_operations.dig(key, :status) == :saving
 
-        job = { key:, path:, book_id:, work: }
+        job = { key:, path:, book_id:, work:, worker: }
         @file_operations.delete(key)
         @file_operations[key] = job
         run_file_save(job)
@@ -97,7 +98,7 @@ module Aljam3
           notify_file_failure(failure.fetch(:jobs).reject { |item| item.fetch(:key) == job.fetch(:key) })
         end
         update_export_feedback
-        @export_worker.submit(job.fetch(:work)) do |_result, error|
+        job.fetch(:worker).submit(job.fetch(:work)) do |_result, error|
           job.merge!(status: error ? :failed : :done, message: error ? error_message(error) : "تم حفظ الملف")
           update_export_feedback
           notify_file_save(job, error:)
