@@ -1,0 +1,1314 @@
+{
+  "date": "2026-10-04",
+  "before_version": "0.1.14",
+  "after_version": "0.1.15",
+  "before_commit": "f3bd25159ccf0f8dd018c55457cb217b80573301",
+  "after_commit": "2d39bf8542aeaf446fe24a1b7ea28332407bbf88",
+  "baseline_package_run": "https://github.com/AliOsm/aljam3-desktop/actions/runs/37193843029",
+  "comparison_package_run": "https://github.com/AliOsm/aljam3-desktop/actions/runs/37202324052",
+  "scene": "1160x820 split reader, actual PDF page 72 at 1200px, long Arabic text, controlled disk transfer and SQLite progress persistence; four rounds per interaction",
+  "method": "Both packaged versions run sequentially on the same runner with the same benchmark script. Frame work sums parse, apply, layout, paint and present; request time is excluded to avoid counting paint twice. Active intervals end on animation completion; settled waits are excluded.",
+  "limits": [
+    "Ghost presentation timestamps are native software presentation, not display scanout. Cloud-runner timing is not a guarantee for user hardware.",
+    "Mac ghost presentation remained highly variable even with a test-only NSProcessInfo activity in Ruby and the renderer. Reduced rendering work is established; steady 60 fps on Mac is not established.",
+    "The requested 90 ms Ruby sleep can overrun on a loaded runner. The busy-frame count covers the recorded actual pause, not a fixed 90 ms denominator.",
+    "The separate Linux high-DPI run is headless and reports rendering work only; its intervals are not a real display frame rate.",
+    "The Mac measurement helper is not shipped in the app. Full per-frame logs, first-frame latencies, and verification screenshots are in the private workflow artifacts."
+  ],
+  "platforms": {
+    "macos-arm64": {
+      "runner": "macos-15",
+      "macos_activity": true,
+      "frame_work_ms": {
+        "before": {
+          "median": 3.11,
+          "p95": 6.65,
+          "max": 18.17
+        },
+        "after": {
+          "median": 1.84,
+          "p95": 4.1,
+          "max": 10.88
+        }
+      },
+      "frames_while_ruby_busy": {
+        "before": [
+          1,
+          0,
+          1,
+          1
+        ],
+        "after": [
+          6,
+          9,
+          2,
+          3
+        ]
+      },
+      "active_intervals": {
+        "before": {
+          "total": 346,
+          "over_33ms": 165
+        },
+        "after": {
+          "total": 511,
+          "over_33ms": 197
+        }
+      },
+      "interactions": {
+        "reader_options/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.9,
+              "p95": 6.44,
+              "max": 6.44
+            },
+            "after": {
+              "median": 2.29,
+              "p95": 3.23,
+              "max": 3.36
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 26.53,
+              "p95": 132.48,
+              "max": 132.48
+            },
+            "after": {
+              "median": 22.1,
+              "p95": 66.41,
+              "max": 89.17
+            }
+          }
+        },
+        "reader_options/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.52,
+              "p95": 5.36,
+              "max": 5.36
+            },
+            "after": {
+              "median": 2.05,
+              "p95": 2.96,
+              "max": 3.93
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 58.98,
+              "p95": 123.19,
+              "max": 123.19
+            },
+            "after": {
+              "median": 30.39,
+              "p95": 87.52,
+              "max": 90.51
+            }
+          }
+        },
+        "reader_menu/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.43,
+              "p95": 5.67,
+              "max": 5.67
+            },
+            "after": {
+              "median": 1.85,
+              "p95": 3.03,
+              "max": 3.04
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 53.14,
+              "p95": 131.18,
+              "max": 131.18
+            },
+            "after": {
+              "median": 26.42,
+              "p95": 80.87,
+              "max": 96.95
+            }
+          }
+        },
+        "reader_menu/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 2.62,
+              "p95": 5.66,
+              "max": 5.66
+            },
+            "after": {
+              "median": 1.75,
+              "p95": 2.78,
+              "max": 3.09
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 35.37,
+              "p95": 85.49,
+              "max": 85.49
+            },
+            "after": {
+              "median": 24.47,
+              "p95": 67.88,
+              "max": 73.73
+            }
+          }
+        },
+        "share/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.9,
+              "p95": 7.06,
+              "max": 7.06
+            },
+            "after": {
+              "median": 2.02,
+              "p95": 3.37,
+              "max": 3.97
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 36.97,
+              "p95": 128.43,
+              "max": 128.43
+            },
+            "after": {
+              "median": 23.82,
+              "p95": 78.77,
+              "max": 85.05
+            }
+          }
+        },
+        "share/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.12,
+              "p95": 5.58,
+              "max": 5.58
+            },
+            "after": {
+              "median": 1.65,
+              "p95": 2.71,
+              "max": 3.01
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 43.37,
+              "p95": 89.07,
+              "max": 89.07
+            },
+            "after": {
+              "median": 23.62,
+              "p95": 85.35,
+              "max": 116.65
+            }
+          }
+        },
+        "shortcuts/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 5.54,
+              "p95": 7.02,
+              "max": 7.44
+            },
+            "after": {
+              "median": 2.76,
+              "p95": 4.11,
+              "max": 4.17
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 42.57,
+              "p95": 116.06,
+              "max": 116.06
+            },
+            "after": {
+              "median": 27.67,
+              "p95": 110.66,
+              "max": 113.79
+            }
+          }
+        },
+        "shortcuts/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 2.59,
+              "p95": 7.18,
+              "max": 7.18
+            },
+            "after": {
+              "median": 2.31,
+              "p95": 8.53,
+              "max": 9.32
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 26.51,
+              "p95": 117.83,
+              "max": 117.83
+            },
+            "after": {
+              "median": 25.28,
+              "p95": 100.18,
+              "max": 103.71
+            }
+          }
+        },
+        "bookmarks/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.69,
+              "p95": 8.58,
+              "max": 8.58
+            },
+            "after": {
+              "median": 2.09,
+              "p95": 7.65,
+              "max": 10.88
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 59.6,
+              "p95": 124.54,
+              "max": 124.54
+            },
+            "after": {
+              "median": 26.43,
+              "p95": 72.4,
+              "max": 106.31
+            }
+          }
+        },
+        "bookmarks/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 2.74,
+              "p95": 5.47,
+              "max": 5.47
+            },
+            "after": {
+              "median": 1.68,
+              "p95": 2.62,
+              "max": 2.66
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 41.49,
+              "p95": 115.13,
+              "max": 115.13
+            },
+            "after": {
+              "median": 21.43,
+              "p95": 85.05,
+              "max": 92.32
+            }
+          }
+        },
+        "export/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 5.48,
+              "p95": 6.4,
+              "max": 7.18
+            },
+            "after": {
+              "median": 2.35,
+              "p95": 3.51,
+              "max": 3.53
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 37.54,
+              "p95": 110.97,
+              "max": 110.97
+            },
+            "after": {
+              "median": 24.22,
+              "p95": 75.71,
+              "max": 77.54
+            }
+          }
+        },
+        "export/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.89,
+              "p95": 8.84,
+              "max": 8.84
+            },
+            "after": {
+              "median": 2.12,
+              "p95": 2.76,
+              "max": 3.98
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 23.83,
+              "p95": 87.29,
+              "max": 87.29
+            },
+            "after": {
+              "median": 24.31,
+              "p95": 78.0,
+              "max": 107.28
+            }
+          }
+        },
+        "switch": {
+          "frame_work_ms": {
+            "before": {
+              "median": 1.21,
+              "p95": 5.33,
+              "max": 7.3
+            },
+            "after": {
+              "median": 1.03,
+              "p95": 6.72,
+              "max": 6.85
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 19.37,
+              "p95": 97.83,
+              "max": 104.8
+            },
+            "after": {
+              "median": 24.96,
+              "p95": 82.05,
+              "max": 86.04
+            }
+          }
+        },
+        "hover/enter": {
+          "frame_work_ms": {
+            "before": {
+              "median": 2.26,
+              "p95": 2.68,
+              "max": 2.68
+            },
+            "after": {
+              "median": 0.95,
+              "p95": 1.31,
+              "max": 1.38
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 30.58,
+              "p95": 96.87,
+              "max": 96.87
+            },
+            "after": {
+              "median": 24.23,
+              "p95": 78.7,
+              "max": 78.7
+            }
+          }
+        },
+        "hover/leave": {
+          "frame_work_ms": {
+            "before": {
+              "median": 0.97,
+              "p95": 2.49,
+              "max": 2.62
+            },
+            "after": {
+              "median": 1.02,
+              "p95": 3.45,
+              "max": 4.1
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 26.97,
+              "p95": 83.57,
+              "max": 83.57
+            },
+            "after": {
+              "median": 26.47,
+              "p95": 71.06,
+              "max": 71.06
+            }
+          }
+        },
+        "progress": {
+          "frame_work_ms": {
+            "before": {
+              "median": 0.98,
+              "p95": 1.27,
+              "max": 1.27
+            },
+            "after": {
+              "median": 0.88,
+              "p95": 2.63,
+              "max": 3.42
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 33.35,
+              "p95": 77.12,
+              "max": 77.12
+            },
+            "after": {
+              "median": 26.65,
+              "p95": 77.54,
+              "max": 88.02
+            }
+          }
+        },
+        "reader_options/ruby_busy": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.65,
+              "p95": 5.54,
+              "max": 5.54
+            },
+            "after": {
+              "median": 2.22,
+              "p95": 3.41,
+              "max": 3.67
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 64.89,
+              "p95": 107.13,
+              "max": 107.13
+            },
+            "after": {
+              "median": 26.67,
+              "p95": 82.55,
+              "max": 109.68
+            }
+          }
+        },
+        "filters/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 5.67,
+              "p95": 18.17,
+              "max": 18.17
+            },
+            "after": {
+              "median": 2.55,
+              "p95": 8.69,
+              "max": 8.69
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 35.93,
+              "p95": 107.92,
+              "max": 107.92
+            },
+            "after": {
+              "median": 66.33,
+              "p95": 85.24,
+              "max": 85.24
+            }
+          }
+        },
+        "dropdown/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 3.18,
+              "p95": 4.41,
+              "max": 5.69
+            },
+            "after": {
+              "median": 1.75,
+              "p95": 4.73,
+              "max": 4.73
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 19.22,
+              "p95": 79.95,
+              "max": 79.95
+            },
+            "after": {
+              "median": 64.37,
+              "p95": 103.86,
+              "max": 103.86
+            }
+          }
+        },
+        "dropdown/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.85,
+              "p95": 9.56,
+              "max": 9.56
+            },
+            "after": {
+              "median": 2.99,
+              "p95": 3.88,
+              "max": 3.88
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 32.03,
+              "p95": 132.95,
+              "max": 132.95
+            },
+            "after": {
+              "median": 67.0,
+              "p95": 112.65,
+              "max": 112.65
+            }
+          }
+        },
+        "filters/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 3.15,
+              "p95": 6.1,
+              "max": 7.48
+            },
+            "after": {
+              "median": 1.49,
+              "p95": 4.08,
+              "max": 5.08
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 17.6,
+              "p95": 109.52,
+              "max": 109.52
+            },
+            "after": {
+              "median": 61.83,
+              "p95": 103.9,
+              "max": 103.9
+            }
+          }
+        },
+        "notification/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 2.31,
+              "p95": 2.91,
+              "max": 3.75
+            },
+            "after": {
+              "median": 2.32,
+              "p95": 3.32,
+              "max": 3.32
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 20.1,
+              "p95": 96.58,
+              "max": 96.58
+            },
+            "after": {
+              "median": 66.59,
+              "p95": 113.72,
+              "max": 113.72
+            }
+          }
+        },
+        "notification/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 1.99,
+              "p95": 3.9,
+              "max": 3.9
+            },
+            "after": {
+              "median": 2.25,
+              "p95": 5.35,
+              "max": 5.49
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 52.98,
+              "p95": 103.65,
+              "max": 103.65
+            },
+            "after": {
+              "median": 62.58,
+              "p95": 75.61,
+              "max": 75.61
+            }
+          }
+        }
+      }
+    },
+    "windows-x64": {
+      "runner": "windows-2022",
+      "macos_activity": false,
+      "frame_work_ms": {
+        "before": {
+          "median": 8.98,
+          "p95": 11.17,
+          "max": 21.08
+        },
+        "after": {
+          "median": 3.05,
+          "p95": 6.52,
+          "max": 14.99
+        }
+      },
+      "frames_while_ruby_busy": {
+        "before": [
+          1,
+          1,
+          1,
+          1
+        ],
+        "after": [
+          7,
+          6,
+          6,
+          6
+        ]
+      },
+      "active_intervals": {
+        "before": {
+          "total": 895,
+          "over_33ms": 5
+        },
+        "after": {
+          "total": 1022,
+          "over_33ms": 0
+        }
+      },
+      "interactions": {
+        "reader_options/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.53,
+              "p95": 11.3,
+              "max": 15.97
+            },
+            "after": {
+              "median": 3.55,
+              "p95": 10.33,
+              "max": 13.58
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.81,
+              "p95": 28.79,
+              "max": 28.88
+            },
+            "after": {
+              "median": 15.59,
+              "p95": 17.54,
+              "max": 22.4
+            }
+          }
+        },
+        "reader_options/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.05,
+              "p95": 13.63,
+              "max": 13.91
+            },
+            "after": {
+              "median": 3.45,
+              "p95": 7.27,
+              "max": 8.84
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.47,
+              "p95": 32.47,
+              "max": 32.53
+            },
+            "after": {
+              "median": 16.07,
+              "p95": 20.03,
+              "max": 20.4
+            }
+          }
+        },
+        "reader_menu/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 9.55,
+              "p95": 10.26,
+              "max": 10.37
+            },
+            "after": {
+              "median": 2.68,
+              "p95": 5.84,
+              "max": 12.31
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.69,
+              "p95": 32.19,
+              "max": 32.26
+            },
+            "after": {
+              "median": 16.02,
+              "p95": 16.67,
+              "max": 17.12
+            }
+          }
+        },
+        "reader_menu/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 9.19,
+              "p95": 9.72,
+              "max": 9.99
+            },
+            "after": {
+              "median": 2.96,
+              "p95": 6.33,
+              "max": 7.95
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.61,
+              "p95": 31.69,
+              "max": 31.72
+            },
+            "after": {
+              "median": 16.1,
+              "p95": 20.15,
+              "max": 21.22
+            }
+          }
+        },
+        "share/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 9.92,
+              "p95": 10.66,
+              "max": 10.92
+            },
+            "after": {
+              "median": 3.07,
+              "p95": 6.14,
+              "max": 10.99
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.68,
+              "p95": 31.99,
+              "max": 32.47
+            },
+            "after": {
+              "median": 16.0,
+              "p95": 17.32,
+              "max": 18.61
+            }
+          }
+        },
+        "share/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 9.7,
+              "p95": 10.21,
+              "max": 10.32
+            },
+            "after": {
+              "median": 2.95,
+              "p95": 5.52,
+              "max": 7.72
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.7,
+              "p95": 32.3,
+              "max": 32.43
+            },
+            "after": {
+              "median": 16.08,
+              "p95": 18.56,
+              "max": 21.26
+            }
+          }
+        },
+        "shortcuts/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 11.13,
+              "p95": 12.6,
+              "max": 17.18
+            },
+            "after": {
+              "median": 4.8,
+              "p95": 7.51,
+              "max": 12.57
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.91,
+              "p95": 26.11,
+              "max": 27.72
+            },
+            "after": {
+              "median": 15.82,
+              "p95": 17.75,
+              "max": 19.15
+            }
+          }
+        },
+        "shortcuts/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 9.17,
+              "p95": 11.39,
+              "max": 16.38
+            },
+            "after": {
+              "median": 3.95,
+              "p95": 6.67,
+              "max": 7.81
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.55,
+              "p95": 33.15,
+              "max": 33.24
+            },
+            "after": {
+              "median": 15.95,
+              "p95": 20.68,
+              "max": 21.2
+            }
+          }
+        },
+        "bookmarks/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 9.59,
+              "p95": 10.09,
+              "max": 10.78
+            },
+            "after": {
+              "median": 3.4,
+              "p95": 6.37,
+              "max": 12.11
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.83,
+              "p95": 31.91,
+              "max": 33.46
+            },
+            "after": {
+              "median": 15.94,
+              "p95": 16.62,
+              "max": 17.14
+            }
+          }
+        },
+        "bookmarks/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 9.35,
+              "p95": 9.97,
+              "max": 11.89
+            },
+            "after": {
+              "median": 2.79,
+              "p95": 5.1,
+              "max": 7.5
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.56,
+              "p95": 31.96,
+              "max": 32.0
+            },
+            "after": {
+              "median": 16.06,
+              "p95": 20.73,
+              "max": 20.86
+            }
+          }
+        },
+        "export/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.34,
+              "p95": 11.49,
+              "max": 16.61
+            },
+            "after": {
+              "median": 4.2,
+              "p95": 7.09,
+              "max": 10.49
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.73,
+              "p95": 29.82,
+              "max": 30.38
+            },
+            "after": {
+              "median": 16.0,
+              "p95": 16.94,
+              "max": 18.08
+            }
+          }
+        },
+        "export/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.11,
+              "p95": 10.58,
+              "max": 15.39
+            },
+            "after": {
+              "median": 3.59,
+              "p95": 6.19,
+              "max": 8.98
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.47,
+              "p95": 32.16,
+              "max": 32.22
+            },
+            "after": {
+              "median": 16.09,
+              "p95": 19.7,
+              "max": 20.64
+            }
+          }
+        },
+        "switch": {
+          "frame_work_ms": {
+            "before": {
+              "median": 1.65,
+              "p95": 8.82,
+              "max": 9.7
+            },
+            "after": {
+              "median": 1.65,
+              "p95": 9.82,
+              "max": 14.99
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.86,
+              "p95": 23.22,
+              "max": 23.94
+            },
+            "after": {
+              "median": 16.08,
+              "p95": 19.3,
+              "max": 29.58
+            }
+          }
+        },
+        "hover/enter": {
+          "frame_work_ms": {
+            "before": {
+              "median": 4.38,
+              "p95": 6.43,
+              "max": 6.46
+            },
+            "after": {
+              "median": 1.5,
+              "p95": 2.11,
+              "max": 2.47
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 17.31,
+              "p95": 19.68,
+              "max": 19.96
+            },
+            "after": {
+              "median": 16.02,
+              "p95": 16.42,
+              "max": 16.68
+            }
+          }
+        },
+        "hover/leave": {
+          "frame_work_ms": {
+            "before": {
+              "median": 1.41,
+              "p95": 4.89,
+              "max": 5.01
+            },
+            "after": {
+              "median": 1.53,
+              "p95": 1.87,
+              "max": 2.63
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.4,
+              "p95": 29.99,
+              "max": 30.0
+            },
+            "after": {
+              "median": 16.07,
+              "p95": 16.4,
+              "max": 16.42
+            }
+          }
+        },
+        "progress": {
+          "frame_work_ms": {
+            "before": {
+              "median": 1.28,
+              "p95": 1.66,
+              "max": 1.87
+            },
+            "after": {
+              "median": 1.35,
+              "p95": 2.18,
+              "max": 2.29
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.9,
+              "p95": 30.53,
+              "max": 30.56
+            },
+            "after": {
+              "median": 16.08,
+              "p95": 16.38,
+              "max": 16.43
+            }
+          }
+        },
+        "reader_options/ruby_busy": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.41,
+              "p95": 11.03,
+              "max": 11.03
+            },
+            "after": {
+              "median": 4.66,
+              "p95": 9.28,
+              "max": 10.97
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 16.01,
+              "p95": 106.99,
+              "max": 106.99
+            },
+            "after": {
+              "median": 15.95,
+              "p95": 17.05,
+              "max": 17.5
+            }
+          }
+        },
+        "filters/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.51,
+              "p95": 13.13,
+              "max": 21.08
+            },
+            "after": {
+              "median": 4.04,
+              "p95": 10.0,
+              "max": 11.76
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.95,
+              "p95": 28.84,
+              "max": 28.85
+            },
+            "after": {
+              "median": 15.95,
+              "p95": 16.51,
+              "max": 17.25
+            }
+          }
+        },
+        "dropdown/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 5.16,
+              "p95": 5.65,
+              "max": 5.66
+            },
+            "after": {
+              "median": 2.0,
+              "p95": 6.64,
+              "max": 8.42
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.75,
+              "p95": 26.65,
+              "max": 26.73
+            },
+            "after": {
+              "median": 16.01,
+              "p95": 16.81,
+              "max": 16.81
+            }
+          }
+        },
+        "dropdown/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.48,
+              "p95": 10.99,
+              "max": 11.14
+            },
+            "after": {
+              "median": 4.22,
+              "p95": 6.07,
+              "max": 7.05
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.69,
+              "p95": 28.4,
+              "max": 28.72
+            },
+            "after": {
+              "median": 15.98,
+              "p95": 19.16,
+              "max": 19.36
+            }
+          }
+        },
+        "filters/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 10.11,
+              "p95": 11.04,
+              "max": 11.32
+            },
+            "after": {
+              "median": 3.82,
+              "p95": 5.91,
+              "max": 8.93
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.61,
+              "p95": 32.11,
+              "max": 32.26
+            },
+            "after": {
+              "median": 15.98,
+              "p95": 19.01,
+              "max": 20.17
+            }
+          }
+        },
+        "notification/open": {
+          "frame_work_ms": {
+            "before": {
+              "median": 3.74,
+              "p95": 5.66,
+              "max": 6.29
+            },
+            "after": {
+              "median": 2.56,
+              "p95": 3.59,
+              "max": 4.19
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.82,
+              "p95": 28.26,
+              "max": 29.97
+            },
+            "after": {
+              "median": 16.07,
+              "p95": 17.29,
+              "max": 17.53
+            }
+          }
+        },
+        "notification/close": {
+          "frame_work_ms": {
+            "before": {
+              "median": 3.66,
+              "p95": 4.07,
+              "max": 5.44
+            },
+            "after": {
+              "median": 2.96,
+              "p95": 5.02,
+              "max": 5.31
+            }
+          },
+          "frame_interval_ms": {
+            "before": {
+              "median": 15.94,
+              "p95": 31.49,
+              "max": 33.21
+            },
+            "after": {
+              "median": 16.09,
+              "p95": 17.21,
+              "max": 17.78
+            }
+          }
+        }
+      }
+    }
+  },
+  "linux_headless_2x": {
+    "frame_work_ms": {
+      "median": 8.15,
+      "p95": 13.84,
+      "max": 47.4
+    },
+    "frames_while_ruby_busy": [
+      4,
+      4,
+      5,
+      4
+    ],
+    "active_frames": 1642
+  }
+}
