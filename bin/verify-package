@@ -5,6 +5,8 @@ require_relative "../packaging/verify_runtime"
 
 root = File.expand_path("..", __dir__)
 windows = Gem.win_platform?
+pdf_only = ARGV.delete("--pdf-only")
+abort "Usage: bin/verify-package [--pdf-only]" unless ARGV.empty?
 # Exercise non-ASCII paths as well as spaces, including the user's data directory.
 verification = File.join(root, ".cache", "Packaged App Test - مكتبة الجامع")
 FileUtils.rm_rf(verification)
@@ -19,7 +21,10 @@ end
 scratch = File.join(verification, "home")
 output = File.join(root, "dist/verification")
 FileUtils.mkdir_p([scratch, output])
-FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(scratch, "data"))
+FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(scratch, "data")) unless pdf_only
+PackageVerification.call(bundle:, home: File.join(scratch, "pdf"), output: File.join(output, "pdf"),
+  probe: File.join(root, "packaging/pdf_probe.rb"))
+exit if pdf_only
 PackageVerification.call(bundle:, home: scratch, output:)
 PackageVerification.call(bundle:, home: File.join(scratch, "interactions"), output: File.join(output, "interactions"),
   probe: File.join(root, "packaging/interaction_probe.rb"))

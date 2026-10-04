@@ -20,6 +20,20 @@ multi-block image read, verify that failed pages are not cached, and compare a
 successful retry with a local render. They run in child processes so a native
 crash is reported as a test failure without killing the test runner.
 
+`bin/verify-package` repeats the read-failure regressions through the relocated
+app's launcher and bundled Ruby/PDFium. It also runs 20 reader stress cycles:
+close a book, switch books, turn pages rapidly, and change zoom while an image
+read is paused inside PDFium. Each cycle verifies cancellation and compares the
+final displayed page and zoom with local reference pixels. These deterministic
+checks use a local HTTP range server, without downloading any live books.
+
+The PDF verification report records the loaded library path, SHA-256, patch
+fingerprint, app revision, runtime and OS. An outdated patch fingerprint fails
+verification. CI repeats the PDF checks against the **same archived Mac app** on
+macOS 26, after its full macOS 15 checks. To run only these checks on an existing
+`dist/Aljam3.app` (or Windows `dist/Aljam3`), use `ruby bin/verify-package --pdf-only`.
+The source UI stress check is `mise exec -- bundle exec ruby bin/verify-ui pdf`.
+
 ## Page seeking
 
 PDFium 8076's `CPDF_Document::TraversePDFPages` walks every preceding leaf

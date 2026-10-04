@@ -104,3 +104,38 @@ jobs:
             dist/verification/
           if-no-files-found: warn
           retention-days: 30
+
+  macos-26:
+    name: Verify the same Mac package on macOS 26
+    needs: package
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aljam3-macos-arm64
+          path: input
+      - name: Unpack the verified Apple silicon app
+        run: |
+          test "$(uname -m)" = arm64
+          sw_vers
+          cd input
+          shasum -a 256 -c *.zip.sha256
+          ditto -x -k Aljam3-*.zip ../dist
+      - name: Prepare headless verification helpers
+        run: ruby bin/setup --prepare
+      - name: Exercise bundled PDF cancellation and rapid navigation
+        env:
+          ALJAM3_VERIFY_TIMEOUT: '240'
+        run: ruby bin/verify-package --pdf-only
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aljam3-macos-26-pdf-verification
+          path: dist/verification/pdf/
+          if-no-files-found: warn
+          retention-days: 30

@@ -31,16 +31,20 @@ module RangePDF
   end
 
   # An image stream spans several HTTP blocks and is read while loading the page.
-  def self.image_document
-    pixels = "\x80".b * (256 * 256 * 3)
+  def self.image_document(pages: 1)
     content = "q 200 0 0 200 0 0 cm /Im0 Do Q\n"
-    encode([
+    objects = [
       "<< /Type /Catalog /Pages 2 0 R >>",
-      "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
-      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 320] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
-      "<< /Length #{content.bytesize} >>\nstream\n#{content}endstream",
-      "<< /Type /XObject /Subtype /Image /Width 256 /Height 256 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length #{pixels.bytesize} >>\nstream\n#{pixels}\nendstream"
-    ])
+      "<< /Type /Pages /Count #{pages} /Kids [#{pages.times.map { |index| "#{3 + index * 3} 0 R" }.join(' ')}] >>"
+    ]
+    pages.times do |index|
+      page = 3 + index * 3
+      pixels = [(index * 37 + 128) % 256, 80, 160].pack("C*") * (256 * 256)
+      objects << "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 320] /Resources << /XObject << /Im0 #{page + 2} 0 R >> >> /Contents #{page + 1} 0 R >>"
+      objects << "<< /Length #{content.bytesize} >>\nstream\n#{content}endstream"
+      objects << "<< /Type /XObject /Subtype /Image /Width 256 /Height 256 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length #{pixels.bytesize} >>\nstream\n#{pixels}\nendstream"
+    end
+    encode(objects)
   end
 
   def self.encode(objects)
