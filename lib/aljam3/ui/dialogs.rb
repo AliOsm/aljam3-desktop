@@ -328,10 +328,14 @@ module Aljam3
 
       def request_authors(page: 1)
         dialog = @dialog
-        dialog[:busy] = true
+        query = dialog.fetch(:query).strip
+        request_number = dialog.fetch(:request_number, 0) + 1
+        dialog.merge!(busy: true, result: nil, error: nil, request_number:)
         render_dialog
-        @network_worker.submit(-> { @library.authors(query: dialog.fetch(:query), page:) }) do |result, error|
-          next unless @dialog.equal?(dialog)
+        @network_worker.submit(-> {
+          @library.authors(query:, page:) if @dialog.equal?(dialog) && dialog[:request_number] == request_number
+        }) do |result, error|
+          next unless @dialog.equal?(dialog) && dialog[:request_number] == request_number
 
           dialog.merge!(busy: false, result:, error: error && error_message(error))
           refresh_dialog
