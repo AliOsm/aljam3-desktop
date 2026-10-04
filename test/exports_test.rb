@@ -123,4 +123,27 @@ class ExportsTest < StoreTestCase
     File.write(File.join(@directory, name), "export")
     assert_equal ".docx", File.extname(name)
   end
+
+  def test_long_titles_preserve_volume_and_page_identifiers
+    title = "الكوكب المنير تهذيب الجامع الصغير " * 10
+    first = Aljam3::ExportName.build(title, "pdf", part: "المجلد الأول")
+    second = Aljam3::ExportName.build(title, "pdf", part: "المجلد الثاني")
+    refute_equal first, second
+    assert first.end_with?(" - المجلد الأول.pdf")
+    assert second.end_with?(" - المجلد الثاني.pdf")
+    page = Aljam3::ExportName.build(title, "png", page: 104)
+    assert page.end_with?(" - صفحة 104.png")
+    [first, second, page].each do |name|
+      assert name.valid_encoding?
+      assert_operator name.bytesize, :<=, 255
+    end
+  end
+
+  def test_suggested_names_do_not_use_reserved_windows_devices
+    %w[CON NUL AUX PRN COM1 LPT9 CONIN$ CONOUT$].each do |title|
+      name = Aljam3::ExportName.build(title, "pdf")
+      refute_equal "#{title}.pdf", name
+      assert name.end_with?(".pdf")
+    end
+  end
 end
