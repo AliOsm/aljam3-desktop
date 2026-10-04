@@ -48,9 +48,9 @@ class AlignmentVerification
     %i[light dark].each do |theme|
       set(theme:)
       @app.apply_theme
-      [[1160, 820], [800, 700]].each do |width, height|
+      [[1160, 820], [800, 700], [800, 600]].each do |width, height|
         @automation.resize(width, height)
-        @label = "#{theme}-#{width}"
+        @label = "#{theme}-#{width}#{height == 600 ? "-600" : ""}"
         home
         search_controls
         catalog
@@ -401,7 +401,7 @@ class AlignmentVerification
     search.merge!(searched_query: "العلم", query: "العلم", result: Aljam3::Result.new({ "pages" => pages, "pagination" => pagination.merge("count" => 12) }, :downloaded, nil))
     draw
     list = @app.instance_variable_get(:@dialog_results)
-    check("populated search grows into a bounded scrollable list", panel.h.between?(400, 640) && list.scroll_max.positive?)
+    check("populated search grows into a bounded scrollable list", panel.h.between?([400, @app.height - panel.y - 16].min, 640) && list.scroll_max.positive?)
     list.scroll_top = list.scroll_max
     @automation.wait_frames
     @layout = @automation.layout

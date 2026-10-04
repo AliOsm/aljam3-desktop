@@ -27,6 +27,22 @@ def fetch(url, destination, checksum:)
   File.rename("#{destination}.part", destination)
 end
 
+def patches_applied?(directory, patches)
+  # Later patches can change an earlier patch's context. Reverse the complete
+  # series in a scratch copy, keeping the developer's checkout untouched.
+  Dir.mktmpdir("aljam3-patch-check-") do |scratch|
+    paths = patches.flat_map { |patch| File.read(patch).scan(/^(?:--- a|\+\+\+ b)\/(.+)$/).flatten }.uniq
+    paths.each do |path|
+      source, target = File.join(directory, path), File.join(scratch, path)
+      next unless File.file?(source)
+
+      FileUtils.mkdir_p(File.dirname(target))
+      FileUtils.cp(source, target)
+    end
+    patches.reverse.all? { |patch| system("git", "apply", "--reverse", patch, chdir: scratch, out: File::NULL, err: File::NULL) }
+  end
+end
+
 Dir.chdir(ROOT) do
   FileUtils.mkdir_p("vendor")
   unless File.directory?("vendor/scarpe/.git")
@@ -37,10 +53,13 @@ Dir.chdir(ROOT) do
   revision = IO.popen(["git", "-C", "vendor/scarpe", "rev-parse", "HEAD"], &:read).strip
   abort "Expected Scarpe #{SCARPE_REVISION}, found #{revision}." unless revision == SCARPE_REVISION
 
-  Dir.glob(File.join(ROOT, "patches/*.patch")).sort.each do |patch|
-    unless system("git", "-C", "vendor/scarpe", "apply", "--reverse", "--check", patch, out: File::NULL, err: File::NULL)
-      run("git", "-C", "vendor/scarpe", "apply", "--check", patch)
-      run("git", "-C", "vendor/scarpe", "apply", patch)
+  patches = Dir.glob(File.join(ROOT, "patches/*.patch")).sort
+  unless patches_applied?("vendor/scarpe", patches)
+    patches.each do |patch|
+      unless system("git", "-C", "vendor/scarpe", "apply", "--reverse", "--check", patch, out: File::NULL, err: File::NULL)
+        run("git", "-C", "vendor/scarpe", "apply", "--check", patch)
+        run("git", "-C", "vendor/scarpe", "apply", patch)
+      end
     end
   end
   exit if ARGV.include?("--prepare")

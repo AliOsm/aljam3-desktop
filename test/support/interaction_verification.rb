@@ -186,6 +186,13 @@ class InteractionVerification
     click(get(:fit_button))
     check("Fit restores scale once and disables itself", get(:reader)[:zoom] == 1.0 && get(:fit_button).state == "disabled")
     shot("reader-fit-control")
+    @automation.resize(420, 420)
+    @app.tick
+    @automation.wait_frames
+    check("Resizing below the minimum keeps a usable reader", @app.width == 800 && @app.height == 600 && @app.reader_pane_widths.min >= 240)
+    shot("reader-minimum-size")
+    @automation.resize(1160, 820)
+    @app.tick
   ensure
     @app.singleton_class.remove_method(:render_pdf) if @app.singleton_methods.include?(:render_pdf)
   end

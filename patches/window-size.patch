@@ -1,0 +1,164 @@
+--- a/lacci/lib/shoes.rb
++++ b/lacci/lib/shoes.rb
+@@ -182,6 +182,8 @@
+       title: Shoes::App::DEFAULT_TITLE,
+       width: Shoes::App::DEFAULT_WIDTH,
+       height: Shoes::App::DEFAULT_HEIGHT,
++      min_width: nil,
++      min_height: nil,
+       resizable: true,
+       features: [],
+       margin: nil,
+@@ -191,7 +193,7 @@
+       &app_code_body
+     )
+       f = [features].flatten # Make sure this is a list, not a single symbol
+-      app = Shoes::App.new(title:, width:, height:, resizable:, features: f, owner:, icon:, &app_code_body)
++      app = Shoes::App.new(title:, width:, height:, min_width:, min_height:, resizable:, features: f, owner:, icon:, &app_code_body)
+ 
+       # If there's a pending Shoes subclass (e.g., class Book < Shoes), use it
+       if Shoes.pending_app_class
+--- a/lacci/lib/shoes/app.rb
++++ b/lacci/lib/shoes/app.rb
+@@ -24,7 +24,7 @@
+     # `owner` method returns the parent app.
+     attr_reader :owner
+ 
+-    shoes_styles :title, :width, :height, :resizable, :features, :opacity, :cursor, :owner, :icon
++    shoes_styles :title, :width, :height, :min_width, :min_height, :resizable, :features, :opacity, :cursor, :owner, :icon
+ 
+     # This is defined to avoid the linkable-id check in the Shoes-style method_missing def'n
+     attr_reader :features
+@@ -56,6 +56,8 @@
+       title: DEFAULT_TITLE,
+       width: DEFAULT_WIDTH,
+       height: DEFAULT_HEIGHT,
++      min_width: nil,
++      min_height: nil,
+       resizable: true,
+       features: [],
+       owner: nil,
+--- a/native/src/runtime.rs
++++ b/native/src/runtime.rs
+@@ -52,6 +52,7 @@
+     CloseWindow(Id),
+     SetTitle(Id, String),
+     ResizeWindow(Id, f32, f32),
++    SetMinimumSize(Id, f32, f32),
+     Cursor(Id, CursorShape),
+     /// App `opacity`, 0.0 (clear) to 1.0.
+     Opacity(Id, f32),
+@@ -304,7 +305,8 @@
+         }).unwrap_or_default();
+         let new_text = props.get("text").map(crate::props::value_text);
+         let title = props.get("title").map(crate::props::value_text);
+-        let resized = props.contains_key("width") || props.contains_key("height");
++        let minimum_changed = props.contains_key("min_width") || props.contains_key("min_height");
++        let resized = props.contains_key("width") || props.contains_key("height") || minimum_changed;
+         let restyled = ["font", "stroke", "secret"].iter().any(|k| props.contains_key(*k));
+         let opacity = props.get("opacity").and_then(Value::as_f64).map(|o| o as f32);
+         let recursor = props.contains_key("cursor");
+@@ -320,6 +322,10 @@
+         let kind = self.doc.get(id).map(|n| n.kind.clone());
+         match kind {
+             Some(Kind::App) => {
++                if minimum_changed {
++                    let minimum = self.doc.get(id).map(|n| app_min_size(&n.props.0)).unwrap_or_default();
++                    self.effects.push(Effect::SetMinimumSize(id, minimum.0, minimum.1));
++                }
+                 if let Some(title) = title {
+                     self.effects.push(Effect::SetTitle(id, title));
+                 }
+@@ -624,6 +630,8 @@
+     /// a minimised window) keeps the last; a huge one is capped at limits::MAX_SIDE.
+     pub fn resize_view(&mut self, app: Id, w: f32, h: f32, notify: bool) {
+         let (Some(w), Some(h)) = (limits::side(w), limits::side(h)) else { return };
++        let minimum = self.doc.get(app).map(|n| app_min_size(&n.props.0)).unwrap_or_default();
++        let (w, h) = (w.max(minimum.0), h.max(minimum.1));
+         let Some(view) = self.views.get_mut(&app) else { return };
+         if view.size == (w, h) {
+             return;
+@@ -712,5 +720,11 @@
+ /// The App's `width` and `height`, each finite, positive and at most limits::MAX_SIDE.
+ pub fn app_size(props: &Map<String, Value>) -> (f32, f32) {
+     let num = |k: &str, d: f32| props.get(k).and_then(Value::as_f64).and_then(|v| limits::side(v as f32)).unwrap_or(d);
+-    (num("width", DEFAULT_SIZE.0), num("height", DEFAULT_SIZE.1))
+-}
++    let minimum = app_min_size(props);
++    (num("width", DEFAULT_SIZE.0).max(minimum.0), num("height", DEFAULT_SIZE.1).max(minimum.1))
++}
++
++pub fn app_min_size(props: &Map<String, Value>) -> (f32, f32) {
++    let num = |key: &str| props.get(key).and_then(Value::as_f64).and_then(|value| limits::side(value as f32)).unwrap_or(0.0);
++    (num("min_width"), num("min_height"))
++}
+--- a/native/src/window.rs
++++ b/native/src/window.rs
+@@ -13,7 +13,7 @@
+ use crate::props::Id;
+ use crate::protocol::{Outbox, Outgoing};
+ use crate::runtime::stats::{self, Phase};
+-use crate::runtime::{load_fonts, Effect, Options, Runtime, QUIT_GRACE};
++use crate::runtime::{app_min_size, load_fonts, Effect, Options, Runtime, QUIT_GRACE};
+ use crate::text::FontMode;
+ use pacing::Pacing;
+ use std::collections::HashMap;
+@@ -186,6 +186,7 @@
+         let props = self.rt.doc.get(app).map(|n| n.props.clone()).unwrap_or_default();
+         let title = self.rt.window_title(app);
+         let resizable = !view.standalone && props.get("resizable").and_then(|v| v.as_bool()).unwrap_or(true);
++        let minimum = app_min_size(&props.0);
+         let icon = props.str("icon").and_then(|path| image::open(path).ok()).and_then(|image| {
+             let rgba = image.to_rgba8();
+             let (width, height) = rgba.dimensions();
+@@ -196,6 +197,7 @@
+             .with_title(title)
+             .with_window_icon(icon.clone())
+             .with_inner_size(LogicalSize::new(view.size.0 as f64, view.size.1 as f64))
++            .with_min_inner_size(LogicalSize::new(minimum.0 as f64, minimum.1 as f64))
+             .with_resizable(resizable)
+             .with_visible(false);
+         #[cfg(target_os = "windows")]
+@@ -288,6 +290,11 @@
+                 Effect::ResizeWindow(app, w, h) => {
+                     if let Some(win) = self.window_for(app) {
+                         let _ = win.window.request_inner_size(LogicalSize::new(w as f64, h as f64));
++                    }
++                }
++                Effect::SetMinimumSize(app, w, h) => {
++                    if let Some(win) = self.window_for(app) {
++                        win.window.set_min_inner_size(Some(LogicalSize::new(w as f64, h as f64)));
+                     }
+                 }
+                 Effect::Cursor(app, shape) => {
+--- a/native/tests/protocol.rs
++++ b/native/tests/protocol.rs
+@@ -8,6 +8,28 @@
+ fn motion_time(h: &mut Harness, at: f64) -> Vec<Value> {
+     h.feed(&json!({"t":"motion_clock","at":at}).to_string());
+     h.req(json!({"op":"frames","n":1})).0
++}
++
++#[test]
++fn window_minimums_apply_to_creation_and_resize_without_changing_unconstrained_apps() {
++    use scarpe_native::runtime::{app_min_size, app_size};
++    let props = json!({"width":420,"height":420,"min_width":800,"min_height":600});
++    assert_eq!(app_size(props.as_object().unwrap()), (800.0, 600.0));
++    assert_eq!(app_min_size(json!({"min_width":-1}).as_object().unwrap()), (0.0, 0.0));
++    let mut h = Harness::new();
++    h.feed(&app(1160, 820, &[]));
++    h.feed(&json!({"t":"props","id":1,"props":{"min_width":800,"min_height":600}}).to_string());
++    h.rt.resize_view(1, 420.0, 420.0, true);
++    assert_eq!(h.rt.views[&1].size, (800.0, 600.0));
++    let messages = h.rt.out.take_captured();
++    assert!(messages.iter().any(|m| m["t"] == "resize" && m["w"] == 800 && m["h"] == 600));
++    h.rt.resize_view(1, 0.0, 0.0, true);
++    assert_eq!(h.rt.views[&1].size, (800.0, 600.0), "minimizing retains a usable size");
++    h.rt.resize_view(1, 1000.0, 720.0, true);
++    assert_eq!(h.rt.views[&1].size, (1000.0, 720.0));
++    h.feed(&json!({"t":"props","id":1,"props":{"min_width":null,"min_height":null}}).to_string());
++    h.rt.resize_view(1, 320.0, 240.0, true);
++    assert_eq!(h.rt.views[&1].size, (320.0, 240.0));
+ }
+ 
+ #[test]
