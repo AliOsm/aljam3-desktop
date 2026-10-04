@@ -38,6 +38,8 @@ The following sections preserve the previous exhaustive-ranking baseline and fix
 
 The public source indexes contain **63,535 entries and 37,610,673 pages** across the Prophet Mosque, Shamela/Waqfeya, and Waqfeya collections. This is a workload envelope, not an exact current API catalog count. `prepare.rb` saves the source URLs and SHA-256 checksums, samples eight text volumes from distinct categories in each collection, and retains the actual catalog titles, authors, and categories.
 
+The October 4 audit found seven empty source rows with no title, pages, or files. New fixtures exclude these rows and record their number in the manifest, leaving 63,528 named books. The historical reports above retain their original 63,535-row fixtures; their page totals and recorded measurements are unchanged.
+
 The 24 sampled volumes contain 7,031 pages (6,827 distinct texts), averaging 2,113 UTF-8 bytes per page as split by the fixture generator. `library.rb` repeats them deterministically, appends a unique numeric token to each page, and distributes the requested number of pages across the catalog. Book/page associations and PDF byte counts are synthetic. No PDFs are fetched. This exercises large posting lists and all catalog entries, but is not the full unique corpus and does not measure human relevance judgments. Real OCR vocabulary, book lengths, topic distribution, hardware, and PDFs will change the timings and disk requirements.
 
 ## Reproduce

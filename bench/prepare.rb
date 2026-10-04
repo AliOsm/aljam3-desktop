@@ -19,8 +19,9 @@ authors, categories = {}, {}
   base = "https://huggingface.co/datasets/ieasybooks-org/#{name}-library/resolve/main"
   index = File.join(root, "#{name}-index.tsv")
   http.download("#{base}/index.tsv", index, validate_pdf: false) unless File.file?(index)
-  rows = CSV.read(index, col_sep: "\t", headers: true)
-  manifest[:libraries] << { name:, books: rows.size, pages: rows.sum { |row| Integer(row.fetch("pages")) }, index_sha256: Digest::SHA256.file(index).hexdigest }
+  rows, empty_rows = CSV.read(index, col_sep: "\t", headers: true).partition { |row| !row.fetch("title").to_s.strip.empty? }
+  manifest[:libraries] << { name:, books: rows.size, excluded_rows: empty_rows.size,
+    pages: rows.sum { |row| Integer(row.fetch("pages")) }, index_sha256: Digest::SHA256.file(index).hexdigest }
   rows.each do |row|
     author = row.fetch("author") || ""
     category = row.fetch("category") || ""
