@@ -139,6 +139,8 @@ module Aljam3
         raise ChunkyPNG::ExpectationFailed, "Incomplete cached image."
       end
 
+      now = Time.now
+      File.utime(now, now, path)
       Image.new(path, header.width, header.height)
     rescue ChunkyPNG::Exception
       File.unlink(path)

@@ -6,6 +6,25 @@ require_relative "support/range_pdf"
 require "timeout"
 
 class PDFCacheTest < Minitest::Test
+  def test_reading_a_cached_page_keeps_it_during_cache_eviction
+    Dir.mktmpdir do |directory|
+      source = File.join(directory, "book.pdf")
+      File.binwrite(source, RangePDF.document(pages: 25))
+      pdf = Aljam3::PDF.new(cache: File.join(directory, "renders"))
+      images = (1..24).map do |number|
+        image = pdf.render(source, page: number, width: 240)
+        File.utime(Time.at(number), Time.at(number), image.path)
+        image
+      end
+      assert_equal images.first, pdf.render(source, page: 1, width: 240)
+      pdf.render(source, page: 25, width: 240)
+
+      assert File.file?(images.first.path), "The recently reused page must remain cached"
+      refute File.exist?(images[1].path), "The least recently used page should be evicted"
+      assert_equal 24, Dir.glob(File.join(directory, "renders", "*.png")).size
+    end
+  end
+
   def test_damaged_cached_images_are_regenerated_from_the_pdf
     Dir.mktmpdir do |directory|
       source = File.join(directory, "book.pdf")

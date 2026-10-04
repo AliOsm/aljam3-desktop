@@ -67,9 +67,18 @@ module Aljam3
         path = export_destination("png", page: @reader.fetch(:number))
         return unless path
 
-        source = @reader.fetch(:image).path
-        # Images are exported before later renders or cache clearing can evict them.
-        save_file([:image, path], path:, book_id: @reader.fetch(:book).fetch("id"), worker: @render_worker) { copy_export(source, path) }
+        image, file, number = @reader.values_at(:image, :file, :number)
+        book_id = @reader.fetch(:book).fetch("id")
+        # A queued render can evict the displayed image before this job runs.
+        # Keep the original page identity so retries also survive navigation.
+        save_file([:image, path], path:, book_id:, worker: @render_worker) do
+          source = image.path
+          unless File.file?(source)
+            pdf = @reading.pdf_source(book_id, file)
+            source = @pdf.render(pdf, page: number, width: image.width).path
+          end
+          copy_export(source, path)
+        end
       end
 
       def export_destination(format, **details)
