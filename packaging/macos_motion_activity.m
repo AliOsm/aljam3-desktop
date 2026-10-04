@@ -1,4 +1,4 @@
-// Only injected into the two ghost-benchmark processes by PackageVerification.
+// Only loaded into the two ghost-benchmark processes by motion_probe.rb.
 // Invisible accessory windows may be App Napped, coalescing both Ruby's timers
 // and the renderer's frame deadlines. Measure them as an active UI workload,
 // without activating a window or preventing display/system sleep.
@@ -11,6 +11,7 @@ __attribute__((constructor)) static void begin_motion_measurement(void) {
         NSActivityOptions options = NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical;
         activity = [[[NSProcessInfo processInfo] beginActivityWithOptions:options
             reason:@"Aljam3 ghost-window motion benchmark"] retain];
+        fprintf(stderr, "[motion-benchmark] active scheduling in process %d\n", getpid());
     }
 }
 

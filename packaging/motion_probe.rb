@@ -4,6 +4,13 @@ raise "Ghost checks require native CI" unless ENV["GITHUB_ACTIONS"] == "true"
 ENV.delete("SCARPE_NATIVE_HEADLESS")
 ENV["SCARPE_NATIVE_GHOST"] = "1"
 ENV["SCARPE_NATIVE_STATS"] = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
+if (activity = ENV["ALJAM3_MOTION_ACTIVITY"])
+  # The app's shell launcher strips DYLD_* on macOS. Load this test-only helper
+  # here for Ruby, then pass it directly to the native child before it starts.
+  require "fiddle"
+  MOTION_ACTIVITY = Fiddle.dlopen(activity)
+  ENV["DYLD_INSERT_LIBRARIES"] = activity
+end
 require "json"
 require_relative "../test/support/motion_benchmark"
 load File.join(ENV.fetch("ALJAM3_BUNDLE_ROOT"), "app/app.rb")

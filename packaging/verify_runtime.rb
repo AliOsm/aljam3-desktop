@@ -21,9 +21,6 @@ module PackageVerification
       "PATH" => [File.join(root, "vendor/scarpe/spec/support/fakebin"), *system_path].join(File::PATH_SEPARATOR),
       "SPEC_CLIPBOARD_FILE" => File.join(home, "clipboard.txt"), "SPEC_TRAP_FILE" => File.join(home, "trapped.txt")
     }
-    if probe == File.join(__dir__, "motion_probe.rb") && (activity = ENV["ALJAM3_MOTION_ACTIVITY"])
-      env["DYLD_INSERT_LIBRARIES"] = activity
-    end
     timeout = Integer(ENV.fetch("ALJAM3_VERIFY_TIMEOUT", "120"))
     stdout, status = Timeout.timeout(timeout) { Open3.capture2e(env, [launcher, launcher]) }
     puts stdout
