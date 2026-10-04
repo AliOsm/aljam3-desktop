@@ -105,7 +105,7 @@ class MotionBenchmark
     raise "Animation timer survived settling" if get(:motion).active?
 
     { passed: true, ghost: ENV["SCARPE_NATIVE_GHOST"] == "1", native_timing: @service.respond_to?(:transition),
-      macos_activity: ENV.key?("DYLD_INSERT_LIBRARIES") && ENV.key?("ALJAM3_MOTION_ACTIVITY"),
+      macos_activity: Object.const_defined?(:MOTION_ACTIVITY),
       samples: @samples, transfer_bytes: bytes,
       scene: "1160x820 split reader; real PDF page; long Arabic text; disk transfer and SQLite progress persistence" }
   ensure

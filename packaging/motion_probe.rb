@@ -14,6 +14,8 @@ end
 require "json"
 require_relative "../test/support/motion_benchmark"
 load File.join(ENV.fetch("ALJAM3_BUNDLE_ROOT"), "app/app.rb")
+# The renderer has started. Keep the helper out of workers and system tools.
+ENV.delete("DYLD_INSERT_LIBRARIES") if activity
 app = Shoes.APPS.first
 app.timer(0.5) do
   output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")

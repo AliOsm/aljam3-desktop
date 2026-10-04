@@ -4,11 +4,13 @@
 // without activating a window or preventing display/system sleep.
 #import <Foundation/Foundation.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <unistd.h>
 
 static id activity;
 
 __attribute__((constructor)) static void begin_motion_measurement(void) {
+    unsetenv("DYLD_INSERT_LIBRARIES");
     @autoreleasepool {
         NSActivityOptions options = NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical;
         activity = [[[NSProcessInfo processInfo] beginActivityWithOptions:options
