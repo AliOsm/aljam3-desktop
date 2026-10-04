@@ -30,6 +30,7 @@ class InteractionVerification
     @store.save_preference("reader", { "mode" => "text" })
     set(categories: AlignmentVerification::CATEGORIES, libraries: AlignmentVerification::LIBRARIES, downloaded_ids: @store.downloaded_ids)
     selection_and_scroll
+    page_number_input
     scopes
     history
     pdf_controls
@@ -154,6 +155,23 @@ class InteractionVerification
     check("Find opens the book search while reader text has focus", get(:dialog)[:type] == :book_search)
     back
     check("Mouse Back closes an open popup before leaving the reader", !get(:dialog) && get(:screen) == :reader)
+  end
+
+  def page_number_input
+    { "010" => 10, "٠١٠٤" => 104, "۰۰۸" => 8 }.each do |text, expected|
+      click(get(:page_field))
+      @automation.key("control_a")
+      @automation.type(text)
+      @automation.key("enter")
+      @automation.wait_frames
+      check("Page input #{text} navigates in decimal", get(:reader)[:number] == expected)
+    end
+    click(get(:page_field))
+    @automation.key("control_a")
+    @automation.type("0x10")
+    @automation.key("enter")
+    check("Non-decimal page input leaves the reader on its current page with feedback", get(:reader)[:number] == 8 && !get(:page_feedback).text.empty?)
+    @app.turn_page(2)
   end
 
   def scopes

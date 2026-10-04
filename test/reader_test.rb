@@ -163,6 +163,30 @@ class ReaderTest < StoreTestCase
     worker&.close
   end
 
+  def test_page_input_uses_decimal_numbers_in_all_supported_digit_forms
+    install_book
+    reader = Reader.new(@store)
+    reader.open_book(book)
+    reader.reader.fetch(:file)["pages_count"] = 150
+    field = Struct.new(:text, :focused) { def focus = self.focused = true }.new
+    feedback = Struct.new(:text).new
+    reader.instance_variable_set(:@page_field, field)
+    reader.instance_variable_set(:@page_feedback, feedback)
+
+    { "010" => 10, "٠١٠٤" => 104, "۰۰۸" => 8, " 008 " => 8 }.each do |text, expected|
+      field.text = text
+      reader.go_to_page
+      assert_equal expected, reader.reader.fetch(:number), text
+    end
+    %w[0x10 0b10 -1 0 151 1.5 abc].each do |text|
+      field.text, field.focused = text, false
+      reader.go_to_page
+      assert_equal 8, reader.reader.fetch(:number), text
+      assert field.focused, text
+      assert_includes feedback.text, "150"
+    end
+  end
+
   def test_superseded_book_openings_do_not_delay_the_latest_book
     reader = Reader.new(@store)
     worker = Aljam3::Worker.new

@@ -229,7 +229,7 @@ module Aljam3
       end
 
       def go_to_page
-        number = Integer(@page_field.text.tr("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"), exception: false)
+        number = Integer(@page_field.text.tr("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"), 10, exception: false)
         count = @reader.fetch(:file).fetch("pages_count")
         if number && number.between?(1, count)
           turn_page(number)
