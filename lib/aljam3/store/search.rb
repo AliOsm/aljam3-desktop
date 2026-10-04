@@ -5,6 +5,7 @@ module Aljam3
     class Search
       POOL_SIZE = 10_000
       COUNT_LIMIT = 1000
+      SCOPED_PAGE_LIMIT = 50_000
       JOIN = "FROM pages_fts JOIN pages p ON p.id = pages_fts.rowid JOIN files f ON f.id = p.file_id JOIN books b ON b.id = f.book_id"
 
       def initialize(db)
@@ -17,10 +18,12 @@ module Aljam3
         match = Text.match_query(query)
         page, pool_size = [Integer(page), 1].max, [Integer(pool_size), 1].max
         scopes = { "b.category_id" => category, "b.author_id" => author, "b.library_id" => library, "b.id" => book_id }.compact
-        base, terms = query_scope(match, scopes)
         if order.to_s == "relevance"
           key = [@db.get_first_value("PRAGMA data_version"), match, scopes, pool_size]
-          prepare_pool(base, terms, match, pool_size, key) unless @pool_key == key
+          unless @pool_key == key
+            base, terms = query_scope(match, scopes)
+            prepare_pool(base, terms, match, pool_size, key)
+          end
           offset = (page - 1) * PAGE_SIZE
           ids = @ranked_ids.slice(offset, PAGE_SIZE) || []
           rows = ranked_pages(match, ids)
@@ -28,6 +31,7 @@ module Aljam3
             order: "relevance", ranking: { "candidates" => @ranked_ids.size, "has_more" => @pool_more,
               "next_pool_size" => @pool_more ? pool_size + POOL_SIZE : nil })
         else
+          base, terms = query_scope(match, scopes)
           library_pages(base, terms, match, page)
         end
       end
@@ -41,6 +45,20 @@ module Aljam3
           bounds = @db.get_first_row("SELECT min(f.first_page_id) AS first, max(f.last_page_id) AS last FROM files f JOIN books b ON b.id=f.book_id WHERE b.downloaded_at IS NOT NULL AND #{scopes.keys.map { |column| "#{column} = ?" }.join(' AND ')}", scopes.values)
           conditions.concat(["pages_fts.rowid >= ?", "pages_fts.rowid <= ?"])
           terms.concat([bounds["first"] || 0, bounds["last"] || -1])
+          # Sparse scopes otherwise read unrelated OCR rows across the entire
+          # ID range. Use the covering file index when the eligible set is small;
+          # broad scopes keep the streaming FTS scan and its early LIMIT.
+          ids = @db.execute(<<~SQL, [*scopes.values, SCOPED_PAGE_LIMIT + 1]).map { |row| row.fetch("id") }
+            SELECT p.id FROM books b JOIN files f ON f.book_id=b.id JOIN pages p ON p.file_id=f.id
+            WHERE b.downloaded_at IS NOT NULL AND #{scopes.keys.map { |column| "#{column} = ?" }.join(' AND ')}
+            LIMIT ?
+          SQL
+          if ids.size <= SCOPED_PAGE_LIMIT
+            # Unary + keeps MATCH streaming instead of repeating an FTS term
+            # intersection for every eligible ID.
+            conditions << "+pages_fts.rowid IN (SELECT value FROM json_each(?))"
+            terms << JSON.generate(ids)
+          end
         end
         ["#{JOIN} WHERE #{conditions.join(' AND ')}", terms]
       end

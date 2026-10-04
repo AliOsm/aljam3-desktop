@@ -49,4 +49,22 @@ class LimitedSearchTest < StoreTestCase
     @store.discard_download(2)
     assert_empty @store.search("العلم", author: 8, category: 3, library: 3, pool_size: 1).fetch("pages")
   end
+
+  def test_broad_scopes_keep_matches_beyond_the_page_prefilter_limit
+    other = book(2).merge("author" => { "id" => 8, "name" => "مؤلف آخر" })
+    @store.prepare_download(other)
+    rows = Array.new(Aljam3::Store::Search::SCOPED_PAGE_LIMIT + 1) do |index|
+      { "id" => 20_000 + index, "number" => index + 1, "content" => "تمهيد" }
+    end
+    rows.last["content"] = "العلم العمل"
+    @store.add_pages(20, rows)
+    @store.complete_download(2)
+
+    %w[relevance library].each do |order|
+      result = @store.search("العلم", author: 8, order:)
+      assert_equal [rows.last.fetch("id")], result.fetch("pages").map { |hit| hit.fetch("id") }
+      assert_equal 1, result.dig("pagination", "count")
+      assert result.dig("pagination", "count_is_exact")
+    end
+  end
 end

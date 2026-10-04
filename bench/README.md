@@ -34,6 +34,23 @@ mise exec -- bundle exec ruby bench/limited.rb \
 
 The following sections preserve the previous exhaustive-ranking baseline and fixture-generation methodology. Their global-ranking descriptions apply to 0.1.4, not the current bounded search.
 
+### October 4 sparse-scope audit
+
+A fresh fixture contains 63,528 named books and 1,000,000 repeated-OCR pages (3.49 GB). Its unspecified-author scope contains 634 books and 10,132 pages scattered through the index. The old query read unrelated page records between its minimum and maximum page IDs. The revised query uses an ID prefilter for scopes of at most 50,000 pages and keeps FTS matching as one streaming scan. Larger scopes use the original range plan, and cached pagination skips scope preparation.
+
+Paired measurements on Linux, requesting file-cache eviction before each operation, with other audit work running:
+
+| Query | Before | After |
+| --- | ---: | ---: |
+| `الله`, author filter | 12.27 s | 2.25 s |
+| `العلم العمل`, author filter | 3.90 s | 0.34 s |
+| `الزمخشري`, author filter | 0.45 s | 0.10 s |
+| `الله`, one book | 0.012 s | 0.012 s |
+| `الله`, broad library filter | 3.02 s | 3.21 s |
+| `الله`, unfiltered | 2.52 s | 2.57 s |
+
+All six complete result objects were identical. These are individual paired trials, not latency guarantees or a repeat of the 37.6-million-page benchmark. The native app also verified the author scope's exact counts (7,530 and 421 matches), cancellation, and continued reading. Regression tests ensure that matches beyond the 50,000-page planning threshold remain eligible in both sort orders.
+
 ## Workload
 
 The public source indexes contain **63,535 entries and 37,610,673 pages** across the Prophet Mosque, Shamela/Waqfeya, and Waqfeya collections. This is a workload envelope, not an exact current API catalog count. `prepare.rb` saves the source URLs and SHA-256 checksums, samples eight text volumes from distinct categories in each collection, and retains the actual catalog titles, authors, and categories.
