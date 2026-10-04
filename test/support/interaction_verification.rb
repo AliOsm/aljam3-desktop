@@ -75,6 +75,9 @@ class InteractionVerification
       fragment = @app.span(link)
       paragraph = @app.para(fragment)
     end
+    text_id = paragraph.linkable_id
+    service.receive("t" => "para_hit", "id" => text_id, "value" => 3)
+    Shoes::DisplayService.para_cursor_top_cache[text_id] = 12
     paragraph.replace(fragment, " نص")
     check("Replacing text preserves fragments still in use", !fragment.destroyed && !link.destroyed)
     paragraph.replace("نص جديد")
@@ -95,6 +98,11 @@ class InteractionVerification
     slot.remove
     @automation.wait_frames
     check("Repeated rich-text rebuilds leave no registered drawables", registry.size == baseline)
+    check("Removing paragraphs clears their hit and caret metadata", !Shoes::DisplayService.para_hit_cache.key?(text_id) && !Shoes::DisplayService.para_cursor_top_cache.key?(text_id))
+    service.receive("t" => "layout", "rects" => [[slot.linkable_id, 0, 0, 100, 100, 100]])
+    check("Late layout replies cannot restore removed views to the geometry cache", !Shoes::DisplayService.layout_cache.key?(slot.linkable_id))
+    service.receive("t" => "para_hit", "id" => text_id, "value" => 5)
+    check("Late hit-test replies cannot restore removed paragraph metadata", !Shoes::DisplayService.para_hit_cache.key?(text_id))
   end
 
   def feedback_timer_lifecycle
