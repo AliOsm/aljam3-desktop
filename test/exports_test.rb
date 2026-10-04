@@ -85,6 +85,33 @@ class ExportsTest < StoreTestCase
     downloader.verify
   end
 
+  def test_failed_local_export_preserves_an_existing_destination
+    file = { "id" => 10, "urls" => { "pdf" => "https://example.test/book.pdf" } }
+    source = File.join(@directory, "downloaded.pdf")
+    File.binwrite(source, "%PDF-1.7\nlocal book")
+    downloader = Minitest::Mock.new
+    downloader.expect(:pdf_path, source, [book.fetch("id"), file.fetch("id")])
+    view = View.new(@store, book)
+    view.prepare_export(file, downloader:)
+    view.answer = File.join(@directory, "export.pdf")
+    File.binwrite(view.answer, "previous export")
+    copy = ->(_source, destination, *) do
+      destination.write("partial")
+      raise Errno::ENOSPC
+    end
+    IO.stub(:copy_stream, copy) do
+      assert_raises(Errno::ENOSPC) { view.export_file(file, "pdf") }
+    end
+    assert_equal "previous export", File.binread(view.answer)
+    assert_equal "%PDF-1.7\nlocal book", File.binread(source)
+    assert_empty Dir.glob(File.join(@directory, ".aljam3-export-*"))
+    downloader.expect(:pdf_path, source, [book.fetch("id"), file.fetch("id")])
+    view.export_file(file, "pdf")
+    assert_equal File.binread(source), File.binread(view.answer)
+    assert_empty Dir.glob(File.join(@directory, ".aljam3-export-*"))
+    downloader.verify
+  end
+
   def test_safe_names_keep_arabic_and_identify_volume_and_page
     assert_equal "كتاب - الثاني - صفحة 4.png", Aljam3::ExportName.build("كتاب", "png", part: "الثاني", page: 4)
     assert_equal "كتاب.pdf", Aljam3::ExportName.build("كتاب.PDF", "pdf")

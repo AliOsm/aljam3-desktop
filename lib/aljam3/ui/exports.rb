@@ -2,6 +2,7 @@
 
 require_relative "../desktop"
 require_relative "../export_name"
+require "tempfile"
 
 module Aljam3
   module UI
@@ -55,7 +56,7 @@ module Aljam3
         source = @downloader.pdf_path(book_id, file.fetch("id")) if format == "pdf"
         save_file(key, path:, book_id:) do
           if source && File.file?(source)
-            FileUtils.cp(source, path)
+            copy_export(source, path)
           else
             HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf")
           end
@@ -68,7 +69,7 @@ module Aljam3
 
         source = @reader.fetch(:image).path
         # Images are exported before later renders or cache clearing can evict them.
-        save_file([:image, path], path:, book_id: @reader.fetch(:book).fetch("id"), worker: @render_worker) { FileUtils.cp(source, path) }
+        save_file([:image, path], path:, book_id: @reader.fetch(:book).fetch("id"), worker: @render_worker) { copy_export(source, path) }
       end
 
       def export_destination(format, **details)
@@ -155,6 +156,16 @@ module Aljam3
         @notifications.push(:reveal_failed, persistent: true) do |_count|
           { error: true, message: "تعذّر فتح المجلد", detail: path,
             action_label: "إعادة المحاولة", action: -> { reveal_saved_file(path) } }
+        end
+      end
+
+      private
+
+      def copy_export(source, destination)
+        Tempfile.create([".aljam3-export-", ".tmp"], File.dirname(destination), binmode: true) do |temporary|
+          IO.copy_stream(source, temporary)
+          temporary.close
+          File.rename(temporary.path, destination)
         end
       end
     end
