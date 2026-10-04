@@ -17,6 +17,8 @@ FileUtils.mkdir_p(home)
 FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(home, "data"))
 output = File.join(root, "dist/verification/motion-baseline")
 PackageVerification.call(bundle:, home:, output:, probe: File.join(root, "packaging/motion_probe.rb"))
-baseline = MotionReport.call(output)
+# Measure the reference release even when it fails today's animation requirement.
+# The current package has already passed that requirement in verify-package.
+baseline = MotionReport.call(output, verify_animation: false)
 current = JSON.parse(File.read(File.join(root, "dist/verification/motion/performance.json")))
 File.write(File.join(root, "dist/verification/motion-comparison.json"), JSON.pretty_generate(before: baseline, after: current))

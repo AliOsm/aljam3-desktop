@@ -3,7 +3,7 @@
 require "json"
 
 module MotionReport
-  def self.call(directory)
+  def self.call(directory, verify_animation: true)
     benchmark = JSON.parse(File.read(File.join(directory, "passed.json")))
     native = JSON.parse(File.read(File.join(directory, "rust.json")))
     samples = benchmark.fetch("samples")
@@ -43,7 +43,7 @@ module MotionReport
     report[:frames_while_ruby_busy] = busy_frames
     File.write(File.join(directory, "performance.json"), JSON.pretty_generate(report))
     puts JSON.pretty_generate(report)
-    if benchmark["native_timing"] && benchmark["ghost"] && busy_frames.any? { |count| count < 2 }
+    if verify_animation && benchmark["native_timing"] && benchmark["ghost"] && busy_frames.any? { |count| count < 2 }
       raise "Native animations stopped while Ruby was busy: #{busy_frames.inspect}"
     end
     report
