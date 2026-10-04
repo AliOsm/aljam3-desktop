@@ -14,12 +14,13 @@ permissions:
 jobs:
   installer:
     runs-on: windows-2022
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
       GH_TOKEN: ${{ github.token }}
       BUILD_RUN_ID: ${{ inputs.build_run_id }}
       # A cold install downloads the sample book and renders the full screenshot suite.
-      ALJAM3_VERIFY_TIMEOUT: '180'
+      # Allow ten minutes per launch, including slow shared runners and process exit.
+      ALJAM3_VERIFY_TIMEOUT: '600'
     steps:
       - uses: actions/checkout@v4
       - uses: ruby/setup-ruby@v1
