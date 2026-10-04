@@ -88,7 +88,8 @@ app.every(0.1) do
   begin
     raise "Window icon check timed out" if Process.clock_gettime(Process::CLOCK_MONOTONIC) - started > 20
     service = Shoes::DisplayService.display_service
-    window = WindowIcons.window_for(service.child.pid, app.title)
+    title = service.query_display_drawable_for(app.linkable_id).props.fetch("title")
+    window = WindowIcons.window_for(service.child.pid, title)
     next unless window
 
     Scarpe::Native::Automation.new(service).wait_frames
