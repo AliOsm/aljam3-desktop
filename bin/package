@@ -72,7 +72,7 @@ Dir.chdir(ROOT) do
   renderer = "scarpe-native#{'.exe' if WINDOWS}"
   copy("vendor/scarpe/native/target/release/#{renderer}", File.join(binary_dir, renderer))
   revision = IO.popen(["git", "rev-parse", "HEAD"], &:read).strip
-  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: "0.1.12", revision:, target: TARGET,
+  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: "0.1.13", revision:, target: TARGET,
     ruby: "3.4.7", scarpe: "47256367a4d3cefbb39756d8c3287814db72e927", gems: gems.map(&:full_name) }))
 
   if WINDOWS

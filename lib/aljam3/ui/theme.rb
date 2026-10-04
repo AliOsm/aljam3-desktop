@@ -22,17 +22,31 @@ module Aljam3
         define_method(name) { PALETTES.fetch(@theme || :light).fetch(name) }
       end
 
+      def initial_theme
+        (@store.preference("theme") || system_theme).to_sym
+      end
+
       def system_theme
+        return windows_theme if Gem.win_platform?
+
         command = if RUBY_PLATFORM.include?("darwin")
           ["defaults", "read", "-g", "AppleInterfaceStyle"]
-        elsif RUBY_PLATFORM.match?(/mingw|mswin/)
-          ["reg", "query", 'HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize', "/v", "AppsUseLightTheme"]
         else
           ["gsettings", "get", "org.gnome.desktop.interface", "color-scheme"]
         end
         value, status = Open3.capture2(*command, err: File::NULL)
-        status.success? && (value.match?(/dark/i) || value.match?(/AppsUseLightTheme\s+REG_DWORD\s+0x0/)) ? :dark : :light
+        status.success? && value.match?(/dark/i) ? :dark : :light
       rescue Errno::ENOENT
+        :light
+      end
+
+      def windows_theme
+        require "win32/registry"
+
+        Win32::Registry::HKEY_CURRENT_USER.open('Software\Microsoft\Windows\CurrentVersion\Themes\Personalize') do |key|
+          key.read_i("AppsUseLightTheme").zero? ? :dark : :light
+        end
+      rescue Win32::Registry::Error, TypeError
         :light
       end
 

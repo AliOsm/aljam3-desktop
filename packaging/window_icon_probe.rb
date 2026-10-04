@@ -9,6 +9,7 @@ ENV["SCARPE_NATIVE_GHOST"] = "1"
 require "ffi"
 require "json"
 require "chunky_png"
+require_relative "verify_theme"
 
 module WindowIcons
   extend FFI::Library
@@ -80,7 +81,7 @@ end
 
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
 root = ENV.fetch("ALJAM3_BUNDLE_ROOT")
-load File.join(root, "app/app.rb")
+ThemeVerification.call(output:, system_reads: 1) { load File.join(root, "app/app.rb") }
 app = Shoes.APPS.first
 expected = ChunkyPNG::Image.from_file(File.join(Aljam3::ROOT, "assets/brand/app-icon.png"))
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)

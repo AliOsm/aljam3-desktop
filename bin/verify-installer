@@ -41,7 +41,7 @@ Win32::Registry::HKEY_CURRENT_USER.open(registry) do |key|
   raise "Wrong install location" unless File.expand_path(key["InstallLocation"]).delete_suffix("/") == bundle
 end
 PackageVerification.call(bundle:, home:, output: File.join(output, "installed"))
-PackageVerification.call(bundle:, home:, output: File.join(output, "window-icons"),
+PackageVerification.call(bundle:, home: File.join(home, "first-launch"), output: File.join(output, "window-icons"),
   probe: File.join(root, "packaging/window_icon_probe.rb"))
 WindowsLauncherVerification.call(bundle:, home:, output:)
 before = library_digest(home)

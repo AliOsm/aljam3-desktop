@@ -10,6 +10,7 @@ raise "Unicode data path was not exercised" if ENV.fetch("ALJAM3_DATA_DIR").asci
 require File.join(root, "app/lib/aljam3")
 require File.join(root, "app/lib/aljam3/pdf")
 require_relative "verify_streaming"
+require_relative "verify_theme"
 require_relative "../test/support/alignment_verification"
 api = Aljam3::API.new
 raise "Bundled HTTPS failed" if api.books.fetch("books").empty?
@@ -26,7 +27,7 @@ begin
 ensure
   store.close
 end
-load File.join(root, "app/app.rb")
+ThemeVerification.call(output:, system_reads: 0) { load File.join(root, "app/app.rb") }
 app = Shoes.APPS.first
 icon = Shoes::DisplayService.display_service.query_display_drawable_for(app.linkable_id).props.fetch("icon")
 raise "App icon did not reach the renderer" unless icon == File.join(Aljam3::ROOT, "assets/brand/app-icon.png") && File.file?(icon)

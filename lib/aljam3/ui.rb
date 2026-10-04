@@ -19,7 +19,7 @@ module Aljam3
       %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
       directory = Aljam3.data_directory
       @store = Store.new(File.join(directory, "library.sqlite3"))
-      @theme = @store.preference("theme", system_theme.to_s).to_sym
+      @theme = initial_theme
       apply_theme
       @api = API.new(base_url: ENV.fetch("ALJAM3_API_URL", "https://aljam3.com"))
       @library = Library.new(api: @api, store: @store)
