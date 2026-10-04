@@ -47,6 +47,7 @@ module Aljam3
 
       def draw_feedback
         @notification_view = nil
+        @notification_action_views = {}
         @notification_hover = @notification_focus = @notification_entering = false
         @notification_layer = stack(left: 0, top: 0, width: 0, height: 0, overlay: true)
         update_notification
@@ -95,6 +96,7 @@ module Aljam3
         @notification_layer.clear
         @action_views.delete([:notification, :close])
         @action_views.delete([:notification, :action])
+        @notification_action_views = {}
         @notification_layer.style(width: 0, height: 0, opacity: 1.0, displace_top: 0, inert: false)
       end
 
@@ -129,6 +131,7 @@ module Aljam3
             @notice_action.focus_changed = proc { |_control, focused| @notification_focus = focused }
           end
         end
+        @notification_action_views = @action_views.select { |key, _| key.is_a?(Array) && key.first == :notification }
         @notification_entering = true
         @motion.to(@notification_layer, opacity: 1.0, displace_top: 0, duration: 0.18,
           group: :feedback, complete: -> { @notification_entering = false })
@@ -136,6 +139,14 @@ module Aljam3
         @notification_layer.leave { @notification_hover = false }
       ensure
         @drawing_notification = false
+      end
+
+      def position_notification
+        return unless @notification_view
+
+        gap = @screen == :reader ? 92 : 12
+        @notification_rest_top = height - STATUS_HEIGHT - gap - @notification_layer.style[:height]
+        @notification_layer.top = @notification_rest_top
       end
 
       def dismiss_notification
@@ -203,7 +214,7 @@ module Aljam3
         file_message = saving == 1 ? "جارٍ حفظ ملف…" : "جارٍ حفظ #{saving} ملفات…" if saving.positive?
         message = [message, file_message].compact.join(" · ")
         @activity_progress.style(hidden: !current)
-        smooth_progress(@activity_progress, current&.fetch(:fraction) || 0)
+        smooth_progress(@activity_progress, current&.fetch(:fraction) || 0, group: :chrome)
         return if @activity_text == message
 
         @activity_text = message

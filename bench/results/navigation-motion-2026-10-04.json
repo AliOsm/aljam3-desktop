@@ -1,0 +1,197 @@
+{
+  "date": "2026-10-04",
+  "base_commit": "9cde4fa",
+  "implementation": "Working tree: persistent page chrome, nested filter transitions, cached fade surfaces and opaque row blending",
+  "environment": {
+    "os": "Linux",
+    "architecture": "x86_64",
+    "ruby": "3.4.7",
+    "rust": "1.98.1",
+    "headless": true
+  },
+  "scene": "1160x820 window, real PDF page rendered at 1200px, long Arabic text, controlled background disk transfer and SQLite progress persistence",
+  "method": "Four rounds per interaction. Frame work sums parse, apply, layout, paint and present during active transitions; request handling is excluded to avoid counting painting twice. Scale runs are sequential.",
+  "units": "milliseconds",
+  "scales": {
+    "1": {
+      "frame_work_ms": {
+        "median": 4.19,
+        "p95": 7.93,
+        "max": 39.03
+      },
+      "interactions": {
+        "filters/open": {
+          "median": 4.65,
+          "p95": 8.74,
+          "max": 15.65
+        },
+        "filters/library": {
+          "median": 5.21,
+          "p95": 6.74,
+          "max": 8.17
+        },
+        "filters/back": {
+          "median": 5.18,
+          "p95": 5.65,
+          "max": 5.98
+        },
+        "filters/close": {
+          "median": 4.41,
+          "p95": 5.11,
+          "max": 5.35
+        },
+        "navigation/browse": {
+          "median": 4.71,
+          "p95": 10.5,
+          "max": 15.32
+        },
+        "navigation/categories": {
+          "median": 4.25,
+          "p95": 12.08,
+          "max": 14.27
+        },
+        "navigation/authors": {
+          "median": 5.33,
+          "p95": 6.31,
+          "max": 6.95
+        },
+        "navigation/home": {
+          "median": 4.36,
+          "p95": 12.01,
+          "max": 14.86
+        },
+        "navigation/reader": {
+          "median": 4.94,
+          "p95": 26.33,
+          "max": 39.03
+        },
+        "navigation/back": {
+          "median": 4.47,
+          "p95": 10.99,
+          "max": 11.84
+        }
+      }
+    },
+    "2": {
+      "frame_work_ms": {
+        "median": 11.46,
+        "p95": 19.36,
+        "max": 65.31
+      },
+      "interactions": {
+        "filters/open": {
+          "median": 14.8,
+          "p95": 20.37,
+          "max": 24.1
+        },
+        "filters/library": {
+          "median": 16.86,
+          "p95": 19.98,
+          "max": 21.34
+        },
+        "filters/back": {
+          "median": 16.77,
+          "p95": 17.26,
+          "max": 17.46
+        },
+        "filters/close": {
+          "median": 13.5,
+          "p95": 15.49,
+          "max": 15.75
+        },
+        "navigation/browse": {
+          "median": 15.48,
+          "p95": 30.96,
+          "max": 32.44
+        },
+        "navigation/categories": {
+          "median": 14.96,
+          "p95": 27.43,
+          "max": 29.67
+        },
+        "navigation/authors": {
+          "median": 14.85,
+          "p95": 23.5,
+          "max": 23.96
+        },
+        "navigation/home": {
+          "median": 15.31,
+          "p95": 28.64,
+          "max": 29.55
+        },
+        "navigation/reader": {
+          "median": 15.1,
+          "p95": 65.19,
+          "max": 65.31
+        },
+        "navigation/back": {
+          "median": 15.09,
+          "p95": 22.44,
+          "max": 23.39
+        }
+      }
+    }
+  },
+  "before_final_blend_optimization_at_2x": {
+    "navigation/browse": {
+      "median": 20.59,
+      "p95": 37.34,
+      "max": 37.39
+    },
+    "navigation/categories": {
+      "median": 20.28,
+      "p95": 32.05,
+      "max": 32.06
+    },
+    "navigation/authors": {
+      "median": 20.08,
+      "p95": 28.97,
+      "max": 29.25
+    },
+    "navigation/home": {
+      "median": 20.49,
+      "p95": 33.96,
+      "max": 34.36
+    },
+    "navigation/reader": {
+      "median": 20.48,
+      "p95": 71.25,
+      "max": 71.71
+    },
+    "navigation/back": {
+      "median": 20.56,
+      "p95": 29.03,
+      "max": 30.15
+    }
+  },
+  "limits": [
+    "Headless rendering work is not display FPS. These changes have not been tested in new macOS or Windows packages.",
+    "Cold PDF entry has a higher first-frame cost, included in the p95 and maximum. Warm frames alone do not describe the entire transition.",
+    "Background throughput is controlled rather than measured over the Internet. OS cache state and machine load are uncontrolled.",
+    "The 2x measurement preceded an additional scrollbar-order correctness guard; final 1x and native pixel checks include that guard."
+  ],
+  "verification": {
+    "ruby": {
+      "tests": 109,
+      "assertions": 527,
+      "failures": 0
+    },
+    "native": {
+      "tests": 296,
+      "failures": 0
+    },
+    "ui_checks": {
+      "motion": 74,
+      "layout": 375,
+      "feedback": 40,
+      "online_offline": 31
+    },
+    "retained_vs_full_paint_at_2x": {
+      "comparison_warnings": 1,
+      "different_pixels": 84,
+      "maximum_channel_difference": 1,
+      "location": "Rounded corners of the reader text pane after changing tashkeel under a popup",
+      "cause": "A partial repaint of the cached underlay rounds antialiased curves differently from a fresh full-frame paint. paint/damage.rs documents this rasterizer behavior for partial rectangles; the strict full-frame comparison reports it when that underlay is reused."
+    }
+  }
+}

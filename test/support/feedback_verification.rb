@@ -233,7 +233,7 @@ class FeedbackVerification
   def exports
     reader
     @app.open_dialog(:export)
-    @app.define_singleton_method(:ask_save_file) { nil }
+    @app.define_singleton_method(:ask_save_file) { |**_options| nil }
     @app.export_file(get(:reader).fetch(:file), "pdf")
     @app.singleton_class.remove_method(:ask_save_file)
     check("cancelling the save chooser starts no job", get(:file_operations).empty? && !@notices.current)

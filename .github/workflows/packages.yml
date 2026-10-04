@@ -67,6 +67,7 @@ jobs:
         run: |
           bundle exec ruby bin/verify-ui motion
           bundle exec ruby bin/verify-ui feedback
+          bundle exec ruby bin/verify-ui interaction
       - name: Download and verify a real sample book
         run: bundle exec ruby bin/smoke
       - name: Assemble standalone application

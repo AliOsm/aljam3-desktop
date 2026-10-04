@@ -25,7 +25,15 @@ module Aljam3
 
     def books(query: "", category: nil, author: nil, library: nil, page: 1)
       scopes = { categories: category, authors: author, libraries: library }.compact
-      raise ArgumentError, "Title browsing accepts one scope at a time." if scopes.length > 1
+      if scopes.length > 1
+        filters = { "category" => category, "author" => author, "library" => library }.compact.transform_values { |id| Integer(id) }
+        data = get("books", filters.merge("q" => query, "page" => page, "limit" => 12))
+        # Older servers ignored unknown parameters. Never display a broader result set.
+        unless data["filters"] == filters
+          raise ResponseError.new(501), "The server does not support combined title filters."
+        end
+        return data
+      end
 
       path = scopes.empty? ? "books" : "#{scopes.keys.first}/#{Integer(scopes.values.first)}"
       data = get(path, "q" => query, "page" => page, "limit" => 12, "expand[]" => "books")

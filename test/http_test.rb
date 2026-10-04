@@ -113,7 +113,6 @@ class HTTPTest < Minitest::Test
       result = Aljam3::API.new(base_url: url, interval: 0).books(author: 4)
       assert_equal "النووي", result.fetch("books").first.dig("author", "name")
     end
-    assert_raises(ArgumentError) { Aljam3::API.new.books(author: 4, category: 2) }
   end
 
   def test_individual_text_export_is_atomic_without_pdf_validation

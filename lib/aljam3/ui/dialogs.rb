@@ -22,7 +22,7 @@ module Aljam3
         @dialog_results = nil
         @content_layer.inert = true
         update_notification
-        render_dialog(enter: true)
+        render_dialog(enter: !nested, direction: nested ? -8 : nil)
         (@dialog_first || @dialog_close)&.focus
       end
 
@@ -39,7 +39,7 @@ module Aljam3
         @dialog_results = nil
         if @dialog
           yield if block_given?
-          render_dialog(enter: true)
+          render_dialog(direction: 8)
           (@action_views[closed[:return_focus]] || @dialog_first || @dialog_close)&.focus
           return
         end
@@ -52,17 +52,16 @@ module Aljam3
 
         @motion.cancel(:dialog)
         @dialog_layer.inert = true
-        @motion.to(@dialog_backdrop, opacity: 0.0, duration: 0.10, group: :dialog)
+        @motion.to(@dialog_backdrop, opacity: 0.0, duration: 0.10, group: :dialog_shell)
         @motion.to(@dialog_panel, opacity: 0.0, displace_top: @dialog_offset,
-          duration: 0.10, group: :dialog, complete: -> { finish_dialog_close(closed) })
+          duration: 0.10, group: :dialog_shell, complete: -> { finish_dialog_close(closed) })
       end
 
       def finish_dialog_close(closed)
         return unless @closing_dialog.equal?(closed)
 
-        @dialog_layer.clear
-        @dialog_layer.hidden = true
-        @closing_dialog = @dialog_scroll = nil
+        clear_dialog_view
+        @dialog_scroll = nil
         @content_layer.inert = false
         @action_views = @base_action_views.dup
         control = closed[:return_control]
@@ -71,37 +70,72 @@ module Aljam3
         update_notification
       end
 
-      def render_dialog(enter: false)
+      def clear_dialog_view
+        @motion.cancel(:dialog)
+        @motion.cancel(:dialog_shell)
+        @dialog_transition&.clear
+        @dialog_layer.clear
+        @dialog_layer.hidden = true
+        @closing_dialog = @dialog_panel = @dialog_surface = @dialog_position = @dialog_results = nil
+      end
+
+      def render_dialog(enter: false, direction: nil)
         return unless @dialog
 
         @dialog_redraw_pending = false
         @dialog[:scroll] = @dialog_results.scroll_top if @dialog_results
+        clear_dialog_view if enter
         @motion.cancel(:dialog)
         @action_views = @base_action_views.dup
         @dialog_results = nil
-        @dialog_layer.clear
         @dialog_layer.style(hidden: false, inert: false)
-        @dialog_layer.append { draw_dialog }
+        layout = dialog_layout
+        @dialog_layer.append { draw_dialog_shell(layout) } unless @dialog_panel
+        @dialog_panel.accessibility_label = layout.fetch(:title)
+        @dialog_transition.replace(direction:) do |view|
+          if view
+            view.style(width: layout.fetch(:width), height: layout.fetch(:height))
+            view.clear { draw_dialog_contents(layout) }
+            view
+          else
+            content = nil
+            @dialog_panel.append do
+              content = stack(left: 0, top: 0, width: layout.fetch(:width), height: layout.fetch(:height)) { draw_dialog_contents(layout) }
+            end
+            content
+          end
+        end
+        fit_dialog_panel
         return unless enter
 
         @dialog_backdrop.opacity = 0.0
         @dialog_panel.style(opacity: 0.0, displace_top: @dialog_offset)
-        @motion.to(@dialog_backdrop, opacity: 1.0, duration: @dialog_duration, group: :dialog)
-        @motion.to(@dialog_panel, opacity: 1.0, displace_top: 0, duration: @dialog_duration, group: :dialog)
+        @motion.to(@dialog_backdrop, opacity: 1.0, duration: @dialog_duration, group: :dialog_shell)
+        @motion.to(@dialog_panel, opacity: 1.0, displace_top: 0, duration: @dialog_duration, group: :dialog_shell)
+      end
+
+      def fit_dialog_panel
+        return unless @dialog_panel
+
+        heights = @dialog_transition.views.map { |view| view.style[:height] }
+        @dialog_panel.height = heights.max
+        # Keep the shared area opaque while the differently sized surfaces fade.
+        @dialog_surface.height = heights.min
       end
 
       def refresh_dialog
         @editing_field ? @dialog_redraw_pending = true : render_dialog
       end
 
-      def draw_dialog
+      def dialog_layout
         type = @dialog.fetch(:type)
-        popup = %i[select filters volumes reader_options reader_menu].include?(type) || @dialog_stack.any?
-        menu = %i[select reader_menu].include?(type)
+        shell_type = @dialog_stack.first&.fetch(:type) || type
+        popup = %i[select filters volumes reader_options reader_menu].include?(shell_type)
+        menu = %i[select reader_menu].include?(type) && @dialog_stack.empty?
         requested_width, requested_height = case type
           when :motion_settings then [440, 160]
           when :filters then [408, 308]
-          when :select then [220, 12 + @dialog.fetch(:choices).length * 44]
+          when :select then [220, (menu ? 12 : 80) + @dialog.fetch(:choices).length * 44]
           when :volumes then [360, choice_dialog_height]
           when :share then [480, 200]
           when :export then [520, [@reader.fetch(:files).length * 44 + 148, 544].min]
@@ -116,9 +150,14 @@ module Aljam3
           when :unavailable then [520, 264]
           else [800, 640]
         end
-        panel_width = [width - 32, requested_width].min
+        @dialog[:panel_width] = requested_width
+        panel_width = [width - 32, @dialog_stack.first&.fetch(:panel_width, requested_width) || requested_width].min
         panel_height = [height - 32, requested_height].min
-        if popup && (anchor = @dialog[:anchor])
+        anchor = @dialog[:anchor]
+        if @dialog_position
+          left, top, panel_width = @dialog_position
+          panel_height = [panel_height, height - top - 16].min
+        elsif popup && anchor
           x, y, w, h = anchor
           left = (x + w - panel_width).clamp(16, width - panel_width - 16)
           top = y + h + 8
@@ -130,51 +169,70 @@ module Aljam3
         @dialog_rest_top = top
         @dialog_offset = popup ? (anchor && top < anchor[1] ? 5 : -5) : 8
         @dialog_duration = popup ? 0.14 : 0.20
+        title = @dialog.fetch(:title, { motion_settings: "إعدادات الحركة", filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
+          authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
+          reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
+          remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, "اختر"))
+        backdrop_alpha = shell_type == :select ? 0 : popup ? 0.10 : 0.28
+        { type:, menu:, left:, top:, width: panel_width, height: panel_height, title:, backdrop_alpha: }
+      end
+
+      def draw_dialog_shell(layout)
+        left, top, panel_width, panel_height = layout.values_at(:left, :top, :width, :height)
+        @dialog_position = [left, top, panel_width]
         stack(left: 0, top: 0, width: width, height: height) do
-          @dialog_backdrop = background rgb(0, 0, 0, type == :select ? 0 : popup ? 0.10 : 0.28), opacity: 1.0
+          @dialog_backdrop = background rgb(0, 0, 0, layout.fetch(:backdrop_alpha)), opacity: 1.0
           click do |_button, x, y|
+            next unless @dialog
+
             bounds = Shoes::DisplayService.layout_cache[@dialog_panel.linkable_id]
             px, py, pw, ph = bounds || [left, top, panel_width, panel_height]
             close_dialog unless (px..px + pw).cover?(x) && (py..py + ph).cover?(y)
           end
         end
+        @dialog_panel = stack(left:, top:, width: panel_width, height: panel_height, opacity: 1.0, displace_top: 0,
+          accessibility_role: "dialog", accessibility_label: layout.fetch(:title)) do
+          @dialog_surface = stack(left: 0, top: 0, width: panel_width, height: panel_height) { background card_color, curve: CARD_RADIUS }
+        end
+        @dialog_transition = ViewTransition.new(@motion, group: :dialog_content) { fit_dialog_panel }
+      end
+
+      def draw_dialog_contents(layout)
         @drawing_dialog = true
         main_width, content_height = @main_width, @content_height
+        type, menu = layout.values_at(:type, :menu)
         padding, body_top = menu ? 8 : 16, menu ? 8 : 64
-        @main_width, @content_height = panel_width - padding * 2, panel_height - body_top - padding
+        @main_width, @content_height = layout.fetch(:width) - padding * 2, layout.fetch(:height) - body_top - padding
         @dialog_close = @dialog_first = nil
-        title = @dialog.fetch(:title, { motion_settings: "إعدادات الحركة", filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
-          authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
-          reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
-          remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, ""))
-        @dialog_panel = stack(left:, top:, width: panel_width, height: panel_height, opacity: 1.0, displace_top: 0,
-          accessibility_role: "dialog", accessibility_label: title.empty? ? "اختر" : title) do
-          background card_color, curve: CARD_RADIUS
-          border line_color, curve: CARD_RADIUS
-          unless menu
-            row(left: padding, top: 12, width: @main_width) do
-              para title, width: -36, size: 20, font: HEADING_FONT
-              @dialog_close = icon_button("x", "إغلاق") { close_dialog }
+        background card_color, curve: CARD_RADIUS
+        border line_color, curve: CARD_RADIUS
+        unless menu
+          row(left: padding, top: 12, width: @main_width) do
+            para layout.fetch(:title), width: -36, size: 20, font: HEADING_FONT
+            @dialog_close = if @dialog_stack.any?
+              icon_button("arrow-right", "العودة", key: :dialog_back) { close_dialog }
+            else
+              icon_button("x", "إغلاق") { close_dialog }
             end
-            separator(left: padding, top: 56, width: @main_width)
           end
-          stack(left: padding - SCROLL_GUTTER, top: body_top, width: @main_width + SCROLL_GUTTER,
-            padding_left: SCROLL_GUTTER, height: @content_height) do
-            case type
-            when :motion_settings then draw_motion_settings
-            when :filters then draw_filters
-            when :select, :choices, :volumes then draw_choices
-            when :authors then draw_author_choices
-            when :book_search then draw_book_search
-            when :share then draw_share
-            when :export then draw_export
-            when :reader_options then draw_reader_options
-            when :reader_menu then draw_reader_menu
-            when :bookmarks then draw_bookmarks
-            when :shortcuts then draw_shortcuts
-            when :remove_download then draw_remove_download
-            when :unavailable then draw_unavailable_book
-            end
+          separator(left: padding, top: 56, width: @main_width)
+        end
+        stack(left: padding - SCROLL_GUTTER, top: body_top, width: @main_width + SCROLL_GUTTER,
+          padding_left: SCROLL_GUTTER, height: @content_height) do
+          case type
+          when :motion_settings then draw_motion_settings
+          when :filters then draw_filters
+          when :select, :choices, :volumes then draw_choices
+          when :authors then draw_author_choices
+          when :book_search then draw_book_search
+          when :share then draw_share
+          when :export then draw_export
+          when :reader_options then draw_reader_options
+          when :reader_menu then draw_reader_menu
+          when :bookmarks then draw_bookmarks
+          when :shortcuts then draw_shortcuts
+          when :remove_download then draw_remove_download
+          when :unavailable then draw_unavailable_book
           end
         end
       ensure
@@ -193,7 +251,7 @@ module Aljam3
 
       def draw_filters
         filters = @dialog.fetch(:filters)
-        para @mode == :content || @screen == :saved ? "يمكنك الجمع بين الخيارات لتحديد نطاق البحث." : "اختر نطاقًا واحدًا لتصفح العناوين.",
+        para "يمكنك الجمع بين الخيارات لتحديد نطاق البحث.",
           size: 14, stroke: muted
         { library: "المكتبة", category: "التصنيف", author: "المؤلف" }.each_with_index do |(key, label), index|
           choices = case key
@@ -204,9 +262,9 @@ module Aljam3
           selected = filters[key] ? filter_label(key, filters[key]) : "الجميع"
           row(top: 32 + index * 48, height: 40) do
             para label, width: 76, size: 15
-            action(selected, key: [:filter, key], tooltip: selected, icon: "chevron-down", width: -76, height: 40, align: "right") do
+            action(selected, key: [:filter, key], tooltip: selected, icon: "chevron-down", width: -76, height: 40, align: "right",
+              state: (@scope_filters || {}).key?(key) ? "disabled" : nil) do
               selection = ->(value) do
-                filters.clear unless @mode == :content || @screen == :saved
                 value ? filters[key] = value : filters.delete(key)
               end
               if key == :author
@@ -220,11 +278,10 @@ module Aljam3
         end
         separator(top: 180)
         row(top: 192) do
-          action("مسح التصفية", width: 124, variant: :ghost) { filters.clear; render_dialog }
+          action("مسح التصفية", width: 124, variant: :ghost) { filters.replace(@scope_filters || {}); render_dialog }
           stack(width: -228, height: 1)
           action("تطبيق", width: 104, variant: :solid) do
-            @filters = filters
-            @scope_label = nil
+            @filters = filters.merge(@scope_filters || {})
             @dialog = @dialog_scroll = nil
             @screen = :browse if @screen == :home && @query.strip.empty?
             request_catalog

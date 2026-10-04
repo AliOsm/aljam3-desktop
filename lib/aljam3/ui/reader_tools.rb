@@ -13,7 +13,7 @@ module Aljam3
       end
 
       def draw_reader_divider
-        @reader_divider = stack(left: PAGE_MARGIN + @pdf_width, top: @pane_top, width: READER_GAP, height: @pane_height) do
+        @reader_divider = stack(left: PAGE_MARGIN + @pdf_width, top: @pane_top, width: READER_GAP, height: @pane_height, cursor: "col-resize") do
           line 8, 4, 8, @pane_height - 4, stroke: line_color
           image asset_path("icons", "grip-vertical"), top: @pane_height / 2 - 12, width: 16, height: 24,
             alt: "اسحب لتغيير مساحة النص والصورة. تتوفر النسب أيضًا في خيارات القراءة."

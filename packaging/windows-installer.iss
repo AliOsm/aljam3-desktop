@@ -4,7 +4,7 @@
 
 [Setup]
 AppId={{A247B4AC-B09F-45B2-A9C2-30364B6FA32A}
-AppName=Aljam3
+AppName={code:LocalizedAppName}
 AppVersion={#AppVersion}
 AppPublisher=Aljam3
 AppPublisherURL=https://aljam3.com
@@ -18,7 +18,7 @@ OutputDir=..\dist
 OutputBaseFilename=Aljam3-{#AppVersion}-windows-x64-setup
 SetupIconFile=..\assets\brand\aljam3.ico
 UninstallDisplayIcon={app}\resources\app\assets\brand\aljam3.ico
-UninstallDisplayName=Aljam3
+UninstallDisplayName={code:LocalizedAppName}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -29,6 +29,10 @@ RestartApplications=no
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
 
 [InstallDelete]
+Type: files; Name: "{autoprograms}\Aljam3.lnk"
+Type: files; Name: "{autoprograms}\الجامع.lnk"
+Type: files; Name: "{autodesktop}\Aljam3.lnk"
+Type: files; Name: "{autodesktop}\الجامع.lnk"
 ; Replace app-managed resources on upgrade. Books are stored separately in LocalAppData\Aljam3.
 Type: filesandordirs; Name: "{app}\resources"
 
@@ -36,8 +40,28 @@ Type: filesandordirs; Name: "{app}\resources"
 Source: "..\dist\Aljam3\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
-Name: "{autoprograms}\Aljam3"; Filename: "{app}\Aljam3.exe"; IconFilename: "{app}\resources\app\assets\brand\aljam3.ico"
-Name: "{autodesktop}\Aljam3"; Filename: "{app}\Aljam3.exe"; IconFilename: "{app}\resources\app\assets\brand\aljam3.ico"; Tasks: desktopicon
+Name: "{autoprograms}\{code:LocalizedAppName}"; Filename: "{app}\Aljam3.exe"; IconFilename: "{app}\resources\app\assets\brand\aljam3.ico"
+Name: "{autodesktop}\{code:LocalizedAppName}"; Filename: "{app}\Aljam3.exe"; IconFilename: "{app}\resources\app\assets\brand\aljam3.ico"; Tasks: desktopicon
 
 [Run]
-Filename: "{app}\Aljam3.exe"; Description: "Open Aljam3"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\Aljam3.exe"; Description: "{code:OpenAppLabel}"; Flags: nowait postinstall skipifsilent
+
+[Code]
+function GetUserDefaultUILanguage: Word;
+  external 'GetUserDefaultUILanguage@kernel32.dll stdcall';
+
+function LocalizedAppName(Param: String): String;
+begin
+  if (GetUserDefaultUILanguage and $3FF) = 1 then
+    Result := 'الجامع'
+  else
+    Result := 'Aljam3';
+end;
+
+function OpenAppLabel(Param: String): String;
+begin
+  if (GetUserDefaultUILanguage and $3FF) = 1 then
+    Result := 'فتح الجامع'
+  else
+    Result := 'Open Aljam3';
+end;

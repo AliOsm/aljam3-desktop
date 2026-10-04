@@ -13,10 +13,11 @@ require_relative "ui/reader_tools"
 require_relative "ui/feedback"
 require_relative "ui/exports"
 require_relative "ui/motion"
+require_relative "ui/navigation"
 
 module Aljam3
   module UI
-    include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion
+    include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation
 
     def setup
       %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
@@ -40,7 +41,7 @@ module Aljam3
       @screen, @mode, @query = :home, :content, ""
       @search_order = :relevance
       @search_scope, @connection = :all, @api.connection
-      @filters, @expanded = {}, {}
+      @filters, @scope_filters, @expanded = {}, {}, {}
       @request_number, @render_number, @page_request = 0, 0, 0
       @busy = false
       @search_pool_size = Store::Search::POOL_SIZE
@@ -48,7 +49,11 @@ module Aljam3
       @ticker = every(0.1) { tick }
       @preference_ticker = every(2) { refresh_motion_preference if @motion_preference == "system" }
       keypress do |key|
-        if key == :escape
+        if [:browser_back, :"alt_[", :alt_left].include?(key)
+          navigate_history(:back)
+        elsif [:browser_forward, :"alt_]", :alt_right].include?(key)
+          navigate_history(:forward)
+        elsif key == :escape
           if dialog_active?
             close_dialog
           elsif @screen == :reader
@@ -117,50 +122,89 @@ module Aljam3
     end
 
     def draw_window
-      @motion.cancel
-      @closing_dialog = nil
       @dialog[:scroll] = @dialog_results.scroll_top if @dialog && @dialog_results
       scroll = @results&.scroll_top || 0
       text_scroll = @text_surface&.scroll_top || 0
       pdf_scroll = @pdf_surface&.scroll_top || 0
-      @viewport = [width, height]
       @progress_views = {}
       @main_width = @screen == :reader ? width - PAGE_MARGIN * 2 : [width - PAGE_MARGIN * 2, 1120].min
       @content_height = [height - PAGE_TOP - STATUS_HEIGHT - 16, 260].max
+      draw_frame unless @frame_signature == [width, height, @theme]
+      @motion.cancel(:content)
       @drawing_dialog = false
       @editing_field = nil
       @redraw_pending = false
-      @action_views = {}
-      @last_content_focus = nil
-      @activity_button = @activity_progress = nil
-      clear do
-        background paper
-        @content_layer = stack(left: 0, top: 0, width: width, height: height, inert: !!@dialog) do
-          navigation
-          if @screen == :reader
-            draw_reader
-          else
-            stack(left: (width - @main_width) / 2 - SCROLL_GUTTER, top: PAGE_TOP,
-              width: @main_width + SCROLL_GUTTER, padding_left: SCROLL_GUTTER, height: @content_height) do
-              case @screen
-              when :downloads then draw_downloads
-              when :home then @query.strip.empty? ? draw_home : draw_catalog
-              when :categories then draw_categories
-              when :opening then empty_state("جارٍ فتح الكتاب…", "نحمّل الصفحة المطلوبة للقراءة.")
-              else draw_catalog
-              end
-            end
+      @action_views = @chrome_action_views.dup
+      @last_content_focus = nil unless @chrome_action_views.value?(@last_content_focus)
+      @results = @text_surface = @pdf_surface = @query_field = nil
+      @page_view = @page_transition.replace(direction: @navigation_motion) do |view|
+        if view
+          view.clear { draw_page }
+          view
+        else
+          @page_host.append do
+            @page_view = stack(left: 0, top: 0, width: width, height: height - STATUS_HEIGHT) { draw_page }
           end
-          connection_bar
+          @page_view
         end
-        @base_action_views = @action_views.dup
-        @dialog_layer = stack(left: 0, top: 0, width: width, height: height, hidden: true, overlay: true)
-        render_dialog if @dialog
-        draw_feedback
       end
+      @navigation_motion = nil
+      @navigation_buttons.each { |screen, button| button.color = @screen == screen ? accent : "transparent" }
+      @base_action_views = @action_views.dup
+      @content_layer.inert = !!@dialog
+      @dialog ? render_dialog : clear_dialog_view
+      @action_views.merge!(@notification_action_views || {}) unless @dialog
+      update_notification
+      position_notification
+      update_connection
+      update_activity
       @results.scroll_top = scroll if @results
       @text_surface.scroll_top = text_scroll if @screen == :reader && @text_surface
       @pdf_surface.scroll_top = pdf_scroll if @screen == :reader && @pdf_surface
+      restore_navigation_scroll
+    end
+
+    def draw_frame
+      @page_transition&.clear
+      clear_dialog_view if @dialog_layer
+      @motion.cancel
+      @viewport = [width, height]
+      @frame_signature = [width, height, @theme]
+      @chrome_width = [width - PAGE_MARGIN * 2, 1120].min
+      @action_views, @navigation_buttons = {}, {}
+      @drawing_chrome = true
+      clear do
+        background paper
+        @content_layer = stack(left: 0, top: 0, width: width, height: height, inert: !!@dialog) do
+          @page_host = stack(left: 0, top: 0, width: width, height: height - STATUS_HEIGHT)
+          navigation
+          connection_bar
+        end
+        @chrome_action_views = @action_views.dup
+        @dialog_layer = stack(left: 0, top: 0, width: width, height: height, hidden: true, overlay: true)
+        draw_feedback
+      end
+      @page_transition = ViewTransition.new(@motion, group: :navigation, overlay: true)
+    ensure
+      @drawing_chrome = false
+    end
+
+    def draw_page
+      background paper
+      if @screen == :reader
+        draw_reader
+      else
+        stack(left: (width - @main_width) / 2 - SCROLL_GUTTER, top: PAGE_TOP,
+          width: @main_width + SCROLL_GUTTER, padding_left: SCROLL_GUTTER, height: @content_height) do
+          case @screen
+          when :downloads then draw_downloads
+          when :home then @query.strip.empty? ? draw_home : draw_catalog
+          when :categories then draw_categories
+          when :opening then empty_state("جارٍ فتح الكتاب…", "نحمّل الصفحة المطلوبة للقراءة.")
+          else draw_catalog
+          end
+        end
+      end
     end
 
     def refresh_window
@@ -171,7 +215,7 @@ module Aljam3
       stack(left: 0, top: 0, width: width, height: 60) do
         background paper
         line 0, 59, width, 59, stroke: line_color
-        row(left: (width - @main_width) / 2, top: 12, width: @main_width) do
+        row(left: (width - @chrome_width) / 2, top: 12, width: @chrome_width) do
           image(asset_path("brand", "aljam3"), width: 52, height: 35, margin_right: 8,
             alt: "الجامع · الرئيسية") { navigate(:home) unless @dialog }
           navigation_button("الرئيسية", :home, width: 76)
@@ -187,15 +231,17 @@ module Aljam3
     end
 
     def navigation_button(label, screen, width:)
-      action(label, width:, variant: :ghost, selected: @screen == screen) { navigate(screen) }
+      @navigation_buttons[screen] = action(label, width:, variant: :ghost, selected: @screen == screen) { navigate(screen) }
     end
 
     def navigate(screen, filters: {}, label: nil)
+      remember_location unless @screen == screen && @filters == filters && @query.empty?
       @store.cancel_search
+      @navigation_motion = 0 if @screen != screen || @filters != filters || !@query.empty?
       @screen, @query, @mode = screen, "", screen == :authors ? :authors : :content
       @search_scope = screen == :saved ? :downloaded : :all
       @result = @results = @error = @dialog = @dialog_scroll = nil
-      @filters, @expanded, @filters_by_mode, @scope_label = filters, {}, {}, label
+      @filters, @scope_filters, @expanded, @scope_label = filters.dup, filters.dup.freeze, {}, label
       @search_pool_size, @search_signature = Store::Search::POOL_SIZE, nil
       @mode = :books unless filters.empty?
       @request_number += 1
@@ -288,7 +334,7 @@ module Aljam3
       @connection_bar = stack(left: 0, top: height - STATUS_HEIGHT, width: width, height: STATUS_HEIGHT) do
         background surface
         separator(width: 1.0)
-        row(left: (width - @main_width) / 2, top: 2, width: @main_width, height: STATUS_HEIGHT - 4) do
+        row(left: (width - @chrome_width) / 2, top: 2, width: @chrome_width, height: STATUS_HEIGHT - 4) do
           @connection_text = para connection_message, width: -484, size: 13, stroke: muted, wrap: "trim", live: "polite"
           @reconnect_button = action("إعادة الاتصال", width: 126, height: 28, size: 13, variant: :ghost,
             hidden: !%i[offline unavailable].include?(@connection)) { refresh_connection }

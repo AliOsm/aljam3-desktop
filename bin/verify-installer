@@ -4,6 +4,7 @@
 require_relative "../packaging/verify_runtime"
 require_relative "../packaging/verify_windows_launcher"
 require "digest"
+require "fiddle"
 
 abort "Verify installers on a disposable Windows CI runner." unless Gem.win_platform? && ENV["GITHUB_ACTIONS"] == "true"
 require "win32/registry"
@@ -29,15 +30,17 @@ home = File.join(workspace, "home")
 output = File.join(root, "dist/installer-verification")
 FileUtils.mkdir_p([workspace, output])
 registry = 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{A247B4AC-B09F-45B2-A9C2-30364B6FA32A}_is1'
-shortcuts = [File.join(ENV.fetch("APPDATA"), "Microsoft/Windows/Start Menu/Programs/Aljam3.lnk"),
-  File.join(ENV.fetch("USERPROFILE"), "Desktop/Aljam3.lnk")]
+language = Fiddle::Function.new(Fiddle.dlopen("kernel32.dll")["GetUserDefaultUILanguage"], [], Fiddle::TYPE_SHORT).call
+name = language & 0x3ff == 1 ? "الجامع" : "Aljam3"
+shortcuts = [File.join(ENV.fetch("APPDATA"), "Microsoft/Windows/Start Menu/Programs/#{name}.lnk"),
+  File.join(ENV.fetch("USERPROFILE"), "Desktop/#{name}.lnk")]
 arguments = ["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=#{bundle}", "/TASKS=desktopicon"]
 
 run(installer, *arguments, "/LOG=#{output}/install.log")
 raise "Launcher was not installed" unless File.file?(File.join(bundle, "Aljam3.exe"))
 raise "Shortcuts were not installed" unless shortcuts.all? { |path| File.file?(path) }
 Win32::Registry::HKEY_CURRENT_USER.open(registry) do |key|
-  raise "Missing installed-app entry" unless key["DisplayName"] == "Aljam3"
+  raise "Missing localized installed-app entry" unless key["DisplayName"] == name
   raise "Wrong install location" unless File.expand_path(key["InstallLocation"]).delete_suffix("/") == bundle
 end
 PackageVerification.call(bundle:, home:, output: File.join(output, "installed"))

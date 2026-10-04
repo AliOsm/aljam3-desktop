@@ -2,12 +2,14 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
   <key>CFBundleName</key><string>Aljam3</string>
-  <key>CFBundleDisplayName</key><string>الجامع</string>
+  <key>CFBundleDisplayName</key><string>Aljam3</string>
+  <key>CFBundleDevelopmentRegion</key><string>en</string>
+  <key>CFBundleLocalizations</key><array><string>en</string><string>ar</string></array>
   <key>CFBundleIdentifier</key><string>com.aljam3.desktop</string>
   <key>CFBundleExecutable</key><string>aljam3</string>
   <key>CFBundlePackageType</key><string>APPL</string>
-  <key>CFBundleShortVersionString</key><string>0.1.15</string>
-  <key>CFBundleVersion</key><string>15</string>
+  <key>CFBundleShortVersionString</key><string>0.1.16</string>
+  <key>CFBundleVersion</key><string>16</string>
   <key>CFBundleIconFile</key><string>aljam3.icns</string>
   <key>LSMinimumSystemVersion</key><string>13.0</string>
   <key>NSHighResolutionCapable</key><true/>

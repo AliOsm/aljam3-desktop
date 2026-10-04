@@ -6,13 +6,13 @@ require "etc"
 require "fileutils"
 require "rbconfig"
 
-# Same PDFium release as the upstream packages, with the page-tree seeking fix.
+# Same PDFium release as upstream, with page seeking and stream read fixes.
 # Build tools and transitive dependencies are pinned; only .cache holds source.
 ROOT = File.expand_path("..", __dir__)
 BUILDER_REVISION = "f2e9a1c45bb17b85b540abf1af30146ef65416ac"
 DEPOT_REVISION = "8a5434051036b32412a2ecb10c213a72e3f3ccb9"
 PDFIUM_REVISION = "8ca5b735df4263f43c830479b78213854a392c22"
-PATCH = File.join(ROOT, "packaging/pdfium/skip-page-branches.patch")
+PATCHES = Dir.glob(File.join(ROOT, "packaging/pdfium/*.patch")).sort.freeze
 
 os = case RbConfig::CONFIG["host_os"]
      when /darwin/ then "mac"
@@ -21,7 +21,7 @@ os = case RbConfig::CONFIG["host_os"]
      else abort "Unsupported PDFium platform."
      end
 arch = RbConfig::CONFIG["host_cpu"].match?(/aarch64|arm64/) ? "arm64" : "x64"
-fingerprint = Digest::SHA256.hexdigest(File.binread(__FILE__) + File.binread(PATCH))[0, 16]
+fingerprint = Digest::SHA256.hexdigest(File.binread(__FILE__) + PATCHES.map { |patch| File.binread(patch) }.join)[0, 16]
 version = "8076-#{os}-#{arch}-#{fingerprint}"
 destination = File.join(ROOT, "vendor/pdfium")
 library = os == "win" ? "bin/pdfium.dll" : "lib/libpdfium.#{os == 'mac' ? 'dylib' : 'so'}"
@@ -72,13 +72,15 @@ Dir.chdir(build) do
   run("git", "-C", "pdfium", "reset", "--hard", PDFIUM_REVISION)
   run("git", "-C", "pdfium/build", "reset", "--hard")
   run(environment, "bash", "-eu", "steps/03-patch.sh")
-  run("git", "-C", "pdfium", "apply", "--check", PATCH)
-  run("git", "-C", "pdfium", "apply", PATCH)
+  PATCHES.each do |patch|
+    run("git", "-C", "pdfium", "apply", "--check", patch)
+    run("git", "-C", "pdfium", "apply", patch)
+  end
   run(environment, "bash", "-eu", "steps/05-configure.sh")
   ninja = File.join(depot, os == "win" ? "ninja.bat" : "ninja")
   run(environment, ninja, "-C", "pdfium/out", "-j", [Etc.nprocessors, 4].min.to_s, "pdfium", "pdfium_unittests")
   run(File.join(build, "pdfium/out/pdfium_unittests#{'.exe' if os == 'win'}"),
-    "--gtest_filter=DocumentTest.*")
+    "--gtest_filter=DocumentTest.*:SyntaxParserTest.*")
   run(environment, "bash", "-eu", "steps/07-stage.sh")
   run(environment, "bash", "-eu", "steps/08-licenses.sh")
   # These dependencies are not covered by the pinned upstream license collector.

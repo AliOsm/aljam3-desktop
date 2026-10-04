@@ -83,6 +83,17 @@ index 279d1db..cd78984 100644
  
        if cmd_name == "font"
          @service.register_font(args.first)
+@@ -78,7 +83,9 @@
+       return {} unless options.is_a?(Hash)
+ 
+       options = options.transform_keys(&:to_s)
+-      { secret: (true if options["secret"]), title: options["title"]&.to_s }.compact
++      { secret: (true if options["secret"]), title: options["title"]&.to_s,
++        file_name: options["filename"]&.to_s, directory: options["directory"]&.to_s,
++        extensions: options["extensions"]&.map(&:to_s), expanded: options["expanded"] }.compact
+     end
+   end
+ end
 --- a/lib/scarpe/native/child.rb
 +++ b/lib/scarpe/native/child.rb
 @@ -95,13 +95,14 @@ module Scarpe::Native
@@ -186,7 +197,24 @@ index dee92bc..297c279 100644
      Destroy { id: Id },
      Reparent { id: Id, parent: Option<Id>, index: Option<usize> },
      Run { app: Option<Id> },
-@@ -73,6 +76,7 @@
+@@ -60,7 +63,7 @@
+ }
+ 
+ /// A builtin dialog Ruby is blocked on (DESIGN 4.1 `dialog`).
+-#[derive(Clone, Debug, PartialEq)]
++#[derive(Clone, Debug, Default, PartialEq)]
+ pub struct DialogRequest {
+     pub kind: String,
+     pub message: String,
+@@ -69,10 +72,15 @@
+     pub title: Option<String>,
+     /// `ask`'s `secret:`: the answer is typed as bullets.
+     pub secret: bool,
++    pub file_name: Option<String>,
++    pub directory: Option<String>,
++    pub extensions: Vec<String>,
++    pub expanded: bool,
+ }
  
  #[derive(Clone, Debug, PartialEq)]
  pub enum Op {
@@ -194,7 +222,7 @@ index dee92bc..297c279 100644
      Dialog(DialogRequest),
      Layout { app: Option<Id> },
      Snapshot { path: String, app: Option<Id>, scale: Option<f32> },
-@@ -96,6 +100,8 @@
+@@ -96,6 +104,8 @@
      A11y { app: Option<Id>, platform: bool },
      /// What a screen reader asks of one node: click, focus, set_value, expand or collapse.
      A11yAction { target: A11yTarget, action: String, value: Option<String>, app: Option<Id> },
@@ -203,7 +231,7 @@ index dee92bc..297c279 100644
      Ping,
      /// Anything we cannot run still gets a reply, with this error.
      Invalid(String),
-@@ -186,6 +192,14 @@
+@@ -186,6 +196,14 @@
              props: obj.get("props").and_then(Value::as_object).cloned().unwrap_or_default(),
          },
          "destroy" => Incoming::Destroy { id: required(id(&obj, "id"), "id")? },
@@ -218,7 +246,18 @@ index dee92bc..297c279 100644
          "reparent" => Incoming::Reparent {
              id: required(id(&obj, "id"), "id")?,
              parent: id(&obj, "parent"),
-@@ -259,7 +273,10 @@
+@@ -222,6 +240,10 @@
+             message: obj.get("message").map(crate::props::value_text).unwrap_or_default(),
+             default: obj.get("default").cloned().unwrap_or(Value::Null),
+             title: s(obj, "title"),
++            file_name: s(obj, "file_name"),
++            directory: s(obj, "directory"),
++            extensions: obj.get("extensions").and_then(Value::as_array).map(|v| v.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default(),
++            expanded: obj.get("expanded").and_then(Value::as_bool).unwrap_or(false),
+             secret: obj.get("secret").is_some_and(|v| !matches!(v, Value::Null | Value::Bool(false))),
+         }),
+         "layout" => Op::Layout { app },
+@@ -259,7 +281,10 @@
              value: obj.get("value").filter(|v| !v.is_null()).map(crate::props::value_text),
              app,
          },
@@ -229,7 +268,16 @@ index dee92bc..297c279 100644
          other => Op::Invalid(format!("unknown op `{other}`")),
      })
  }
-@@ -290,6 +307,7 @@
+@@ -269,7 +294,7 @@
+ }
+ 
+ fn button(obj: &Map<String, Value>) -> u8 {
+-    obj.get("button").and_then(Value::as_u64).unwrap_or(1).clamp(1, 3) as u8
++    obj.get("button").and_then(Value::as_u64).unwrap_or(1).clamp(1, 5) as u8
+ }
+ 
+ fn target(v: Option<&Value>) -> Result<Target, ParseError> {
+@@ -290,6 +315,7 @@
  #[serde(tag = "t", rename_all = "snake_case")]
  pub enum Outgoing {
      Ready { v: u32, version: String },
@@ -237,7 +285,7 @@ index dee92bc..297c279 100644
      Event { name: String, target: Option<Id>, args: Vec<Value> },
      /// The pointer over one app's window: `[button held, x, y]`. Each app keeps its own, as
      /// Shoes 3's `mouse` answers from app->mousex (s3_canvas.c).
-@@ -332,8 +350,48 @@
+@@ -332,8 +358,48 @@
  }
  
  enum Sink {
@@ -287,7 +335,7 @@ index dee92bc..297c279 100644
  }
  
  /// Buffered writer for Rust -> Ruby messages. Messages go out in the order
-@@ -349,7 +407,7 @@
+@@ -349,7 +415,7 @@
  
  impl Outbox {
      pub fn stdout(trace: bool) -> Self {
@@ -296,7 +344,7 @@ index dee92bc..297c279 100644
      }
  
      /// For tests: keeps every message as JSON instead of writing it.
-@@ -370,13 +428,14 @@
+@@ -370,13 +436,14 @@
      }
  
      pub fn flush(&mut self) {
@@ -313,7 +361,7 @@ index dee92bc..297c279 100644
                  let mut out = String::new();
                  for msg in &pending {
                      if let Ok(line) = serde_json::to_string(msg) {
-@@ -387,9 +446,7 @@
+@@ -387,9 +454,7 @@
                          out.push('\n');
                      }
                  }
@@ -324,7 +372,7 @@ index dee92bc..297c279 100644
                      self.broken = true;
                  }
              }
-@@ -406,6 +463,37 @@
+@@ -406,6 +471,37 @@
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -362,6 +410,37 @@ index dee92bc..297c279 100644
  
      #[test]
      fn parses_every_ruby_message() {
+@@ -434,6 +530,16 @@
+     }
+ 
+     #[test]
++    fn save_file_options_survive_the_protocol() {
++        let Incoming::Req { op: Op::Dialog(d), .. } = parse_line(r#"{"t":"req","req":1,"op":"dialog","kind":"ask_save_file","file_name":"كتاب.pdf","extensions":["pdf"],"directory":"/tmp/علي","expanded":true}"#).unwrap() else { panic!() };
++        assert_eq!(d.file_name.as_deref(), Some("كتاب.pdf"));
++        assert_eq!(d.directory.as_deref(), Some("/tmp/علي"));
++        assert_eq!(d.extensions, ["pdf"]);
++        assert!(d.expanded);
++        assert_eq!(crate::dialogs::headless_answer(&d.kind), (Value::Null, true));
++    }
++
++    #[test]
+     fn parses_every_req_op() {
+         let op = |line: &str| match parse_line(line).unwrap() {
+             Incoming::Req { op, .. } => op,
+@@ -441,11 +547,11 @@
+         };
+         assert_eq!(
+             op(r#"{"t":"req","req":1,"op":"dialog","kind":"ask","message":"Name?","default":null}"#),
+-            Op::Dialog(DialogRequest { kind: "ask".into(), message: "Name?".into(), default: Value::Null, title: None, secret: false })
++            Op::Dialog(DialogRequest { kind: "ask".into(), message: "Name?".into(), default: Value::Null, title: None, secret: false, ..Default::default() })
+         );
+         assert_eq!(
+             op(r#"{"t":"req","req":1,"op":"dialog","kind":"ask","message":"PIN?","title":"Bank","secret":true}"#),
+-            Op::Dialog(DialogRequest { kind: "ask".into(), message: "PIN?".into(), default: Value::Null, title: Some("Bank".into()), secret: true })
++            Op::Dialog(DialogRequest { kind: "ask".into(), message: "PIN?".into(), default: Value::Null, title: Some("Bank".into()), secret: true, ..Default::default() })
+         );
+         assert_eq!(op(r#"{"t":"req","req":1,"op":"layout"}"#), Op::Layout { app: None });
+         assert_eq!(
 --- a/native/src/window.rs
 +++ b/native/src/window.rs
 @@ -29,7 +29,7 @@
@@ -397,7 +476,24 @@ index dee92bc..297c279 100644
          let attrs = if self.ghost { ghost::attributes(attrs) } else { attrs.with_active(!self.inactive) };
          let window = match el.create_window(attrs) {
              Ok(w) => Rc::new(w),
-@@ -376,6 +387,7 @@
+@@ -286,6 +297,7 @@
+                             CursorShape::Hand => CursorIcon::Pointer,
+                             CursorShape::Text => CursorIcon::Text,
+                             CursorShape::Wait => CursorIcon::Wait,
++                            CursorShape::ResizeHorizontal => CursorIcon::ColResize,
+                         });
+                     }
+                 }
+@@ -309,7 +321,7 @@
+                     }
+                 }
+                 Effect::Dialog { req, dialog } => {
+-                    let (value, cancelled) = crate::dialogs::native(&dialog.kind, &dialog.message, &dialog.default);
++                    let (value, cancelled) = crate::dialogs::native(&dialog);
+                     self.rt.dialog_answered(req, value, cancelled);
+                 }
+                 Effect::OpenUrl(url) => {
+@@ -376,6 +388,7 @@
      fn redraw(&mut self, id: WindowId) {
          let Some(win) = self.windows.get_mut(&id) else { return };
          win.pacing.drawing(Instant::now());
@@ -405,7 +501,16 @@ index dee92bc..297c279 100644
          let size = win.window.inner_size();
          let (w, h) = (size.width.max(1), size.height.max(1));
          let scale = win.window.scale_factor() as f32;
-@@ -605,7 +617,17 @@
+@@ -524,6 +537,8 @@
+                     MouseButton::Left => 1,
+                     MouseButton::Middle => 2,
+                     MouseButton::Right => 3,
++                    MouseButton::Back => 4,
++                    MouseButton::Forward => 5,
+                     _ => return,
+                 };
+                 self.rt.active_app = Some(app);
+@@ -605,7 +620,17 @@
                  win.window.request_redraw();
              }
          }
@@ -424,9 +529,82 @@ index dee92bc..297c279 100644
          let wake = [self.deadline, self.orphaned_since.map(|t| t + QUIT_GRACE), tooltip_wake, next_frame]
              .into_iter()
              .flatten()
+@@ -670,7 +695,33 @@
+ }
+ 
+ fn key_input(event: &KeyEvent, state: ModifiersState) -> Option<KeyInput> {
+-    key_from(&event.logical_key, &event.key_without_modifiers(), event.text.as_deref(), modifiers(state))
++    key_from_layout(&event.logical_key, &event.key_without_modifiers(), event.physical_key, event.text.as_deref(), modifiers(state))
++}
++
++/// Preserve Latin-layout command identities; fall back to physical letters only for
++/// non-Latin command keys. Text and IME input always retain the user's layout.
++fn key_from_layout(logical: &WKey, bare: &WKey, physical: winit::keyboard::PhysicalKey, text: Option<&str>, m: Modifiers) -> Option<KeyInput> {
++    use winit::keyboard::{KeyCode, PhysicalKey};
++    if (m.ctrl || m.command) && matches!(bare, WKey::Character(c) if !c.is_ascii()) {
++        let latin = match logical {
++            WKey::Character(c) if c.len() == 1 && c.chars().all(|c| c.is_ascii_graphic()) => Some(c.to_string()),
++            _ => {
++                const LETTERS: [KeyCode; 26] = [KeyCode::KeyA, KeyCode::KeyB, KeyCode::KeyC, KeyCode::KeyD, KeyCode::KeyE,
++                    KeyCode::KeyF, KeyCode::KeyG, KeyCode::KeyH, KeyCode::KeyI, KeyCode::KeyJ, KeyCode::KeyK, KeyCode::KeyL,
++                    KeyCode::KeyM, KeyCode::KeyN, KeyCode::KeyO, KeyCode::KeyP, KeyCode::KeyQ, KeyCode::KeyR, KeyCode::KeyS,
++                    KeyCode::KeyT, KeyCode::KeyU, KeyCode::KeyV, KeyCode::KeyW, KeyCode::KeyX, KeyCode::KeyY, KeyCode::KeyZ];
++                match physical {
++                    PhysicalKey::Code(code) => LETTERS.iter().position(|c| *c == code).map(|i| ((b'a' + i as u8) as char).to_string())
++                        .or_else(|| match code { KeyCode::BracketLeft => Some("[".into()), KeyCode::BracketRight => Some("]".into()), _ => None }),
++                    _ => None,
++                }
++            }
++        };
++        if let Some(latin) = latin {
++            return key_from(logical, &WKey::Character(latin.into()), text, m);
++        }
++    }
++    key_from(logical, bare, text, m)
+ }
+ 
+ /// A winit key press as Shoes sees it. With Control, Alt or Command held a character
+@@ -693,6 +744,8 @@
+             NamedKey::PageUp => Key::Named(Named::PageUp),
+             NamedKey::PageDown => Key::Named(Named::PageDown),
+             NamedKey::Insert => Key::Named(Named::Insert),
++            NamedKey::BrowserBack => Key::Named(Named::BrowserBack),
++            NamedKey::BrowserForward => Key::Named(Named::BrowserForward),
+             NamedKey::Space => Key::Char(" ".into()),
+             NamedKey::F1 => Key::Named(Named::F(1)),
+             NamedKey::F2 => Key::Named(Named::F(2)),
+@@ -794,6 +847,28 @@
+     }
+ 
+     #[test]
++    fn arabic_commands_use_latin_or_physical_keys_without_changing_typed_text() {
++        use winit::keyboard::{KeyCode, PhysicalKey};
++        let arabic = WKey::Character("ب".into());
++        let physical = PhysicalKey::Code(KeyCode::KeyF);
++        for command in [false, true] {
++            let m = Modifiers { command, ctrl: !command, ..Default::default() };
++            let k = key_from_layout(&arabic, &arabic, physical, None, m).unwrap();
++            assert_eq!(k.key, Key::Char("f".into()));
++            assert!(k.text.is_none());
++        }
++        let normal = key_from_layout(&arabic, &arabic, physical, Some("ب"), Modifiers::default()).unwrap();
++        assert_eq!(normal.text.as_deref(), Some("ب"));
++        assert_eq!(normal.key, Key::Char("ب".into()));
++        // Native Latin command translation takes precedence over the physical position.
++        let native = key_from_layout(&WKey::Character("a".into()), &arabic, physical, None, Modifiers { command: true, ..Default::default() }).unwrap();
++        assert_eq!(native.key, Key::Char("a".into()));
++        let french = WKey::Character("a".into());
++        let azerty = key_from_layout(&french, &french, PhysicalKey::Code(KeyCode::KeyQ), None, Modifiers { ctrl: true, ..Default::default() }).unwrap();
++        assert_eq!(azerty.key, Key::Char("a".into()));
++    }
++
++    #[test]
+     fn links_open_without_a_shell_on_windows() {
+         let url = "https://example.com/?a=1&calc";
+         let args = |c: &std::process::Command| c.get_args().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>();
 --- /dev/null
 +++ b/native/tests/clipboard.rs
-@@ -0,0 +1,18 @@
+@@ -0,0 +1,66 @@
 +mod common;
 +
 +use common::{app, create, Harness};
@@ -444,4 +622,52 @@ index dee92bc..297c279 100644
 +    assert_eq!(h.node(|n| n["id"] == 3)["text"], json!("العلم"));
 +    h.value(json!({"op":"clipboard", "text":""}));
 +    assert_eq!(h.value(json!({"op":"clipboard"})), json!(""));
++}
++
++fn text_point(h: &mut Harness, id: i64, index: usize) -> (f32, f32) {
++    h.layout();
++    let tb = &h.rt.views[&1].layout.as_ref().unwrap().texts[&id];
++    let (x, y, height) = scarpe_native::paint::text::caret_position(&tb.shaped.buffer, tb.shaped.cursor_at(index)).unwrap();
++    (tb.x + x, tb.y + y + height / 2.0)
++}
++
++#[test]
++fn read_only_paragraphs_select_arabic_by_drag_and_copy_only_the_selection() {
++    let mut h = Harness::new();
++    h.feed(&app(500, 240, &[create(3, "Para", 2, json!({"text_items":["العِلْم نور\nكتاب جديد"], "selectable":true, "size":24, "direction":"rtl"}))]));
++    let (x, y) = text_point(&mut h, 3, 0);
++    let (ex, ey) = text_point(&mut h, 3, 7);
++    h.value(json!({"op":"mouse", "action":"down", "x":x, "y":y}));
++    h.value(json!({"op":"mouse", "action":"move", "x":ex, "y":ey}));
++    h.value(json!({"op":"mouse", "action":"up", "x":ex, "y":ey}));
++    h.value(json!({"op":"key", "key":"command_c"}));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!("العِلْم"));
++    h.value(json!({"op":"key", "key":"control_a"}));
++    h.value(json!({"op":"key", "key":"control_c"}));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!("العِلْم نور\nكتاب جديد"));
++    h.value(json!({"op":"key", "key":"backspace"}));
++    h.value(json!({"op":"key", "key":"control_v"}));
++    assert_eq!(h.node(|n| n["id"] == 3)["text"], json!("العِلْم نور\nكتاب جديد"));
++    h.feed("{\"t\":\"destroy\",\"id\":3}\n");
++    assert!(h.rt.views[&1].ui.selection.is_none());
++}
++
++#[test]
++fn rich_paragraph_word_line_and_shift_selection_survive_resize() {
++    let mut h = Harness::new();
++    h.feed(&app(500, 240, &[create(3, "Para", 2, json!({"text_items":["hello world\nsecond line"], "selectable":true, "size":24}))]));
++    let (x, y) = text_point(&mut h, 3, 2);
++    for _ in 0..2 {
++        h.value(json!({"op":"click","target":{"x":x,"y":y}}));
++    }
++    h.value(json!({"op":"key","key":"control_c"}));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!("hello"));
++    h.value(json!({"op":"click","target":{"x":x,"y":y}}));
++    h.value(json!({"op":"key","key":"control_c"}));
++    assert!(h.value(json!({"op":"clipboard"})).as_str().unwrap().starts_with("hello world"));
++    h.value(json!({"op":"key","key":"control_home"}));
++    h.value(json!({"op":"key","key":"control_shift_end"}));
++    h.value(json!({"op":"resize","w":180,"h":240}));
++    h.value(json!({"op":"key","key":"control_c"}));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!("hello world\nsecond line"));
 +}

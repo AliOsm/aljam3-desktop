@@ -9,9 +9,11 @@ module Aljam3
           open_dialog(:unavailable, book:)
           return
         end
+        remember_location
         unless @screen == :reader
           @catalog_return = { screen: @screen, scroll: @results&.scroll_top || 0 }
         end
+        @navigation_motion = 0
         @dialog = @results = @dialog_scroll = nil
         @dialog_stack = []
         @request_number += 1
@@ -60,9 +62,12 @@ module Aljam3
       end
 
       def close_reader
+        return navigate_history(:back) if @history&.back?
+
         @page_request = (@page_request || 0) + 1
         @render_number = (@render_number || 0) + 1
         @screen = @catalog_return.fetch(:screen)
+        @navigation_motion = 0
         draw_window
         @results.scroll_top = @catalog_return.fetch(:scroll) if @results
       end
@@ -73,6 +78,7 @@ module Aljam3
 
       def draw_reader
         @pdf_surface = @text_surface = @page_image = @copy_button = @page_text = @drag = nil
+        @fit_button = @zoom_in_button = @zoom_out_button = nil
         book = @reader.fetch(:book)
         para Text.plain(book.fetch("title")), left: PAGE_MARGIN + 48, top: PAGE_TOP,
           width: @main_width - 48, size: 22, font: HEADING_FONT, wrap: "trim"
@@ -115,9 +121,10 @@ module Aljam3
               widths: { text: 60, split: 132, pdf: 72 }) { |mode| change_reader_mode(mode) }
             stack(width: 16, height: 1)
             if reader_pdf?
-              icon_button("zoom-in", "تكبير PDF") { change_zoom(0.25) }
-              icon_button("zoom-out", "تصغير PDF") { change_zoom(-0.25) }
-              icon_button("maximize", "ملاءمة الصفحة") { change_zoom(1.0 - @reader.fetch(:zoom)) }
+              @zoom_in_button = icon_button("zoom-in", "تكبير PDF") { change_zoom(0.25) }
+              @zoom_out_button = icon_button("zoom-out", "تصغير PDF") { change_zoom(-0.25) }
+              @fit_button = icon_button("page-fit", "ملاءمة الصفحة داخل مساحة القراءة") { fit_pdf_page }
+              update_pdf_controls
             end
           end
         end
@@ -141,7 +148,7 @@ module Aljam3
                 action("إعادة تحميل النص", margin_top: 16) { turn_page(@reader.fetch(:number)) }
               else
                 content = @reader[:loading_text] ? "جارٍ تحميل النص…" : (page_text.strip.empty? ? "لا يتوفر نص لهذه الصفحة." : page_text)
-                @page_text = para(*reader_text_parts(content), font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
+                @page_text = para(*reader_text_parts(content), selectable: true, font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
                 if !@reader[:loading_text] && @reader.delete(:focus_match)
                   page_text = @page_text
                   timer(0) { focus_reader_match if @page_text == page_text && @screen == :reader }
@@ -230,7 +237,8 @@ module Aljam3
         end
       end
 
-      def turn_page(number, notice: nil)
+      def turn_page(number, notice: nil, restoring: false)
+        @pending_location_scroll = nil unless restoring
         @editing_field = nil
         @text_surface = @pdf_surface = nil
         file, book = @reader.values_at(:file, :book)
@@ -256,8 +264,27 @@ module Aljam3
       end
 
       def change_zoom(change)
-        @reader[:zoom] = (@reader.fetch(:zoom) + change).clamp(0.5, 3.0)
+        zoom = (@reader.fetch(:zoom) + change).clamp(0.5, 3.0)
+        return if zoom == @reader[:zoom]
+
+        @reader[:zoom] = zoom
+        update_pdf_controls
         render_pdf if reader_pdf?
+      end
+
+      def fit_pdf_page
+        return if @reader.fetch(:zoom) == 1.0
+
+        @pdf_surface.scroll_top = 0 if @pdf_surface
+        change_zoom(1.0 - @reader.fetch(:zoom))
+      end
+
+      def update_pdf_controls
+        ready = @reader[:image] && !@reader[:pdf_error]
+        zoom = @reader.fetch(:zoom)
+        @fit_button&.style(state: ready && zoom != 1.0 ? nil : "disabled")
+        @zoom_in_button&.style(state: ready && zoom < 3.0 ? nil : "disabled")
+        @zoom_out_button&.style(state: ready && zoom > 0.5 ? nil : "disabled")
       end
 
       def render_pdf
@@ -282,6 +309,7 @@ module Aljam3
         return unless @pdf_surface
 
         @page_image = nil
+        update_pdf_controls
         @pdf_surface.clear do
           if @reader[:pdf_error]
             para @reader[:pdf_error], margin: 24, size: 15, stroke: muted
@@ -306,6 +334,7 @@ module Aljam3
             para "جارٍ تحميل الكتاب المصوّر…", margin: 24, size: 15, stroke: muted
           end
         end
+        restore_navigation_scroll
       end
     end
   end

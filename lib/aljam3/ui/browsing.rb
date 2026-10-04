@@ -55,7 +55,7 @@ module Aljam3
           else
             columns = @main_width >= 940 ? 3 : 2
             grid(@libraries, columns:, row_gap: 20) do |library, styles|
-              card(padding: 16, **styles) do
+              card(padding: 16, cursor: "pointer", **styles) do
                 flow(direction: "rtl", valign: "center") do
                   stack(width: -32) do
                     para text_link(library_name(library)) { browse_scope(:library, library) }, size: 18

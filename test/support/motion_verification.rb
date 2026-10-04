@@ -16,9 +16,11 @@ class MotionVerification
     Shoes::DisplayService.display_service.clock.freeze!
     @app.choose_motion("full")
     AlignmentVerification.seed(get(:store))
-    set(categories: AlignmentVerification::CATEGORIES, libraries: AlignmentVerification::LIBRARIES)
+    set(categories: AlignmentVerification::CATEGORIES, libraries: AlignmentVerification::LIBRARIES, downloaded_ids: get(:store).downloaded_ids)
     reader
     overlays
+    navigation
+    nested_filters
     controls
     notifications
     preferences
@@ -140,6 +142,126 @@ class MotionVerification
     @app.smooth_progress(bar, 0.9)
     advance(0.20)
     check("progress settles at the latest reported value", visual(bar, :fraction) == 0.9 && !get(:motion).active?)
+  end
+
+  def navigation
+    @app.navigate(:home)
+    advance(0.3)
+    chrome, status = get(:navigation_buttons).dup, get(:connection_bar)
+    previous = get(:page_view)
+    click(chrome.fetch(:browse))
+    current = get(:page_view)
+    check("navigation keeps the header and status bar alive", get(:navigation_buttons) == chrome && get(:connection_bar).equal?(status))
+    check("cached books appear immediately in the arriving page", get(:result)&.data&.fetch("books")&.any?)
+    check("outgoing pages stop receiving input immediately", previous.style[:inert] && !current.style[:inert])
+    check("peer navigation starts a crossfade without sliding", visual(current, :opacity).zero? && visual(current, :displace_left).zero?)
+    advance(0.06)
+    opacity = visual(current, :opacity)
+    check("the arriving page blends over a stable outgoing page", opacity.between?(0.1, 0.99) && visual(previous, :opacity) == 1.0)
+    check("navigation retains keyboard focus on the header control", @automation.focused == chrome.fetch(:browse).linkable_id)
+    check("outgoing home is absent from the accessibility tree", !@automation.a11y.to_s.include?("مكتبتك، حيث توقفت"))
+    shot("navigation-midway")
+    @app.refresh_window
+    check("background refresh keeps the same page and animation position", get(:page_view).equal?(current) && visual(current, :opacity) == opacity)
+    advance(0.15)
+    check("navigation removes outgoing content and stops animating", previous.destroyed && get(:page_transition).views == [current] && !get(:motion).active?)
+    @app.navigate(:browse)
+    check("reselecting the current section does not replay navigation", get(:page_view).equal?(current) &&
+      get(:page_transition).views == [current] && visual(current, :opacity) == 1.0)
+
+    %i[categories authors downloads home].each do |screen|
+      @app.navigate(screen)
+      advance(0.025)
+    end
+    check("rapid navigation immediately shows the latest destination", get(:screen) == :home)
+    field = get(:query_field)
+    click(field)
+    @automation.type("العلم")
+    @app.refresh_window
+    check("typing during navigation survives a background refresh", get(:query_field).equal?(field) && field.text == "العلم" && @automation.focused == field.linkable_id)
+    advance(0.2)
+    check("interrupted navigation leaves one page and no queued animation", get(:page_transition).views.size == 1 && !get(:motion).active?)
+
+    @app.navigate(:home)
+    advance(0.2)
+    get(:results).scroll_top = 80
+    @automation.wait_frames
+    scroll = get(:results).scroll_top
+    get(:store).save_preference("reader", { "mode" => "text" })
+    @app.open_book(AlignmentVerification::BOOKS.first)
+    reader_page = get(:page_view)
+    check("opening a book crossfades without moving the reader", visual(reader_page, :opacity).zero? && visual(reader_page, :displace_left).zero?)
+    advance(0.05)
+    opacity = visual(reader_page, :opacity)
+    @app.turn_page(1)
+    check("page turns update the reader without replaying its entrance", get(:page_view).equal?(reader_page) && visual(reader_page, :opacity) == opacity)
+    advance(0.2)
+    @app.close_reader
+    check("returning from a book crossfades and restores scroll", visual(get(:page_view), :opacity).zero? && get(:results).scroll_top == scroll)
+    advance(0.05)
+    @app.choose_motion("reduced")
+    check("reducing motion mid-navigation settles and cleans outgoing pages", get(:page_transition).views.size == 1 && visual(get(:page_view), :opacity) == 1.0 && !get(:motion).active?)
+    @app.navigate(:categories)
+    check("reduced-motion navigation is immediate", visual(get(:page_view), :opacity) == 1.0 && get(:page_transition).views.size == 1 && !get(:motion).active?)
+    @app.choose_motion("full")
+    @app.navigate(:home)
+    advance(0.04)
+    @automation.resize(1160, 820)
+    @app.tick
+    advance(0.2)
+    check("resize during navigation leaves a single settled page", get(:page_transition).views.size == 1 && visual(get(:page_view), :opacity) == 1.0)
+  end
+
+  def nested_filters
+    @app.navigate(:home)
+    advance(0.2)
+    click(get(:action_views).fetch(:filters))
+    advance(0.2)
+    panel, backdrop = get(:dialog_panel), get(:dialog_backdrop)
+    bounds = @automation.rect_of!(panel.linkable_id)
+    previous = get(:dialog_transition).current
+    click(get(:action_views).fetch([:filter, :library]))
+    current = get(:dialog_transition).current
+    check("nested filters preserve the popup shell and backdrop", get(:dialog_panel).equal?(panel) && get(:dialog_backdrop).equal?(backdrop) && visual(backdrop, :opacity) == 1.0)
+    check("nested filters enter from the RTL forward direction", visual(current, :displace_left) == -8 && previous.style[:inert])
+    check("nested filters provide a back action", get(:action_views).key?(:dialog_back))
+    advance(0.06)
+    rect = @automation.rect_of!(panel.linkable_id)
+    check("nested filters keep their anchor and width", rect.x == bounds.x && rect.y == bounds.y && rect.w == bounds.w)
+    check("nested filters crossfade their content", visual(current, :opacity).between?(0.1, 0.99) && visual(previous, :opacity).between?(0.01, 0.9))
+    color = @app.card_color.delete_prefix("#").scan(/../).map { |channel| channel.to_i(16) }
+    check("the shared popup surface remains opaque during the handoff", @automation.pixel(rect.x + rect.w / 2, rect.y + 52).first(3) == color)
+    shot("nested-filter-midway")
+    opacity = visual(current, :opacity)
+    click(get(:action_views).fetch(AlignmentVerification::LIBRARIES.first.fetch("name")))
+    check("selecting during entrance reverses smoothly to the parent", get(:dialog)[:type] == :filters && visual(current, :opacity) == opacity && visual(get(:dialog_transition).current, :displace_left) == 8)
+    check("nested selection returns focus and preserves the unapplied draft", @automation.focused == get(:action_views).fetch([:filter, :library]).linkable_id &&
+      get(:dialog).dig(:filters, :library) == AlignmentVerification::LIBRARIES.first.fetch("id") && get(:filters).empty?)
+    advance(0.2)
+    check("nested transition releases old views and unused height", get(:dialog_transition).views.size == 1 && @automation.rect_of!(panel.linkable_id).h == bounds.h)
+
+    click(get(:action_views).fetch([:filter, :category]))
+    advance(0.04)
+    current = get(:dialog_transition).current
+    opacity = visual(current, :opacity)
+    @app.render_dialog
+    check("picker refresh preserves its transition instead of restarting", get(:dialog_transition).current.equal?(current) && visual(current, :opacity) == opacity)
+    @automation.key("escape")
+    @automation.key("escape")
+    advance(0.2)
+    check("rapid back and close remove every nested view and restore input", !@app.dialog_active? && get(:dialog_transition).views.empty? && !get(:content_layer).style[:inert])
+
+    @app.choose_motion("reduced")
+    click(get(:action_views).fetch(:filters))
+    click(get(:action_views).fetch([:filter, :author]))
+    check("author picker uses the same filter width", @automation.rect_of!(get(:dialog_panel).linkable_id).w == bounds.w)
+    check("reduced-motion nested navigation has no leaving views", get(:dialog_transition).views.size == 1 && visual(get(:dialog_transition).current, :opacity) == 1.0)
+    @automation.resize(800, 700)
+    @app.tick
+    check("resizing a nested picker retains its parent width", @automation.rect_of!(get(:dialog_panel).linkable_id).w == bounds.w)
+    @automation.key("escape")
+    @automation.key("escape")
+    @app.choose_motion("full")
   end
 
   def notifications

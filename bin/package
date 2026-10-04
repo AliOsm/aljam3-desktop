@@ -72,7 +72,7 @@ Dir.chdir(ROOT) do
   renderer = "scarpe-native#{'.exe' if WINDOWS}"
   copy("vendor/scarpe/native/target/release/#{renderer}", File.join(binary_dir, renderer))
   revision = IO.popen(["git", "rev-parse", "HEAD"], &:read).strip
-  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: "0.1.15", revision:, target: TARGET,
+  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: "0.1.16", revision:, target: TARGET,
     ruby: "3.4.7", scarpe: "47256367a4d3cefbb39756d8c3287814db72e927", gems: gems.map(&:full_name) }))
 
   if WINDOWS
@@ -85,6 +85,7 @@ Dir.chdir(ROOT) do
     copy("packaging/macos-launcher", File.join(binary_dir, "aljam3"))
     FileUtils.chmod(0o755, File.join(binary_dir, "aljam3"))
     copy("packaging/Info.plist", File.join(bundle, "Contents/Info.plist"))
+    %w[ar en].each { |language| copy("packaging/#{language}.lproj", File.join(resources, "#{language}.lproj")) }
     iconset = File.join(ROOT, ".cache/packaging/aljam3.iconset")
     FileUtils.mkdir_p(iconset)
     [16, 32, 128, 256, 512].each do |size|

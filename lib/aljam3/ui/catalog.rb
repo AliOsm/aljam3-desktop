@@ -32,7 +32,7 @@ module Aljam3
           end
         end
         result_top = form_top + 104
-        unless @filters.empty? || authors
+        unless refinement_filters.empty? || authors
           active_filters(top: result_top)
           result_top += 48
         end
@@ -51,7 +51,7 @@ module Aljam3
                 if empty_library
                   navigate(:browse)
                 else
-                  @query, @filters, @scope_label = "", {}, nil
+                  @query, @filters = "", (@scope_filters || {}).dup
                   request_catalog
                 end
               end
@@ -111,16 +111,20 @@ module Aljam3
         entity ? Text.plain(entity.fetch("name")) : @scope_label || { library: "المكتبة", category: "التصنيف", author: "المؤلف" }.fetch(key)
       end
 
+      def refinement_filters
+        @filters.reject { |key, id| (@scope_filters || {})[key] == id }
+      end
+
       def active_filters(top:)
         row(top:) do
-          @filters.each_with_index do |(key, id), index|
+          refinements = refinement_filters
+          refinements.each_with_index do |(key, id), index|
             label = filter_label(key, id)
-            gap = index < @filters.length - 1 ? 8 : 0
+            gap = index < refinements.length - 1 ? 8 : 0
             action(label, icon: "x", icon_pos: "left", tooltip: "إزالة التصفية: #{label}", key: [:clear_filter, key],
-              width: [224, (@main_width - (@filters.length - 1) * 8).fdiv(@filters.length)].min + gap,
+              width: [224, (@main_width - (refinements.length - 1) * 8).fdiv(refinements.length)].min + gap,
               margin_right: gap) do
               @filters.delete(key)
-              @scope_label = nil
               request_catalog
             end
           end
@@ -132,11 +136,7 @@ module Aljam3
       end
 
       def switch_search_mode(mode)
-        @filters_by_mode ||= {}
-        @filters_by_mode[@mode] = @filters
         @mode = mode
-        @filters = @filters_by_mode.fetch(mode, {})
-        @scope_label = nil
         refresh_search
       end
 

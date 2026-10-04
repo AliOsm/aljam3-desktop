@@ -33,9 +33,10 @@ class MotionBenchmark
     AlignmentVerification.seed(store)
     book = AlignmentVerification::BOOKS.first
     rendered = get(:pdf).render(pdf, page: 72, width: 1_200)
-    @app.instance_variable_set(:@reader, { book:, files: book.fetch("files"), file: book.fetch("files").first,
+    reader_scene = { book:, files: book.fetch("files"), file: book.fetch("files").first,
       number: 72, zoom: 1.0, mode: :split, text_size: 21, tashkeel: true, split_ratio: 0.5,
-      query: "", image: rendered, page: { "content" => "آدابُ الْعِلْمِ وأَهْلِهِ\n" * 100 } })
+      query: "", image: rendered, page: { "content" => "آدابُ الْعِلْمِ وأَهْلِهِ\n" * 100 } }
+    @app.instance_variable_set(:@reader, reader_scene)
     @app.instance_variable_set(:@screen, :reader)
     @app.instance_variable_set(:@bookmarks, [])
     @app.draw_window
@@ -77,6 +78,7 @@ class MotionBenchmark
       settle
     end
     @app.navigate(:home)
+    settle
     @app.instance_variable_set(:@categories, AlignmentVerification::CATEGORIES)
     @app.instance_variable_set(:@libraries, AlignmentVerification::LIBRARIES)
     4.times do |round|
@@ -87,12 +89,25 @@ class MotionBenchmark
           selected: nil, selection: ->(_) {})
       end
       measure("dropdown/close") { @app.close_dialog }
+      measure("filters/library") { @automation.click({ id: get(:action_views).fetch([:filter, :library]).linkable_id }) }
+      measure("filters/back") { @app.close_dialog }
       measure("filters/close") { @app.close_dialog }
       measure("notification/open") do
         @app.notify_download(book:, status: :done)
         @app.update_notification
       end
       measure("notification/close") { @app.dismiss_notification }
+      %i[browse categories authors home].each do |screen|
+        measure("navigation/#{screen}") { @app.navigate(screen) }
+      end
+      measure("navigation/reader") do
+        @app.instance_variable_set(:@catalog_return, { screen: :home, scroll: 0 })
+        @app.instance_variable_set(:@reader, reader_scene)
+        @app.instance_variable_set(:@screen, :reader)
+        @app.instance_variable_set(:@navigation_motion, 0)
+        @app.draw_window
+      end
+      measure("navigation/back") { @app.close_reader }
     end
     raise "Background transfer did not progress" unless queue.current&.fetch(:bytes, 0).to_i.positive?
 

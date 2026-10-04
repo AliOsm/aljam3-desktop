@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../desktop"
+require_relative "../export_name"
 
 module Aljam3
   module UI
@@ -47,8 +48,8 @@ module Aljam3
         key = [file.fetch("id"), format]
         return if @file_operations.dig(key, :status) == :saving
 
-        path = ask_save_file
-        return if !path || path.empty?
+        path = export_destination(format, part: (@reader.fetch(:files).length > 1 ? file["name"] : nil))
+        return unless path
 
         save_file(key, path:, book_id: @reader.fetch(:book).fetch("id")) do
           HTTP.new.download(file.fetch("urls").fetch(format), path, validate_pdf: format == "pdf")
@@ -56,11 +57,21 @@ module Aljam3
       end
 
       def save_page_image
-        path = ask_save_file
-        return if !path || path.empty?
+        path = export_destination("png", page: @reader.fetch(:number))
+        return unless path
 
         source = @reader.fetch(:image).path
         save_file([:image, path], path:, book_id: @reader.fetch(:book).fetch("id")) { FileUtils.cp(source, path) }
+      end
+
+      def export_destination(format, **details)
+        filename = ExportName.build(Text.plain(@reader.fetch(:book).fetch("title")), format, **details)
+        path = ask_save_file(filename:, extensions: [format], directory: @store.preference("export_directory"),
+          title: "حفظ الملف", expanded: true)
+        return if !path || path.empty?
+
+        @store.save_preference("export_directory", File.dirname(path))
+        path
       end
 
       def save_file(key, path:, book_id:, &work)

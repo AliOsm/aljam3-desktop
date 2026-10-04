@@ -27,6 +27,23 @@ module RangePDF
       end
       objects[1] = "<< /Type /Pages /Count #{pages} /Kids [#{nodes.map { |id, _| "#{id} 0 R" }.join(' ')}] >>"
     end
+    encode(objects)
+  end
+
+  # An image stream spans several HTTP blocks and is read while loading the page.
+  def self.image_document
+    pixels = "\x80".b * (256 * 256 * 3)
+    content = "q 200 0 0 200 0 0 cm /Im0 Do Q\n"
+    encode([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Count 1 /Kids [3 0 R] >>",
+      "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 320] /Resources << /XObject << /Im0 5 0 R >> >> /Contents 4 0 R >>",
+      "<< /Length #{content.bytesize} >>\nstream\n#{content}endstream",
+      "<< /Type /XObject /Subtype /Image /Width 256 /Height 256 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length #{pixels.bytesize} >>\nstream\n#{pixels}\nendstream"
+    ])
+  end
+
+  def self.encode(objects)
     pdf = +"%PDF-1.7\n"
     offsets = objects.each_with_index.map do |object, index|
       offset = pdf.bytesize

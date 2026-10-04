@@ -39,6 +39,7 @@ app.every(0.1) do
       app.open_book({ "id" => 1 })
       step = 1
     when 1
+      raise "Opening the live book failed: #{app.instance_variable_get(:@error)}" if app.instance_variable_get(:@error)
       next unless app.instance_variable_get(:@screen) == :reader
 
       app.turn_page(72)
@@ -113,7 +114,7 @@ app.every(0.1) do
       name = Aljam3::Text.plain(reader.fetch(:book).dig("author", "name"))[0, 40]
       raise "Selected author not shown" unless automation.layout.any? { |node| node[:kind] == "Button" && node[:text] == name }
       shot.call("filters")
-      library = app.instance_variable_get(:@libraries).first
+      library = reader.fetch(:book).fetch("library")
       library_id = library.fetch("id")
       button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "الجميع" }
       automation.click({ id: button.fetch(:id) })
@@ -126,9 +127,12 @@ app.every(0.1) do
       next if app.instance_variable_get(:@busy)
 
       result = app.instance_variable_get(:@result)
-      raise "Library filter failed" unless result&.source == :online && result.data.fetch("books").any?
+      raise "Library filter failed" unless result && result.data.fetch("books").any?
       raise "Wrong library scope" unless result.data.fetch("books").all? { |book| book.dig("library", "id") == library_id }
-      raise "Title scopes were combined" unless app.instance_variable_get(:@filters) == { library: library_id }
+      author_id = reader.fetch(:book).dig("author", "id")
+      raise "Author scope was lost" unless result.data.fetch("books").all? { |book| book.dig("author", "id") == author_id }
+      raise "Additional filter replaced the author page" unless app.instance_variable_get(:@filters) == { author: author_id, library: library_id }
+      raise "Unexpected combined-filter source" unless result.source == :online || (result.source == :local && result.notice == 501)
       app.queue_download(reader.fetch(:book))
       app.navigate(:downloads)
       button = automation.layout.find { |node| node[:kind] == "Button" && node[:text] == "إيقاف مؤقت" }

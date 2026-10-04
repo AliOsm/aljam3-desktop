@@ -1,0 +1,88 @@
+diff --git a/core/fpdfapi/parser/cpdf_syntax_parser.cpp b/core/fpdfapi/parser/cpdf_syntax_parser.cpp
+index ee91e03..139cf8c 100644
+--- a/core/fpdfapi/parser/cpdf_syntax_parser.cpp
++++ b/core/fpdfapi/parser/cpdf_syntax_parser.cpp
+@@ -858,8 +858,11 @@ RetainPtr<CPDF_Stream> CPDF_SyntaxParser::ReadStream(
+     // changing object lifetimes by handing `substream` to `stream`, make a
+     // copy of the data here.
+     auto data = FixedSizeDataVector<uint8_t>::Uninit(substream->GetSize());
+-    bool did_read = substream->ReadBlockAtOffset(data.span(), 0);
+-    CHECK(did_read);
++    // Custom file access can fail after the range availability check, e.g. when
++    // the caller cancels a read or a network request fails.
++    if (!substream->ReadBlockAtOffset(data.span(), 0)) {
++      return nullptr;
++    }
+     auto data_as_stream =
+         pdfium::MakeRetain<CFX_ReadOnlyFixedSizeDataVectorStream>(
+             std::move(data));
+diff --git a/core/fpdfapi/parser/cpdf_syntax_parser_unittest.cpp b/core/fpdfapi/parser/cpdf_syntax_parser_unittest.cpp
+index f6daad6..b766857 100644
+--- a/core/fpdfapi/parser/cpdf_syntax_parser_unittest.cpp
++++ b/core/fpdfapi/parser/cpdf_syntax_parser_unittest.cpp
+@@ -6,6 +6,7 @@
+ 
+ #include "core/fpdfapi/parser/cpdf_object.h"
+ #include "core/fpdfapi/parser/cpdf_parser.h"
++#include "core/fpdfapi/parser/cpdf_read_validator.h"
+ #include "core/fpdfapi/parser/cpdf_syntax_parser.h"
+ #include "core/fxcrt/cfx_read_only_span_stream.h"
+ #include "core/fxcrt/fx_extension.h"
+@@ -16,6 +17,57 @@
+ using testing::ElementsAre;
+ using testing::IsEmpty;
+ 
++namespace {
++
++class FailingStreamRead final : public CFX_ReadOnlySpanStream {
++ public:
++  CONSTRUCT_VIA_MAKE_RETAIN;
++
++  bool ReadBlockAtOffset(pdfium::span<uint8_t> buffer,
++                         FX_FILESIZE offset) override {
++    // Allow the parser's buffered reads of the dictionary and end markers;
++    // fail only when it copies the three-byte stream body.
++    if (buffer.size() == 3u) {
++      did_fail_ = true;
++      return false;
++    }
++    return CFX_ReadOnlySpanStream::ReadBlockAtOffset(buffer, offset);
++  }
++
++  bool did_fail() const { return did_fail_; }
++
++ private:
++  explicit FailingStreamRead(pdfium::span<const uint8_t> data)
++      : CFX_ReadOnlySpanStream(data) {}
++  ~FailingStreamRead() override = default;
++
++  bool did_fail_ = false;
++};
++
++}  // namespace
++
++TEST(SyntaxParserTest, StreamDataReadFailure) {
++  // Exercise both declared lengths and lengths recovered from endstream.
++  for (const char* data : {"<< /Length 3 >>\nstream\nabc\nendstream\nendobj",
++                           "<< >>\nstream\nabc\nendstream\nendobj",
++                           "<< /Length 2 >>\nstream\nabc\nendstream\nendobj"}) {
++    SCOPED_TRACE(data);
++    CPDF_SyntaxParser readable_parser(
++        pdfium::MakeRetain<CFX_ReadOnlySpanStream>(
++            ByteStringView(data).unsigned_span()));
++    auto object = readable_parser.GetObjectBody(nullptr);
++    ASSERT_TRUE(object);
++    EXPECT_TRUE(object->IsStream());
++
++    auto source = pdfium::MakeRetain<FailingStreamRead>(
++        ByteStringView(data).unsigned_span());
++    CPDF_SyntaxParser parser(source);
++    EXPECT_FALSE(parser.GetObjectBody(nullptr));
++    EXPECT_TRUE(source->did_fail());
++    EXPECT_TRUE(parser.GetValidator()->has_read_problems());
++  }
++}
++
+ TEST(SyntaxParserTest, ReadHexString) {
+   {
+     // Empty string.

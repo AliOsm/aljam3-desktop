@@ -3,6 +3,8 @@
 require_relative "test_helper"
 require_relative "../lib/aljam3/pdf"
 require_relative "support/range_pdf"
+require "open3"
+require "rbconfig"
 
 class RemotePDFTest < Minitest::Test
   class HTTP
@@ -119,6 +121,14 @@ class RemotePDFTest < Minitest::Test
     end
   end
 
+  def test_cancelling_during_an_image_read_is_recoverable
+    assert_image_read_failure_is_recoverable("test_cancellation")
+  end
+
+  def test_network_failure_during_an_image_read_is_recoverable
+    assert_image_read_failure_is_recoverable("test_network_failure")
+  end
+
   def test_distant_pages_do_not_fetch_unrelated_page_tree_branches
     data = RangePDF.document(pages: 128, branch_size: 4)
     Dir.mktmpdir do |directory|
@@ -136,6 +146,17 @@ class RemotePDFTest < Minitest::Test
             "Page #{page} fetched unrelated page data"
         end
       end
+    end
+  end
+
+  private
+
+  def assert_image_read_failure_is_recoverable(test)
+    # A regression in the native library must fail a test, not kill the suite.
+    Dir.mktmpdir do |directory|
+      output, errors, status = Open3.capture3({ "ALJAM3_PDF_FAILURE_DIR" => directory }, RbConfig.ruby,
+        File.expand_path("support/pdf_read_failure.rb", __dir__), "--name", test)
+      assert status.success?, "#{status}\n#{output}\n#{errors}"
     end
   end
 end

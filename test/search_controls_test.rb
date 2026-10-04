@@ -26,18 +26,18 @@ class SearchControlsTest < Minitest::Test
     assert_equal 1, view.draw_count
   end
 
-  def test_switching_mode_keeps_the_query_and_restores_compatible_filters
+  def test_switching_mode_preserves_the_query_and_all_filters
     view = View.new
     view.query = "العلم"
     view.filters = { category: 2, author: 4 }
     view.switch_search_mode(:books)
-    assert_empty view.filters
-    view.filters = { library: 3 }
+    assert_equal({ category: 2, author: 4 }, view.filters)
+    view.filters[:library] = 3
     view.switch_search_mode(:content)
     assert_equal "العلم", view.query
-    assert_equal({ category: 2, author: 4 }, view.filters)
+    assert_equal({ category: 2, author: 4, library: 3 }, view.filters)
     view.switch_search_mode(:books)
-    assert_equal({ library: 3 }, view.filters)
+    assert_equal({ category: 2, author: 4, library: 3 }, view.filters)
     assert_equal 3, view.request_count
   end
 

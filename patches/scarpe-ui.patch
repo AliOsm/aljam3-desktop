@@ -542,7 +542,83 @@
 +}
 --- a/native/src/input.rs
 +++ b/native/src/input.rs
-@@ -408,7 +408,7 @@
+@@ -39,6 +39,8 @@
+     PageUp,
+     PageDown,
+     Insert,
++    BrowserBack,
++    BrowserForward,
+     F(u8),
+ }
+ 
+@@ -59,6 +61,8 @@
+             Named::PageUp => "page_up".into(),
+             Named::PageDown => "page_down".into(),
+             Named::Insert => "insert".into(),
++            Named::BrowserBack => "browser_back".into(),
++            Named::BrowserForward => "browser_forward".into(),
+             Named::F(n) => format!("f{n}"),
+         }
+     }
+@@ -79,6 +83,8 @@
+             "page_up" => Named::PageUp,
+             "page_down" => Named::PageDown,
+             "insert" => Named::Insert,
++            "browser_back" => Named::BrowserBack,
++            "browser_forward" => Named::BrowserForward,
+             f if f.starts_with('f') && f.len() > 1 => Named::F(f[1..].parse().ok().filter(|n| (1..=12).contains(n))?),
+             _ => return None,
+         })
+@@ -261,6 +267,8 @@
+     Click,
+     /// A text field: dragging extends the selection.
+     Field,
++    Paragraph,
++    Scrollbar,
+     /// Anything else (slots, text): no click of its own.
+     Plain,
+ }
+@@ -281,6 +289,7 @@
+     Hand,
+     Text,
+     Wait,
++    ResizeHorizontal,
+ }
+ 
+ impl CursorShape {
+@@ -292,6 +301,7 @@
+             "hand" | "pointer" | "link" => Some(CursorShape::Hand),
+             "text" | "ibeam" => Some(CursorShape::Text),
+             "watch" | "wait" | "busy" => Some(CursorShape::Wait),
++            "col-resize" | "ew-resize" => Some(CursorShape::ResizeHorizontal),
+             _ => None,
+         }
+     }
+@@ -323,10 +333,12 @@
+     /// Focus arrived from the keyboard (tab, `focus`): buttons show their ring.
+     pub focus_visible: bool,
+     pub fields: HashMap<Id, TextField>,
++    pub selection: Option<crate::selection::ParagraphSelection>,
+     pub popup: Option<Popup>,
+     pub tooltip: Option<Tooltip>,
+     pub modal: Option<crate::dialogs::Modal>,
+     pub scroll: HashMap<Id, f32>,
++    pub scroll_drag: Option<crate::scrollbar::Drag>,
+     pub cursor: CursorShape,
+     last_click: Option<(Instant, f32, f32, u32)>,
+ }
+@@ -355,8 +367,10 @@
+         if self.tooltip.as_ref().is_some_and(|t| gone(&t.owner)) {
+             self.tooltip = None;
+         }
++        if self.selection.as_ref().is_some_and(|s| gone(&s.id)) { self.selection = None; }
+         self.fields.retain(|id, _| !gone(id));
+         self.scroll.retain(|id, _| !gone(id));
++        if self.scroll_drag.is_some_and(|d| gone(&d.id)) { self.scroll_drag = None; }
+     }
+ 
+     fn click_count(&mut self, x: f32, y: f32) -> u32 {
+@@ -408,7 +422,7 @@
  /// on the line.
  fn covers(doc: &Doc, layout: &Layout, id: Id, x: f32, y: f32) -> bool {
      let Some(node) = doc.get(id) else { return false };
@@ -551,7 +627,25 @@
          return false;
      }
      let Some(b) = layout.boxes.get(&id) else { return false };
-@@ -520,7 +520,7 @@
+@@ -476,14 +490,16 @@
+ 
+ /// The pointer a drawable asks for, if it has a say.
+ fn cursor_of(node: &crate::doc::Node) -> Option<CursorShape> {
++    if crate::elements::disabled(node) { return Some(CursorShape::Arrow); }
+     if let Some(own) = node.props.str("cursor").and_then(CursorShape::parse) {
+         return Some(own);
+     }
+     match node.kind {
+         Kind::Link => Some(CursorShape::Hand),
+-        _ if crate::elements::disabled(node) => None,
++        _ if node.props.truthy("has_click") => Some(CursorShape::Hand),
+         Kind::Button | Kind::Check | Kind::Radio | Kind::ListBox => Some(CursorShape::Hand),
+         Kind::EditLine | Kind::EditBox => Some(CursorShape::Text),
++        Kind::Para if node.props.truthy("selectable") => Some(CursorShape::Text),
+         _ => None,
+     }
+ }
+@@ -520,7 +536,7 @@
          layout
              .subscriptions
              .iter()
@@ -560,7 +654,91 @@
              .filter_map(|&item| {
                  let parent = self.doc.get(item)?.parent?;
                  Some((item, layout.boxes.get(&parent)?.clone()))
-@@ -894,11 +894,20 @@
+@@ -568,6 +584,12 @@
+         if self.modal_pointer(app, x, y, crate::dialogs::PointerPhase::Move) {
+             return;
+         }
++        if let Some(drag) = self.views[&app].ui.scroll_drag {
++            if let Some(g) = self.views[&app].layout.as_ref().and_then(|l| l.scrollers.get(&drag.id)).and_then(crate::scrollbar::Geometry::new) {
++                self.scroll_from_pointer(app, drag.id, g.position(y, drag.grab));
++            }
++            return;
++        }
+         let view = self.views.get_mut(&app).expect("view");
+         if let Some(popup) = view.ui.popup.as_mut() {
+             if let Some(i) = popup.item_at(x, y) {
+@@ -581,7 +603,15 @@
+         if let Some(press) = view.ui.pressed.clone().filter(|p| p.kind == PressKind::Field) {
+             if let Some(field) = view.ui.fields.get_mut(&press.target) {
+                 field.drag(&mut self.text.fonts.system, x, y);
+-                self.request_redraw(app);
++                view.dirty = true;
++            }
++        }
++        if view.ui.pressed.as_ref().is_some_and(|p| p.kind == PressKind::Paragraph) {
++            if let Some(selection) = view.ui.selection.as_mut() {
++                if let Some(tb) = view.layout.as_ref().and_then(|l| l.texts.get(&selection.id)) {
++                    selection.drag(&mut self.text.fonts.system, tb, x, y);
++                    self.request_redraw(app);
++                }
+             }
+         }
+         let hit = self.hit(app, x, y);
+@@ -721,6 +751,10 @@
+     }
+ 
+     pub fn pointer_down(&mut self, app: Id, button: u8) {
++        if button == 4 || button == 5 {
++            self.key_input(app, KeyInput::named(if button == 4 { Named::BrowserBack } else { Named::BrowserForward }));
++            return;
++        }
+         let Some((x, y)) = self.views.get(&app).and_then(|v| v.ui.pointer) else { return };
+         self.ensure_layout(app);
+         self.views.get_mut(&app).expect("view").ui.buttons |= 1 << (button - 1);
+@@ -734,6 +768,7 @@
+         }
+         let Some(hit) = self.hit(app, x, y) else { return };
+         let chain = chain(&self.doc, &hit);
++        if button == 1 && self.press_scrollbar(app, &chain, x, y) { return; }
+         let kind = match self.doc.get(hit.node) {
+             Some(n) if crate::elements::disabled(n) => Kind::Unknown("disabled".into()),
+             Some(n) => n.kind.clone(),
+@@ -745,7 +780,18 @@
+         let shift = self.views[&app].ui.modifiers.shift;
+         let clicks = self.views.get_mut(&app).expect("view").ui.click_count(x, y);
+         let target = hit.link.unwrap_or(hit.node);
+-        let (press_kind, consumed) = press_on(&kind, hit.link.is_some());
++        let selectable = button == 1 && hit.link.is_none() && self.doc.get(hit.node).is_some_and(|n| n.props.truthy("selectable")) && kind == Kind::Para;
++        let (press_kind, consumed) = if selectable { (PressKind::Paragraph, true) } else { press_on(&kind, hit.link.is_some()) };
++        if selectable {
++            self.set_focus(app, Some(hit.node));
++            let view = self.views.get_mut(&app).expect("view");
++            if let Some(tb) = view.layout.as_ref().and_then(|l| l.texts.get(&hit.node)) {
++                if view.ui.selection.as_ref().is_none_or(|s| s.id != hit.node) {
++                    view.ui.selection = Some(crate::selection::ParagraphSelection::new(hit.node, tb));
++                }
++                view.ui.selection.as_mut().unwrap().press(&mut self.text.fonts.system, tb, x, y, clicks, shift);
++            }
++        }
+         if hit.link.is_none() {
+             match kind {
+                 Kind::EditLine | Kind::EditBox => self.focus_field_at(app, hit.node, x, y, clicks, shift),
+@@ -831,12 +877,14 @@
+     }
+ 
+     pub fn pointer_up(&mut self, app: Id, button: u8) {
++        if button == 4 || button == 5 { return; }
+         let Some((x, y)) = self.views.get(&app).and_then(|v| v.ui.pointer) else { return };
+         self.views.get_mut(&app).expect("view").ui.buttons &= !(1 << (button - 1));
+         self.send_mouse_state(app);
+         if self.modal_pointer(app, x, y, crate::dialogs::PointerPhase::Up) {
+             return;
+         }
++        self.views.get_mut(&app).expect("view").ui.scroll_drag = None;
+         let press = self.views.get_mut(&app).expect("view").ui.pressed.take();
+         if let Some(p) = press.as_ref().filter(|p| p.kind == PressKind::Field) {
+             if let Some(field) = self.views.get_mut(&app).and_then(|v| v.ui.fields.get_mut(&p.target)) {
+@@ -894,11 +942,20 @@
      }
  
      pub fn set_focus(&mut self, app: Id, id: Option<Id>) {
@@ -583,7 +761,39 @@
              }
              self.request_redraw(app);
          }
-@@ -978,7 +987,7 @@
+@@ -925,6 +982,31 @@
+ 
+     pub(crate) fn choose(&mut self, list_box: Id, item: &str) {
+         self.out.event("change", Some(list_box), vec![Value::String(item.to_string())]);
++    }
++
++    fn press_scrollbar(&mut self, app: Id, chain: &[Id], x: f32, y: f32) -> bool {
++        let layout = self.views[&app].layout.as_ref().expect("layout");
++        let hit = chain.iter().find_map(|id| {
++            let s = layout.scrollers.get(id)?;
++            let g = crate::scrollbar::Geometry::new(s)?;
++            let visible = layout.boxes.get(id).is_some_and(|b| b.clip.is_none_or(|c| c.contains(x, y)));
++            (visible && !self.doc.is_inert(*id) && g.track.contains(x, y)).then_some((*id, s.top, s.viewport.h, g))
++        });
++        let Some((id, top, height, g)) = hit else { return false; };
++        let on_thumb = y >= g.thumb.y && y < g.thumb.bottom();
++        let ui = &mut self.views.get_mut(&app).unwrap().ui;
++        ui.pressed = Some(Press { target: id, button: 1, kind: PressKind::Scrollbar, consumed: true });
++        ui.scroll_drag = on_thumb.then_some(crate::scrollbar::Drag { id, grab: y - g.thumb.y });
++        if !on_thumb {
++            let delta = if y < g.thumb.y { -height * 0.9 } else { height * 0.9 };
++            self.scroll_from_pointer(app, id, (top + delta).clamp(0.0, g.max_top));
++        }
++        true
++    }
++
++    fn scroll_from_pointer(&mut self, app: Id, id: Id, top: f32) {
++        self.out.send(Outgoing::Scroll { id, top: top.round() as i64 });
++        self.scroll_slot(app, id, top);
+     }
+ 
+     pub fn wheel(&mut self, app: Id, dy: f32, at: Option<(f32, f32)>) {
+@@ -978,7 +1060,7 @@
      fn editable_focus(&self, app: Id) -> Option<Id> {
          let id = self.views.get(&app)?.ui.focus?;
          let node = self.doc.get(id).filter(|n| n.kind.is_text_input())?;
@@ -592,7 +802,7 @@
      }
  
      /// Text an input method committed (a dead key's accent, a word of Japanese): into the
-@@ -1035,7 +1044,7 @@
+@@ -1035,7 +1117,7 @@
          if self.popup_key(app, &key) {
              return;
          }
@@ -601,7 +811,40 @@
          let focus_kind = focus.and_then(|id| self.doc.get(id)).map(|n| n.kind.clone());
          let tab = key.key == Key::Named(Named::Tab) && !key.modified();
          // A button, check, radio or list box takes keys only while it shows its focus ring,
-@@ -1130,7 +1139,7 @@
+@@ -1043,6 +1125,14 @@
+         // pressed leaves Space, Return and the arrows to the app, as a Mac's controls do.
+         let keyboard_focus = self.views[&app].ui.focus_visible;
+         let mut send_keypress = true;
++        let view = self.views.get_mut(&app).expect("view");
++        if let Some(selection) = view.ui.selection.as_mut().filter(|s| Some(s.id) == focus) {
++            if let Some(tb) = view.layout.as_ref().and_then(|l| l.texts.get(&selection.id)) { selection.sync(tb); }
++            if selection.key(&mut self.text.fonts.system, &key, &mut self.clipboard) {
++                self.request_redraw(app);
++                return;
++            }
++        }
+         match (focus, focus_kind) {
+             (Some(id), Some(Kind::EditLine)) | (Some(id), Some(Kind::EditBox)) => {
+                 if tab {
+@@ -1071,7 +1161,7 @@
+                     self.out.event("finish", Some(id), vec![]);
+                 }
+                 self.request_redraw(app);
+-                send_keypress = key.key == Key::Named(Named::Escape) || key.modified();
++                send_keypress = matches!(key.key, Key::Named(Named::Escape | Named::BrowserBack | Named::BrowserForward)) || key.modified();
+             }
+             (Some(id), Some(Kind::Button)) if keyboard_focus && button::activates(&key) => {
+                 self.out.event("click", Some(id), vec![]);
+@@ -1108,7 +1198,7 @@
+     fn popup_key(&mut self, app: Id, key: &KeyInput) -> bool {
+         let view = self.views.get_mut(&app).expect("view");
+         let Some(popup) = view.ui.popup.as_mut() else { return false };
+-        match list_box::popup_key(popup, key) {
++        match if key.key == Key::Named(Named::BrowserBack) { PopupKey::Close } else { list_box::popup_key(popup, key) } {
+             PopupKey::Choose(i) => {
+                 let (id, item) = (popup.list_box, popup.items[i].clone());
+                 view.ui.popup = None;
+@@ -1130,7 +1220,7 @@
              .order
              .iter()
              .copied()
@@ -910,32 +1153,40 @@
          canvas.fill_path(&path, shader, FillRule::Winding, Transform::identity(), lbox.clip);
      });
  }
-@@ -41,17 +51,17 @@
+@@ -41,17 +51,10 @@
  const SCROLLBAR: Color = Color::rgba(0, 0, 0, 90);
  
  /// A thin overlay thumb on every slot whose content overflows it.
 -pub fn scrollbars(canvas: &mut Canvas, layout: &Layout) {
 -    for (id, s) in &layout.scrollers {
-+pub fn scrollbar(canvas: &mut Canvas, layout: &Layout, id: crate::props::Id) {
-+    if let Some(s) = layout.scrollers.get(&id) {
-         if s.max_top() <= 0.5 {
+-        if s.max_top() <= 0.5 {
 -            continue;
-+            return;
-         }
-         let v = s.viewport;
+-        }
+-        let v = s.viewport;
 -        let clip = layout.boxes.get(id).and_then(|b| b.clip);
-+        let clip = layout.boxes.get(&id).and_then(|b| b.clip);
-         let track = v.h - 4.0;
-         let thumb = (track * v.h / s.content_height).max(24.0).min(track);
-         let y = v.y + 2.0 + (track - thumb) * (s.top / s.max_top());
+-        let track = v.h - 4.0;
+-        let thumb = (track * v.h / s.content_height).max(24.0).min(track);
+-        let y = v.y + 2.0 + (track - thumb) * (s.top / s.max_top());
 -        let bar = Rect::new(v.right() - 8.0, y, 5.0, thumb);
 -        canvas.fill_rounded(bar, 2.5, SCROLLBAR, clip.or(Some(v)));
-+        let bar = Rect::new(if s.rtl { v.x + 3.0 } else { v.right() - 8.0 }, y, 5.0, thumb);
-+        canvas.fill_rounded(bar, 2.5, s.color.map_or(SCROLLBAR, |color| color.fade(0.65)), clip.or(Some(v)));
++pub fn scrollbar(canvas: &mut Canvas, layout: &Layout, id: crate::props::Id) {
++    if let Some(s) = layout.scrollers.get(&id) {
++        let Some(g) = crate::scrollbar::Geometry::new(s) else { return };
++        let clip = layout.boxes.get(&id).and_then(|b| b.clip);
++        canvas.fill_rounded(g.thumb, 2.5, s.color.map_or(SCROLLBAR, |color| color.fade(0.65)), clip.or(Some(s.viewport)));
      }
  }
 --- a/native/tests/a11y.rs
 +++ b/native/tests/a11y.rs
+@@ -35,7 +35,7 @@
+ 
+ /// What Ruby sends for an `ask` or `ask_color` (DESIGN 4.1 `dialog`).
+ fn asking(kind: &str, message: &str, default: Value) -> DialogRequest {
+-    DialogRequest { kind: kind.into(), message: message.into(), default, title: None, secret: false }
++    DialogRequest { kind: kind.into(), message: message.into(), default, title: None, secret: false, ..Default::default() }
+ }
+ 
+ fn one(h: &mut Harness, role: &str) -> Value {
 @@ -80,6 +80,42 @@
      assert_eq!(button["actions"], json!(["click", "focus"]));
      let laid = h.node(|n| n["id"] == 3);
@@ -1193,7 +1444,7 @@
 +}
 --- a/native/tests/text_input.rs
 +++ b/native/tests/text_input.rs
-@@ -270,3 +270,143 @@
+@@ -270,3 +270,189 @@
      assert!(bold.len() * 10 > plain.len() * 13, "bold puts down at least 30% more ink: {} against {}", plain.len(), bold.len());
      assert!(lean(&italic) > lean(&plain) + 0.5, "italic leans right: {:.2} against {:.2}", lean(&plain), lean(&italic));
  }
@@ -1337,16 +1588,66 @@
 +    let focused = named(&changes, "focus_changed");
 +    assert_eq!((focused[0].1.clone(), focused[0].2.clone()), (json!(4), json!([false])));
 +}
++
++#[test]
++fn scrollbar_thumb_drag_and_track_click_work_in_both_directions() {
++    use scarpe_native::scrollbar::Geometry;
++    for direction in ["rtl", "ltr"] {
++        let mut h = Harness::new();
++        h.feed(&app(360, 220, &[
++            create(3, "Stack", 2, json!({"width":300,"height":200,"scroll":true,"direction":direction})),
++            create(4, "Stack", 3, json!({"width":250,"height":1000})),
++        ]));
++        h.layout();
++        let g = Geometry::new(&h.rt.views[&1].layout.as_ref().unwrap().scrollers[&3]).unwrap();
++        let (x, y) = (g.track.x + 6.0, g.thumb.y + 10.0);
++        h.value(json!({"op":"mouse","action":"down","x":x,"y":y}));
++        h.value(json!({"op":"mouse","action":"move","x":x,"y":y+80.0}));
++        h.value(json!({"op":"mouse","action":"up","x":x,"y":y+80.0}));
++        let top = h.rt.views[&1].ui.scroll[&3];
++        assert!(top > 300.0, "{direction}: {top}");
++        h.value(json!({"op":"mouse","action":"move","x":x,"y":y}));
++        assert_eq!(h.rt.views[&1].ui.scroll[&3], top, "released drag stops");
++        h.value(json!({"op":"click","target":{"x":x,"y":g.track.y+1.0}}));
++        assert!(h.rt.views[&1].ui.scroll[&3] < top, "track click pages up");
++        h.layout();
++        let g = Geometry::new(&h.rt.views[&1].layout.as_ref().unwrap().scrollers[&3]).unwrap();
++        h.value(json!({"op":"mouse","action":"down","x":x,"y":g.thumb.y+4.0}));
++        h.value(json!({"op":"mouse","action":"move","x":x,"y":1000.0}));
++        h.value(json!({"op":"mouse","action":"up","x":x,"y":1000.0}));
++        assert_eq!(h.rt.views[&1].ui.scroll[&3], g.max_top, "drag clamps beyond viewport");
++    }
++}
++
++#[test]
++fn clickable_images_and_disabled_controls_have_the_correct_cursor() {
++    use scarpe_native::input::CursorShape;
++    let mut h = Harness::new();
++    h.feed(&app(300, 200, &[
++        create(3, "Image", 2, json!({"left":0,"top":0,"width":40,"height":40,"has_click":true})),
++        create(4, "Button", 2, json!({"left":50,"top":0,"width":70,"height":40,"text":"disabled","state":"disabled","cursor":"pointer"})),
++        create(5, "Stack", 2, json!({"left":130,"top":0,"width":20,"height":100,"cursor":"col-resize"})),
++        create(6, "Para", 2, json!({"left":0,"top":60,"text_items":["read this"],"selectable":true})),
++    ]));
++    for (x, y, cursor) in [(10, 10, CursorShape::Hand), (65, 10, CursorShape::Arrow), (135, 10, CursorShape::ResizeHorizontal), (10, 70, CursorShape::Text)] {
++        h.value(json!({"op":"mouse","action":"move","x":x,"y":y}));
++        assert_eq!(h.rt.views[&1].ui.cursor, cursor);
++    }
++}
 --- a/native/src/lib.rs
 +++ b/native/src/lib.rs
-@@ -15,6 +15,7 @@
+@@ -15,8 +15,11 @@
  pub mod limits;
  pub mod paint;
  pub mod props;
 +pub mod preferences;
  pub mod protocol;
  pub mod runtime;
++pub mod selection;
++pub mod scrollbar;
  pub mod style;
+ pub mod text;
+ pub mod window;
 --- /dev/null
 +++ b/native/src/preferences.rs
 @@ -0,0 +1,28 @@
@@ -1508,7 +1809,7 @@
          let Some(layout) = layout.as_ref() else { return };
          let started = Instant::now();
 -        let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
-+        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images, layers: Default::default() };
          paint::paint(&mut scene, pm, scale);
          *frames += 1;
          self.stats.since(Phase::Paint, started);
@@ -1536,7 +1837,15 @@
          Kind::Para | Kind::TextDrawable => matches!(key, "text_cursor" | "text_marker"),
 --- a/native/src/paint/mod.rs
 +++ b/native/src/paint/mod.rs
-@@ -263,8 +263,54 @@
+@@ -3,6 +3,7 @@
+ //! the physical size so it stays crisp on HiDPI screens.
+ 
+ pub mod damage;
++pub mod layers;
+ pub mod decor;
+ pub mod shapes;
+ pub mod text;
+@@ -263,8 +264,54 @@
      }
  
      pub fn fill_rect(&mut self, rect: Rect, color: Color, clip: Option<Rect>) {
@@ -1591,7 +1900,7 @@
          }
      }
  
-@@ -382,6 +428,7 @@
+@@ -382,11 +429,13 @@
  
  /// Everything painting needs besides the pixmap.
  pub struct Scene<'a> {
@@ -1599,7 +1908,13 @@
      pub doc: &'a Doc,
      pub layout: &'a Layout,
      pub view: &'a mut ViewState,
-@@ -401,30 +448,82 @@
+     pub text: &'a mut TextEngine,
+     pub images: &'a mut ImageCache,
++    pub layers: layers::LayerCache,
+ }
+ 
+ /// Paints the whole app: nodes in tree order, then overlays (scrollbars,
+@@ -401,30 +450,92 @@
      canvas.pm.fill(BACKGROUND.to_skia());
      let layout = scene.layout;
      paint_run(scene, &mut canvas, &layout.order, only, 0);
@@ -1677,11 +1992,21 @@
 +    let right = (b.right() * canvas.scale + 4.0).ceil().clamp(ox as f32, (ox + canvas.pm.width() as i32) as f32) as i32;
 +    let bottom = (b.bottom() * canvas.scale + 4.0).ceil().clamp(oy as f32, (oy + canvas.pm.height() as i32) as f32) as i32;
 +    if right <= x || bottom <= y { return; }
-+    if let Some(mut layer) = Pixmap::new((right - x) as u32, (bottom - y) as u32) {
-+        paint_group(scene, &mut Canvas::at(&mut layer, canvas.scale, (x, y)), ids, only, depth);
-+        let paint = PixmapPaint { opacity, ..PixmapPaint::default() };
-+        canvas.pm.draw_pixmap(x - ox, y - oy, layer.as_ref(), &paint, Transform::identity(), None);
-+    }
++    let region = (x, y, right, bottom);
++    let signature = layers::signature(scene, ids, canvas.scale, region, only);
++    let layer = match scene.layers.take(ids[0], &signature) {
++        Some(layer) => layer,
++        None => {
++            let Some(mut pixels) = Pixmap::new((right - x) as u32, (bottom - y) as u32) else { return };
++            paint_group(scene, &mut Canvas::at(&mut pixels, canvas.scale, (x, y)), ids, only, depth);
++            // Painting initializes text fields; fingerprint their rendered state.
++            let signature = layers::signature(scene, ids, canvas.scale, region, only);
++            scene.layers.built();
++            layers::Layer { pixels, signature }
++        }
++    };
++    layers::blend(canvas.pm, &layer.pixels, x - ox, y - oy, opacity);
++    scene.layers.put(ids[0], layer);
 +}
 +
 +// Composite a group once: independently fading its overlapping children is incorrect.
@@ -1698,7 +2023,7 @@
  }
  
  /// The laid-out Mask children of a slot.
-@@ -473,7 +572,7 @@
+@@ -473,7 +584,7 @@
          return;
      }
      match &node.kind {
@@ -1707,7 +2032,22 @@
          Kind::Border => decor::border(canvas, node, lbox, scene.images),
          // Art inside a shape block is painted with its shape, as one path.
          k if k.is_art() && shapes::in_shape(doc, node) => {}
-@@ -502,6 +601,31 @@
+@@ -493,6 +604,14 @@
+                 }
+                 text::draw_shaped(canvas, scene.text, &tb.shaped, tb.x, tb.y, clip, hover);
+                 text::draw_para_cursor(canvas, node, tb, clip, mode);
++                if let Some(selection) = scene.view.selection.as_ref().filter(|s| s.id == id) {
++                    if let Some((a, b)) = selection.bounds() {
++                        for r in text::selection_rects(&tb.shaped.buffer, a, b) {
++                            let (top, h) = tb.shaped.line_box(r.y, r.h);
++                            canvas.fill_rect(Rect::new(tb.x + r.x, tb.y + top, r.w, h), text::SELECTION, clip);
++                        }
++                    }
++                }
+             }
+         }
+         _ => elements::paint(canvas, node, lbox, layout.texts.get(&id), scene.view, scene.text, scene.images),
+@@ -502,6 +621,31 @@
  #[cfg(test)]
  mod tests {
      use super::*;
@@ -1741,9 +2081,11 @@
      struct Numbers(u64);
 --- a/native/src/paint/damage.rs
 +++ b/native/src/paint/damage.rs
-@@ -124,15 +124,30 @@
+@@ -123,16 +123,33 @@
+ /// What a window's last frame showed.
  #[derive(Default)]
  pub struct FrameMemory {
++    pub layers: super::layers::LayerCache,
      last: Option<Frame>,
 +    underlay: Option<Underlay>,
 +    underlay_builds: u64,
@@ -1762,6 +2104,7 @@
 -}
 -
 +        self.underlay = None;
++        self.layers = Default::default();
 +    }
 +}
 +
@@ -1775,7 +2118,7 @@
  struct Frame {
      revision: u64,
      size: (u32, u32),
-@@ -146,6 +161,7 @@
+@@ -146,6 +163,7 @@
  }
  
  /// One node as it was painted.
@@ -1783,9 +2126,11 @@
  struct Look {
      /// Where it can paint (logical px); None for a turned image, which may be anywhere.
      bounds: Option<Rect>,
-@@ -157,13 +173,16 @@
+@@ -156,14 +174,18 @@
+ 
  /// Brings `frame` up to date with `scene`, painting as little as it can.
  pub fn repaint(scene: &mut Scene, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory, revisions: &Revisions) -> Repaint {
++    scene.layers.retain(scene.doc, scene.layout);
      let hovered: HashSet<Id> = scene.view.hover_chain.iter().copied().collect();
 -    let mut now = look_at(scene.doc, scene.layout, scene.view, &hovered, (frame.width(), frame.height()), scale, revisions.now());
 +    let mut now = look_at(scene.doc, scene.layout, scene.view, &hovered, (frame.width(), frame.height()), scale, revisions.now(), scene.now);
@@ -1802,19 +2147,24 @@
          Repaint::Rects(rects) => {
              for r in rects {
                  paint_rect(scene, frame, scale, *r);
-@@ -182,9 +201,67 @@
+@@ -182,9 +204,72 @@
      plan
  }
  
-+/// A root overlay can fade without rerasterising the unchanged page beneath it.
++/// An overlay can fade without rerasterising the unchanged page beneath it.
 +/// Keep exactly one window-sized underlay, invalidate it on any changed content,
 +/// and release it when the last overlay disappears. No screenshot freezes live
 +/// downloads, selection, scrolling, resizing, or a newly rendered PDF.
 +fn overlay_split(scene: &Scene, now: &Frame) -> Option<usize> {
 +    if scene.doc.get(scene.layout.root).is_some_and(|root| root.props.f32("opacity").unwrap_or(1.0) != 1.0) { return None; }
 +    now.order.iter().position(|id| scene.doc.get(*id).is_some_and(|node|
-+        node.parent == Some(scene.layout.root) && node.props.truthy("overlay") &&
-+        scene.layout.rect(*id).is_some_and(|r| r.w > 0.0 && r.h > 0.0)))
++        node.props.truthy("overlay") && scene.layout.rect(*id).is_some_and(|r| r.w > 0.0 && r.h > 0.0) &&
++        scene.doc.ancestors(*id).into_iter().all(|ancestor|
++            scene.doc.get(ancestor).is_some_and(|n| n.props.f32("opacity").unwrap_or(1.0) == 1.0) &&
++            // A parent's scrollbar paints after its children. Keep that order
++            // by using the normal painter when the split crosses a scrollbar.
++            scene.layout.scrollers.get(&ancestor).is_none_or(|s| s.max_top() <= 0.5) &&
++            super::masks_in(scene, ancestor).is_empty())))
 +}
 +
 +fn paint_with_underlay(scene: &mut Scene, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory, now: &Frame, revisions: &Revisions) {
@@ -1871,7 +2221,7 @@
      let (frame_w, part_w, row) = (frame.width() as usize * 4, part.width() as usize * 4, r.w as usize * 4);
      let (dst, src) = (frame.data_mut(), part.data());
      for y in 0..r.h as usize {
-@@ -196,14 +273,19 @@
+@@ -196,14 +281,19 @@
  
  /// A rect and a margin around it painted into a pixmap of their own, and where that pixmap
  /// sits in the frame. `cull`: skip nodes that cannot reach it (verify paints without).
@@ -1893,7 +2243,7 @@
      (part, (x0, y0))
  }
  
-@@ -231,7 +313,7 @@
+@@ -231,7 +321,7 @@
          return Err(format!("{stale} stale pixels after {plan:?}"));
      }
      for r in rects {
@@ -1902,7 +2252,7 @@
          let wrong = (0..r.h as usize)
              .flat_map(|y| (0..r.w as usize).map(move |x| (x, y)))
              .filter(|(x, y)| {
-@@ -256,6 +338,9 @@
+@@ -256,6 +346,9 @@
      }
      let mut changed = HashSet::new();
      for id in revisions.changed_after(before.revision) {
@@ -1912,7 +2262,7 @@
          if now.nodes.contains_key(&id) || before.nodes.contains_key(&id) {
              changed.insert(id);
          } else if let Some(painted) = painted_ancestor(doc, now, id) {
-@@ -347,7 +432,7 @@
+@@ -347,7 +440,7 @@
      }
  }
  
@@ -1921,7 +2271,7 @@
      let mut nodes = HashMap::with_capacity(layout.order.len());
      for &id in &layout.order {
          let (Some(node), Some(lbox)) = (doc.get(id), layout.boxes.get(&id)) else { continue };
-@@ -365,9 +450,9 @@
+@@ -365,9 +458,9 @@
          revision,
          size,
          scale,
@@ -1934,9 +2284,26 @@
          scrolling: scrolling(layout),
          order: layout.order.clone(),
          nodes,
+@@ -375,7 +468,7 @@
+ }
+ 
+ /// Everything besides props that decides a node's pixels.
+-fn fingerprint(node: &Node, lbox: &LBox, text: Option<&TextBox>, view: &ViewState, hovered: &HashSet<Id>) -> u64 {
++pub(super) fn fingerprint(node: &Node, lbox: &LBox, text: Option<&TextBox>, view: &ViewState, hovered: &HashSet<Id>) -> u64 {
+     let mut h = DefaultHasher::new();
+     rect_bits(lbox.rect).hash(&mut h);
+     lbox.clip.map(rect_bits).hash(&mut h);
+@@ -383,6 +476,7 @@
+         // A block's fill is a highlight in its runs (manual 1208-1210), so a new fill shapes a
+         // new buffer, which `Look::text` tells apart.
+         (tb.x.to_bits(), tb.y.to_bits()).hash(&mut h);
++        view.selection.as_ref().filter(|s| s.id == node.id).and_then(|s| s.bounds()).map(|(a, b)| (a.line, a.index, b.line, b.index)).hash(&mut h);
+         // A hovered link changes colour, which only the paras holding it show.
+         view.hover_link.filter(|link| tb.shaped.metas.iter().any(|m| m.link == Some(*link))).hash(&mut h);
+     }
 --- a/native/tests/damage.rs
 +++ b/native/tests/damage.rs
-@@ -99,6 +99,57 @@
+@@ -99,6 +99,160 @@
      assert_eq!(window.repaint(&mut h), Repaint::Nothing);
      feed(&mut h, &[]);
      assert_eq!(window.repaint(&mut h), Repaint::Nothing, "a flush that changed nothing");
@@ -1991,10 +2358,113 @@
 +    let fresh = h.rt.layout_of(APP).unwrap();
 +    assert_eq!(displaced.boxes, fresh.boxes);
 +    assert_eq!(displaced.scrollers, fresh.scrollers);
++}
++
++#[test]
++fn nested_overlays_keep_paint_order_and_respect_ancestor_compositing() {
++    for scale in [1.0, 1.25, 2.0] {
++        let mut h = Harness::new();
++        busy_scene(&mut h);
++        feed(&mut h, &[
++            create(20, "Stack", 4, json!({"left":8,"top":8,"width":430,"height":250,"overlay":true,"opacity":0.1})),
++            create(21, "Background", 20, json!({"fill":"#ffffff"})),
++            create(22, "Para", 20, json!({"text_items":["الصفحة التالية"],"size":22})),
++            create(23, "Button", 2, json!({"left":40,"top":30,"text":"Header above pages"})),
++        ]);
++        let mut window = Window::open(&mut h, scale);
++        for opacity in [0.2, 0.4, 0.6, 0.8] {
++            props(&mut h, 20, json!({"opacity":opacity}));
++            window.repaint(&mut h);
++        }
++        assert!(h.rt.stats.counter("underlay_reuses") >= 4);
++        props(&mut h, 8, json!({"text_items":["Live update underneath"]}));
++        window.repaint(&mut h);
++        props(&mut h, 23, json!({"text":"Header update above"}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"opacity":0.7}));
++        window.repaint(&mut h);
++        props(&mut h, 20, json!({"opacity":0.3}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"opacity":1.0}));
++        feed(&mut h, &[
++            create(24, "Mask", 4, json!({})),
++            create(25, "Oval", 24, json!({"left":0,"top":0,"width":220,"height":170,"fill":"#ffffff"})),
++        ]);
++        window.repaint(&mut h);
++        props(&mut h, 20, json!({"opacity":0.8}));
++        window.repaint(&mut h);
++    }
++}
++
++#[test]
++fn nested_overlay_preserves_parent_scrollbar_order() {
++    for scale in [1.0, 1.25, 2.0] {
++        let mut h = Harness::new();
++        h.feed(&app(480, 320, &[
++            create(3, "Stack", 2, json!({"left":20,"top":20,"width":300,"height":200,"scroll":true})),
++            create(4, "Stack", 3, json!({"width":300,"height":600,"overlay":true,"opacity":0.4})),
++            create(5, "Background", 4, json!({"fill":"#803322"})),
++        ]));
++        let mut window = Window::open(&mut h, scale);
++        assert!(h.rt.layout_of(APP).unwrap().scrollers[&3].max_top() > 0.5);
++        for opacity in [0.2, 0.7, 1.0] {
++            props(&mut h, 4, json!({"opacity":opacity}));
++            window.repaint(&mut h);
++        }
++    }
++}
++
++#[test]
++fn fading_layers_reuse_pixels_but_keep_content_and_input_live() {
++    for scale in [1.0, 1.25, 2.0] {
++        let mut h = Harness::new();
++        busy_scene(&mut h);
++        props(&mut h, 4, json!({"opacity":0.2}));
++        let mut window = Window::open(&mut h, scale);
++        // A fresh reference picture can finish fitting an initially unpainted
++        // text field. Warm that input state before measuring opacity-only work.
++        props(&mut h, 4, json!({"opacity":0.25}));
++        window.repaint(&mut h);
++        let built = h.rt.stats.counter("layer_builds");
++        for alpha in [0.3, 0.4, 0.55, 0.7] {
++            props(&mut h, 4, json!({"opacity":alpha}));
++            window.repaint(&mut h);
++        }
++        assert_eq!(h.rt.stats.counter("layer_builds"), built, "opacity must not rerasterise text");
++        assert!(h.rt.stats.counter("layer_reuses") >= 4);
++        assert_eq!(window.memory.layers.len(), 1);
++
++        props(&mut h, 8, json!({"text_items":["نتائج جديدة وصلت أثناء الانتقال"]}));
++        window.repaint(&mut h);
++        assert!(h.rt.stats.counter("layer_builds") > built);
++        let rect = h.rt.layout_of(APP).unwrap().rect(10).unwrap();
++        mouse(&mut h, "down", rect.x + 20.0, rect.y + 10.0);
++        mouse(&mut h, "up", rect.x + 20.0, rect.y + 10.0);
++        window.repaint(&mut h);
++        h.value(json!({"op":"type","text":"العلم"}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"opacity":0.8}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"height":100,"scroll":true}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"scroll_top":40}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"opacity":0.9}));
++        window.repaint(&mut h);
++        props(&mut h, 4, json!({"opacity":1.0}));
++        window.repaint(&mut h);
++        assert_eq!(window.memory.layers.len(), 0, "settled fades release their surfaces");
++
++        props(&mut h, 4, json!({"opacity":0.5}));
++        window.repaint(&mut h);
++        feed(&mut h, &[json!({"t":"destroy","id":4})]);
++        window.repaint(&mut h);
++        assert_eq!(window.memory.layers.len(), 0, "interrupted views release their surfaces");
++    }
  }
  
  #[test]
-@@ -416,6 +467,25 @@
+@@ -416,6 +570,25 @@
      assert_eq!(window.repaint(&mut h), Repaint::Nothing, "then nothing is left to paint");
  }
  
@@ -2020,7 +2490,7 @@
  /// Whether the frame looks like a full paint. `verify` checks a repainted rect against the
  /// same rect painted with no node skipped, so a rect that paints wrong both ways (a layer
  /// that forgets where the rect sits) needs this look at the whole picture as well. Edges a
-@@ -546,3 +616,24 @@
+@@ -546,3 +719,24 @@
      props(&mut h, 3, json!({"stroke": {"rgba": [0, 0, 255, 255]}}));
      window.repaint(&mut h);
  }
@@ -2126,43 +2596,53 @@
      /// Brings a window's last frame up to date, repainting only what changed since `memory`
      /// last saw it (paint::damage). The view is clean afterwards.
      pub fn repaint(&mut self, app: Id, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory) -> Repaint {
-@@ -42,8 +60,11 @@
+@@ -42,8 +60,16 @@
          let Some(view) = self.views.get_mut(&app) else { return Repaint::Nothing };
          let AppView { layout, ui, frames, dirty, .. } = view;
          let Some(layout) = layout.as_ref() else { return Repaint::Nothing };
 -        let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
-+        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images, layers: Default::default() };
++        scene.layers = std::mem::take(&mut memory.layers);
          let plan = damage::repaint(&mut scene, frame, scale, memory, &self.revisions);
++        let (layer_builds, layer_reuses) = scene.layers.take_counts();
++        memory.layers = scene.layers;
++        self.stats.count("layer_builds", layer_builds);
++        self.stats.count("layer_reuses", layer_reuses);
 +        let (built, reused) = memory.take_underlay_counts();
 +        self.stats.count("underlay_builds", built);
 +        self.stats.count("underlay_reuses", reused);
          *frames += 1;
          *dirty = false;
          self.stats.since(Phase::Paint, started);
-@@ -77,7 +98,7 @@
+@@ -77,7 +103,7 @@
          let Some(view) = self.views.get_mut(&app) else { return Ok(()) };
          let AppView { layout, ui, .. } = view;
          let Some(layout) = layout.as_ref() else { return Ok(()) };
 -        let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
-+        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images, layers: Default::default() };
          damage::verify(&mut scene, plan, frame, scale, full, before)
      }
  
-@@ -102,7 +123,7 @@
+@@ -102,8 +128,11 @@
              let Some(view) = self.views.get_mut(&app) else { return };
              let AppView { layout, ui, .. } = view;
              let Some(layout) = layout.as_ref() else { return };
 -            let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
-+            let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
-             damage::repaint(&mut scene, &mut frame, scale, &mut memory, &self.revisions)
+-            damage::repaint(&mut scene, &mut frame, scale, &mut memory, &self.revisions)
++            let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images, layers: Default::default() };
++            scene.layers = std::mem::take(&mut memory.layers);
++            let plan = damage::repaint(&mut scene, &mut frame, scale, &mut memory, &self.revisions);
++            memory.layers = scene.layers;
++            plan
          };
          self.count_repaint(&plan, (frame.width(), frame.height()));
-@@ -116,7 +137,7 @@
+         self.check_repaint(app, &plan, &mut frame, scale);
+@@ -116,7 +145,7 @@
          let (w, h) = crate::limits::picture_size(view.size, scale)?;
          let mut pm = Pixmap::new(w, h)?;
          let AppView { layout, ui, .. } = view;
 -        let mut scene = Scene { doc: &self.doc, layout: layout.as_ref()?, view: ui, text: &mut self.text, images: &mut self.images };
-+        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout: layout.as_ref()?, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout: layout.as_ref()?, view: ui, text: &mut self.text, images: &mut self.images, layers: Default::default() };
          paint::paint(&mut scene, &mut pm, scale);
          Some(pm)
      }
@@ -2433,3 +2913,423 @@
      tip.shown = true;
      let shaped = text.shape(&RichText::plain(&tip.text, TextStyle::new(TEXT_SIZE, INK)), Some(MAX_WIDTH));
      let (w, h) = (shaped.width.ceil() + PAD.0 * 2.0, shaped.height.ceil() + PAD.1 * 2.0);
+--- /dev/null
++++ b/native/src/paint/layers.rs
+@@ -0,0 +1,212 @@
++//! Temporary raster surfaces for fading groups. Content, layout, focus, typing,
++//! scrolling and image changes invalidate the surface; opacity alone does not.
++
++use super::{damage, Scene};
++use crate::doc::Doc;
++use crate::elements::image;
++use crate::layout::{Layout, Rect};
++use crate::props::Id;
++use cosmic_text::Buffer;
++use std::collections::{hash_map::DefaultHasher, HashMap, HashSet};
++use std::hash::{Hash, Hasher};
++use std::rc::Rc;
++use tiny_skia::Pixmap;
++
++const MAX_BYTES: usize = 128 * 1024 * 1024;
++
++#[derive(Default)]
++pub struct LayerCache {
++    entries: HashMap<Id, Layer>,
++    bytes: usize,
++    built: u64,
++    reused: u64,
++}
++
++pub struct Layer {
++    pub pixels: Pixmap,
++    pub signature: Signature,
++}
++
++pub struct Signature {
++    hash: u64,
++    // Retain the allocations whose identities the fingerprint uses.
++    _texts: Vec<Rc<Buffer>>,
++    _images: Vec<Rc<Pixmap>>,
++}
++
++impl LayerCache {
++    pub fn len(&self) -> usize { self.entries.len() }
++
++    pub fn retain(&mut self, doc: &Doc, layout: &Layout) {
++        self.entries.retain(|id, _| layout.boxes.contains_key(id) && doc.get(*id).is_some_and(|node|
++            node.props.f32("opacity").is_some_and(|o| o > 0.0 && o < 1.0)));
++        self.bytes = self.entries.values().map(|layer| layer.pixels.data().len()).sum();
++    }
++
++    pub fn take(&mut self, id: Id, signature: &Signature) -> Option<Layer> {
++        let entry = self.entries.remove(&id)?;
++        self.bytes -= entry.pixels.data().len();
++        if entry.signature.hash != signature.hash { return None; }
++        self.reused += 1;
++        Some(entry)
++    }
++
++    pub fn built(&mut self) { self.built += 1; }
++
++    pub fn put(&mut self, id: Id, layer: Layer) {
++        let bytes = layer.pixels.data().len();
++        if bytes > MAX_BYTES { return; }
++        if self.bytes + bytes > MAX_BYTES {
++            self.entries.clear();
++            self.bytes = 0;
++        }
++        self.bytes += bytes;
++        self.entries.insert(id, layer);
++    }
++
++    pub fn take_counts(&mut self) -> (u64, u64) {
++        (std::mem::take(&mut self.built), std::mem::take(&mut self.reused))
++    }
++}
++
++pub fn signature(scene: &mut Scene, ids: &[Id], scale: f32, region: (i32, i32, i32, i32), only: Option<Rect>) -> Signature {
++    let mut hash = DefaultHasher::new();
++    let mut texts = Vec::new();
++    let mut images = Vec::new();
++    let hovered: HashSet<_> = scene.view.hover_chain.iter().copied().collect();
++    scale.to_bits().hash(&mut hash);
++    region.hash(&mut hash);
++    only.map(|r| [r.x.to_bits(), r.y.to_bits(), r.w.to_bits(), r.h.to_bits()]).hash(&mut hash);
++    ids.hash(&mut hash);
++    for id in ids {
++        let (Some(node), Some(lbox)) = (scene.doc.get(*id), scene.layout.boxes.get(id)) else { continue };
++        for (key, value) in &node.props.0 {
++            if *id == ids[0] && key == "opacity" { continue; }
++            key.hash(&mut hash);
++            value.hash(&mut hash);
++        }
++        let text = scene.layout.texts.get(id);
++        damage::fingerprint(node, lbox, text, scene.view, &hovered).hash(&mut hash);
++        if let Some(text) = text {
++            Rc::as_ptr(&text.shaped.buffer).hash(&mut hash);
++            texts.push(text.shaped.buffer.clone());
++        }
++        if let Some(scroller) = scene.layout.scrollers.get(id) {
++            scroller.top.to_bits().hash(&mut hash);
++            scroller.content_height.to_bits().hash(&mut hash);
++        }
++        for path in image::shown_by(node) {
++            let image = scene.images.get(&path);
++            image.as_ref().map(Rc::as_ptr).hash(&mut hash);
++            images.extend(image);
++        }
++    }
++    Signature { hash: hash.finish(), _texts: texts, _images: images }
++}
++
++/// Integer-position, unfiltered source-over for an already rasterized surface.
++/// Blend premultiplied RGBA8 directly, without shader dispatch, coordinate
++/// transforms or sampling. Keep opacity at 16-bit precision and round only the
++/// final channel. Quantization differs by at most one byte from the floating-
++/// point rasterizer; opaque endpoints and clipping are exact.
++pub fn blend(destination: &mut Pixmap, source: &Pixmap, x: i32, y: i32, opacity: f32) {
++    let left = x.max(0).min(destination.width() as i32);
++    let top = y.max(0).min(destination.height() as i32);
++    let right = (x + source.width() as i32).max(0).min(destination.width() as i32);
++    let bottom = (y + source.height() as i32).max(0).min(destination.height() as i32);
++    if right <= left || bottom <= top { return; }
++    let source_left = (left - x) as usize * 4;
++    let destination_left = left as usize * 4;
++    let bytes = (right - left) as usize * 4;
++    let coverage = (opacity.clamp(0.0, 1.0) * 65_536.0 + 0.5) as u32;
++    let destination_stride = destination.width() as usize * 4;
++    let source_rows = source.data().chunks_exact(source.width() as usize * 4).skip((top - y) as usize);
++    let destination_rows = destination.data_mut().chunks_exact_mut(destination_stride).skip(top as usize);
++    const DENOMINATOR: u32 = 255 * 65_536;
++    let source_weight = coverage * 255;
++    for (src, dst) in source_rows.zip(destination_rows).take((bottom - top) as usize) {
++        let src = &src[source_left..source_left + bytes];
++        let dst = &mut dst[destination_left..destination_left + bytes];
++        // Whole opaque rows can interpolate their channels in one branch-free
++        // loop. This is the common case for a page, including its PDF image.
++        if src.chunks_exact(4).all(|pixel| pixel[3] == 255) {
++            blend_opaque(dst, src, coverage);
++            continue;
++        }
++        let src = src.chunks_exact(4);
++        let dst = dst.chunks_exact_mut(4);
++        for (src, dst) in src.zip(dst) {
++            if src[3] == 0 { continue; }
++            if src[3] == 255 {
++                blend_opaque(dst, src, coverage);
++                continue;
++            }
++            let inverse = DENOMINATOR - src[3] as u32 * coverage;
++            for (source, destination) in src.iter().zip(dst) {
++                // Premultiplication bounds this sum below 2^32, even for white.
++                let numerator = *source as u32 * source_weight + *destination as u32 * inverse + DENOMINATOR / 2;
++                let rounded = numerator / DENOMINATOR;
++                let tie = numerator == rounded * DENOMINATOR;
++                *destination = (rounded - u32::from(tie && rounded & 1 != 0)) as u8;
++            }
++        }
++    }
++}
++
++fn blend_opaque(destination: &mut [u8], source: &[u8], coverage: u32) {
++    for (source, destination) in source.iter().zip(destination) {
++        let difference = *source as i32 - *destination as i32;
++        *destination = (*destination as i32 + ((difference * coverage as i32 + 32_768) >> 16)) as u8;
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use tiny_skia::{Color, PixmapPaint, Transform};
++
++    #[test]
++    fn rgba8_blending_has_bounded_quantization_and_correct_clipping() {
++        let mut source = Pixmap::new(81, 67).unwrap();
++        let mut destination = Pixmap::new(110, 93).unwrap();
++        for (i, pixel) in source.pixels_mut().iter_mut().chain(destination.pixels_mut()).enumerate() {
++            *pixel = Color::from_rgba8(i as u8, (i * 17) as u8, (i * 33) as u8, (i * 7) as u8).premultiply().to_color_u8();
++        }
++        for opacity in [0.0, 0.001, 0.13, 0.5, 0.91, 0.999, 1.0] {
++            for (x, y) in [(0, 0), (13, 21), (-7, -11), (104, 90), (500, 500), (-500, -500)] {
++                let mut expected = destination.clone();
++                let mut actual = destination.clone();
++                expected.draw_pixmap(x, y, source.as_ref(), &PixmapPaint { opacity, ..PixmapPaint::default() }, Transform::identity(), None);
++                blend(&mut actual, &source, x, y, opacity);
++                for (actual, expected) in actual.data().iter().zip(expected.data()) {
++                    assert!(actual.abs_diff(*expected) <= 1, "opacity {opacity}, offset {x},{y}: {actual} != {expected}");
++                }
++            }
++        }
++    }
++
++    #[test]
++    fn every_opacity_keeps_channels_premultiplied_and_matches_the_reference() {
++        for opaque in [false, true] {
++            let mut source = Pixmap::new(257, 16).unwrap();
++            let mut destination = source.clone();
++            for (i, pixel) in source.pixels_mut().iter_mut().chain(destination.pixels_mut()).enumerate() {
++                let alpha = if opaque { 255 } else { (i * 7) as u8 };
++                *pixel = Color::from_rgba8(i as u8, (i * 17) as u8, (i * 33) as u8, alpha).premultiply().to_color_u8();
++            }
++            for alpha in 0..=255u32 {
++                let mut actual = destination.clone();
++                let mut expected = destination.clone();
++                let opacity = alpha as f32 / 255.0;
++                blend(&mut actual, &source, 0, 0, opacity);
++                expected.draw_pixmap(0, 0, source.as_ref(), &PixmapPaint { opacity, ..PixmapPaint::default() }, Transform::identity(), None);
++                for (got, expected) in actual.data().chunks_exact(4).zip(expected.data().chunks_exact(4)) {
++                    for channel in 0..4 {
++                        assert!(got[channel] <= got[3]);
++                        assert!(got[channel].abs_diff(expected[channel]) <= 1);
++                    }
++                }
++            }
++        }
++    }
++}
+--- /dev/null
++++ b/native/src/selection.rs
+@@ -0,0 +1,92 @@
++//! Read-only rich paragraph selection. Cosmic-text handles bidi, grapheme and word boundaries.
++use cosmic_text::{Action, Edit, Editor, Motion, Selection};
++use crate::input::{Clipboard, Key, KeyInput, Named};
++use crate::layout::TextBox;
++use crate::props::Id;
++use crate::text::ShapedText;
++
++pub struct ParagraphSelection {
++    pub id: Id,
++    shaped: ShapedText,
++    editor: Editor<'static>,
++}
++
++impl ParagraphSelection {
++    pub fn new(id: Id, tb: &TextBox) -> Self {
++        Self { id, shaped: tb.shaped.clone(), editor: Editor::new((*tb.shaped.buffer).clone()) }
++    }
++
++    pub fn sync(&mut self, tb: &TextBox) {
++        if std::rc::Rc::ptr_eq(&self.shaped.buffer, &tb.shaped.buffer) { return; }
++        let same_text = self.shaped.text() == tb.shaped.text();
++        let (cursor, selection) = (self.editor.cursor(), self.editor.selection());
++        self.editor = Editor::new((*tb.shaped.buffer).clone());
++        if same_text { self.editor.set_cursor(cursor); self.editor.set_selection(selection); }
++        self.shaped = tb.shaped.clone();
++    }
++
++    pub fn bounds(&self) -> Option<(cosmic_text::Cursor, cosmic_text::Cursor)> {
++        self.editor.selection_bounds().filter(|(a, b)| a != b)
++    }
++
++    pub fn press(&mut self, fs: &mut cosmic_text::FontSystem, tb: &TextBox, x: f32, y: f32, clicks: u32, extend: bool) {
++        self.sync(tb);
++        let (x, y) = ((x - tb.x) as i32, (y - tb.y) as i32);
++        if extend {
++            self.anchor();
++            self.editor.action(fs, Action::Drag { x, y });
++        } else {
++            self.editor.set_selection(Selection::None);
++            self.editor.action(fs, match clicks { 1 => Action::Click { x, y }, 2 => Action::DoubleClick { x, y }, _ => Action::TripleClick { x, y } });
++        }
++    }
++
++    pub fn drag(&mut self, fs: &mut cosmic_text::FontSystem, tb: &TextBox, x: f32, y: f32) {
++        self.sync(tb);
++        self.anchor();
++        self.editor.action(fs, Action::Drag { x: (x - tb.x) as i32, y: (y - tb.y) as i32 });
++    }
++
++    fn anchor(&mut self) {
++        if self.editor.selection() == Selection::None { self.editor.set_selection(Selection::Normal(self.editor.cursor())); }
++    }
++
++    pub fn key(&mut self, fs: &mut cosmic_text::FontSystem, key: &KeyInput, clipboard: &mut Clipboard) -> bool {
++        if key.shortcut() {
++            if let Key::Char(c) = &key.key {
++                match c.to_ascii_lowercase().as_str() {
++                    "c" => {
++                        if let Some((a, b)) = self.bounds() {
++                            let (start, end) = (self.shaped.char_index(a), self.shaped.char_index(b));
++                            clipboard.set(self.shaped.text().chars().skip(start).take(end - start).collect());
++                        }
++                        return true;
++                    }
++                    "a" => { self.editor.set_selection(Selection::Normal(self.shaped.cursor_at(0))); self.editor.set_cursor(self.shaped.cursor_at(self.shaped.text().chars().count())); return true; }
++                    // Read-only: never forward editing commands as app actions.
++                    "x" | "v" | "z" => return true,
++                    _ => return false,
++                }
++            }
++        }
++        if key.key == Key::Named(Named::Escape) && self.bounds().is_some() {
++            self.editor.set_selection(Selection::None);
++            return true;
++        }
++        let motion = match key.key {
++            Key::Named(Named::Left) => Some(if key.ctrl || key.alt { Motion::LeftWord } else { Motion::Left }),
++            Key::Named(Named::Right) => Some(if key.ctrl || key.alt { Motion::RightWord } else { Motion::Right }),
++            Key::Named(Named::Up) => Some(Motion::Up),
++            Key::Named(Named::Down) => Some(Motion::Down),
++            Key::Named(Named::Home) => Some(if key.shortcut() { Motion::BufferStart } else { Motion::Home }),
++            Key::Named(Named::End) => Some(if key.shortcut() { Motion::BufferEnd } else { Motion::End }),
++            _ => None,
++        };
++        if let Some(motion) = motion {
++            if key.shift { self.anchor(); } else { self.editor.set_selection(Selection::None); }
++            self.editor.action(fs, Action::Motion(motion));
++            return true;
++        }
++        false
++    }
++}
+--- /dev/null
++++ b/native/src/scrollbar.rs
+@@ -0,0 +1,29 @@
++//! Shared geometry for painted scrollbars and pointer input, in logical pixels.
++use crate::layout::{Rect, Scroller};
++use crate::props::Id;
++
++pub struct Geometry { pub thumb: Rect, pub track: Rect, pub max_top: f32 }
++
++impl Geometry {
++    pub fn new(s: &Scroller) -> Option<Self> {
++        if s.max_top() <= 0.5 || s.viewport.h <= 4.0 { return None; }
++        let v = s.viewport;
++        let height = v.h - 4.0;
++        let thumb_height = (height * v.h / s.content_height).max(24.0).min(height);
++        let y = v.y + 2.0 + (height - thumb_height) * (s.top / s.max_top());
++        Some(Self {
++            thumb: Rect::new(if s.rtl { v.x + 3.0 } else { v.right() - 8.0 }, y, 5.0, thumb_height),
++            track: Rect::new(if s.rtl { v.x } else { v.right() - 12.0 }, v.y + 2.0, 12.0, height),
++            max_top: s.max_top(),
++        })
++    }
++
++    pub fn position(&self, y: f32, grab: f32) -> f32 {
++        let travel = self.track.h - self.thumb.h;
++        if travel <= 0.0 { return 0.0; }
++        ((y - self.track.y - grab) / travel * self.max_top).clamp(0.0, self.max_top)
++    }
++}
++
++#[derive(Clone, Copy)]
++pub struct Drag { pub id: Id, pub grab: f32 }
+--- a/native/src/dialogs.rs
++++ b/native/src/dialogs.rs
+@@ -39,13 +39,14 @@
+ }
+ 
+ /// Native dialogs, run on the main thread while the event loop waits.
+-pub fn native(kind: &str, message: &str, default: &Value) -> (Value, bool) {
++pub fn native(request: &DialogRequest) -> (Value, bool) {
++    let (kind, message, default) = (request.kind.as_str(), request.message.as_str(), &request.default);
+     use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult};
+     let path = |p: Option<std::path::PathBuf>| match p {
+         Some(p) => (Value::String(p.to_string_lossy().into_owned()), false),
+         None => (Value::Null, true),
+     };
+-    let start = default.as_str().map(std::path::PathBuf::from);
++    let start = request.directory.as_deref().or(default.as_str()).map(std::path::PathBuf::from);
+     let with_dir = |d: FileDialog| match &start {
+         Some(p) if p.is_dir() => d.set_directory(p),
+         _ => d,
+@@ -61,11 +62,34 @@
+             (Value::Bool(yes), !yes)
+         }
+         "ask_open_file" => path(with_dir(FileDialog::new().set_title(message)).pick_file()),
+-        "ask_save_file" => path(with_dir(FileDialog::new().set_title(message)).save_file()),
++        "ask_save_file" => {
++            let mut dialog = with_dir(FileDialog::new().set_title(request.title.as_deref().unwrap_or(message)));
++            if let Some(name) = &request.file_name { dialog = dialog.set_file_name(name); }
++            if !request.extensions.is_empty() { dialog = dialog.add_filter("", &request.extensions); }
++            prefer_expanded_save(request.expanded);
++            path(dialog.save_file())
++        },
+         "ask_open_folder" | "ask_save_folder" => path(with_dir(FileDialog::new().set_title(message)).pick_folder()),
+         _ => (Value::Null, true),
+     }
+ }
++
++// App-scoped Cocoa preferences: no global defaults or private AppKit selectors.
++#[cfg(target_os = "macos")]
++fn prefer_expanded_save(expanded: bool) {
++    if !expanded { return; }
++    use objc2::{class, msg_send, runtime::AnyObject};
++    unsafe {
++        let defaults: *const AnyObject = msg_send![class!(NSUserDefaults), standardUserDefaults];
++        for key in [c"NSNavPanelExpandedStateForSaveMode", c"NSNavPanelExpandedStateForSaveMode2"] {
++            let key: *const AnyObject = msg_send![class!(NSString), stringWithUTF8String: key.as_ptr()];
++            let _: () = msg_send![defaults, setBool: true forKey: key];
++        }
++    }
++}
++
++#[cfg(not(target_os = "macos"))]
++fn prefer_expanded_save(_expanded: bool) {}
+ 
+ pub enum ModalKind {
+     Ask(Box<TextField>),
+--- a/lacci/lib/shoes/builtins.rb
++++ b/lacci/lib/shoes/builtins.rb
+@@ -48,8 +48,8 @@
+     shoes_builtin("ask_open_file")
+   end
+ 
+-  def ask_save_file()
+-    shoes_builtin("ask_save_file")
++  def ask_save_file(**options)
++    shoes_builtin("ask_save_file", nil, options)
+   end
+ 
+   def ask_open_folder()
+--- a/lacci/lib/shoes/drawables/para.rb
++++ b/lacci/lib/shoes/drawables/para.rb
+@@ -16,6 +16,6 @@
+     # Text cursor system (Shoes3 Para cursor/marker/hit)
+     # text_cursor: integer character position of the caret, or nil (no cursor)
+     # text_marker: integer character position of the selection anchor, or nil (no selection)
+-    shoes_styles :text_cursor, :text_marker
++    shoes_styles :text_cursor, :text_marker, :selectable
+ 
+     include TextDecoration

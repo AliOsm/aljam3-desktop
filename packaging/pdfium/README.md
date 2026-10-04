@@ -1,4 +1,26 @@
-# PDF seeking
+# PDFium patches
+
+## Failed stream reads
+
+`handle-stream-read-errors.patch` makes `CPDF_SyntaxParser::ReadStream` return
+an error when the file-access callback cannot read a stream's bytes. PDFium
+8076 otherwise calls `CHECK(did_read)` and terminates the process. Online
+reading can reach this check when navigation cancels a page load or an HTTP
+range request fails while reading an embedded image. Ruby's callback catches
+the exception and returns failure, but cannot handle a native process trap.
+
+Returning `nullptr` preserves the read validator's error and lets the native
+call finish. Aljam3's existing `FileAccess#check!` then raises the original
+cancellation or connection error in Ruby, and its render cleanup runs normally.
+Cancelled requests are discarded by the reader's existing request checks.
+
+The native regression covers failed stream reads with valid, missing, and
+incorrect length declarations. Application regressions cancel or interrupt a
+multi-block image read, verify that failed pages are not cached, and compare a
+successful retry with a local render. They run in child processes so a native
+crash is reported as a test failure without killing the test runner.
+
+## Page seeking
 
 PDFium 8076's `CPDF_Document::TraversePDFPages` walks every preceding leaf
 when locating a page. With remote files, each dictionary read can fetch another
@@ -20,7 +42,7 @@ that budget. Full reference downloads belong only to these test helpers.
 
 `bin/build-pdfium` pins the PDFium, build-script, and depot-tools revisions.
 PDFium's DEPS pins its transitive build dependencies. The built library's version
-includes a fingerprint of the builder and patch; CI caches it using the same
+includes a fingerprint of the builder and all patches; CI caches it using the same
 inputs. Initial compilation needs Git, Python, a C/C++ build environment, Bash,
 and (on Linux) pkg-config. Subsequent setup runs reuse the compiled library.
 

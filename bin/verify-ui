@@ -10,7 +10,7 @@ require "json"
 
 root = File.expand_path("..", __dir__)
 probe = ARGV.empty? ? "ui" : ARGV.shift
-abort "Usage: bin/verify-ui [feedback|motion|motion_benchmark]" unless %w[ui feedback motion motion_benchmark].include?(probe) && ARGV.empty?
+abort "Usage: bin/verify-ui [feedback|motion|motion_benchmark|interaction]" unless %w[ui feedback motion motion_benchmark interaction].include?(probe) && ARGV.empty?
 output = File.join(root, ".cache/preview/#{probe == 'ui' ? 'parity' : probe}")
 FileUtils.mkdir_p(output)
 %w[passed.json failed.txt].each { |name| FileUtils.rm_f(File.join(output, name)) }

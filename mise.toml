@@ -57,6 +57,10 @@ run = "bundle exec ruby bin/verify-ui feedback"
 description = "Check interrupted transitions, focus isolation, reduced motion, and idle timers"
 run = "bundle exec ruby bin/verify-ui motion"
 
+[tasks.verify-interactions]
+description = "Check selection, scrolling, search scopes, history, fit controls, and file exports"
+run = "bundle exec ruby bin/verify-ui interaction"
+
 [tasks.benchmark-motion]
 description = "Measure animation rendering with a PDF and background disk transfer"
 run = "bundle exec ruby bin/verify-ui motion_benchmark"

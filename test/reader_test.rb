@@ -2,12 +2,14 @@
 
 require_relative "test_helper"
 require_relative "../lib/aljam3/ui/reader"
+require_relative "../lib/aljam3/ui/navigation"
 require_relative "../lib/aljam3/ui/reader_tools"
 require_relative "../lib/aljam3/ui/downloads"
 
 class ReaderTest < StoreTestCase
   class Reader
     include Aljam3::UI::Reader
+    include Aljam3::UI::Navigation
     include Aljam3::UI::ReaderTools
     include Aljam3::UI::DownloadScreen
     attr_reader :reader, :renders
@@ -81,6 +83,32 @@ class ReaderTest < StoreTestCase
     assert_equal [10, 2, 1.25], reader.renders.last
     assert_equal 4, reader.renders.length
     assert_equal({ "file_id" => 10, "number" => 2 }, @store.preference("reading:1"))
+  end
+
+  def test_fit_disables_at_fitted_zoom_and_does_not_rerender_repeatedly
+    install_book
+    reader = Reader.new(@store)
+    reader.open_book(book)
+    control = Struct.new(:options) { def style(**options) = self.options = options }
+    fit, zoom_in, zoom_out = Array.new(3) { control.new }
+    reader.instance_variable_set(:@fit_button, fit)
+    reader.instance_variable_set(:@zoom_in_button, zoom_in)
+    reader.instance_variable_set(:@zoom_out_button, zoom_out)
+    reader.update_pdf_controls
+    assert_equal "disabled", fit.options[:state]
+    reader.reader[:image] = true
+    reader.change_zoom(0.5)
+    assert_nil fit.options[:state]
+    reader.fit_pdf_page
+    assert_equal 1.0, reader.reader[:zoom]
+    assert_equal "disabled", fit.options[:state]
+    count = reader.renders.length
+    reader.fit_pdf_page
+    assert_equal count, reader.renders.length
+    reader.change_zoom(10)
+    assert_equal "disabled", zoom_in.options[:state]
+    reader.change_zoom(-10)
+    assert_equal "disabled", zoom_out.options[:state]
   end
 
   def test_text_options_are_independent_of_pdf_zoom_and_persist_when_reopened

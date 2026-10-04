@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../motion"
+require_relative "../view_transition"
 
 module Aljam3
   module UI
@@ -32,7 +33,7 @@ module Aljam3
       end
 
       def motion_group
-        @drawing_notification ? :feedback : @drawing_dialog ? :dialog : :content
+        @drawing_notification ? :feedback : @drawing_dialog ? :dialog : @drawing_chrome ? :chrome : :content
       end
 
       def animate_hover(control)
