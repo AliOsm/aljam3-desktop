@@ -66,6 +66,9 @@ jobs:
       - name: Assemble standalone application
         run: bundle exec ruby bin/package
       - name: Verify relocated app with its bundled Ruby
+        env:
+          # The relocated runtime renders the complete light/dark screenshot suite.
+          ALJAM3_VERIFY_TIMEOUT: '240'
         run: ruby bin/verify-package
       - name: Archive verified app
         run: ruby bin/archive-package
