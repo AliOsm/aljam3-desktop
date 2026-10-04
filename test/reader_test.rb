@@ -5,6 +5,7 @@ require_relative "../lib/aljam3/ui/reader"
 require_relative "../lib/aljam3/ui/navigation"
 require_relative "../lib/aljam3/ui/reader_tools"
 require_relative "../lib/aljam3/ui/downloads"
+require "timeout"
 
 class ReaderTest < StoreTestCase
   class Reader
@@ -22,6 +23,7 @@ class ReaderTest < StoreTestCase
     end
 
     def draw_window; end
+    def refresh_window; end
     def page_text_control
       @page_text ||= Struct.new(:text) do
         def style(**); end
@@ -131,5 +133,57 @@ class ReaderTest < StoreTestCase
     assert_equal 22, reopened.reader.fetch(:text_size)
     refute reopened.reader.fetch(:tashkeel)
     assert_equal 1.0, reopened.reader.fetch(:zoom)
+  end
+
+  def test_rapid_page_changes_fetch_only_the_latest_queued_page
+    reader = Reader.new(@store)
+    worker = Aljam3::Worker.new
+    gate, finished, calls = Queue.new, Queue.new, []
+    worker.submit(-> { gate.pop }) { |*| }
+    reading = Object.new
+    reading.define_singleton_method(:page) do |_book_id, _file_id, number|
+      calls << number
+      { "number" => number, "content" => "page #{number}" }
+    end
+    reader.instance_variable_set(:@page_worker, worker)
+    reader.instance_variable_set(:@reading, reading)
+    volume = book
+    volume.fetch("files").first["pages_count"] = 50
+    reader.start_reader(volume)
+    (2..50).each { |number| reader.turn_page(number) }
+    worker.submit(-> { finished << true }) { |*| }
+    gate << true
+    Timeout.timeout(5) { finished.pop }
+    worker.drain
+
+    assert_equal [50], calls
+    assert_equal 50, reader.reader.dig(:page, "number")
+    refute reader.reader[:loading_text]
+  ensure
+    worker&.close
+  end
+
+  def test_superseded_book_openings_do_not_delay_the_latest_book
+    reader = Reader.new(@store)
+    worker = Aljam3::Worker.new
+    gate, finished, calls, opened = Queue.new, Queue.new, [], []
+    worker.submit(-> { gate.pop }) { |*| }
+    reading = Object.new
+    books = (1..5).to_h { |id| [id, book(id)] }
+    reading.define_singleton_method(:book) { |id| calls << id; books.fetch(id) }
+    reader.define_singleton_method(:start_reader) { |book, **| opened << book.fetch("id") }
+    reader.instance_variable_set(:@network_worker, worker)
+    reader.instance_variable_set(:@reading, reading)
+    reader.instance_variable_set(:@screen, :home)
+    books.each_value { |book| reader.open_book(book) }
+    worker.submit(-> { finished << true }) { |*| }
+    gate << true
+    Timeout.timeout(5) { finished.pop }
+    worker.drain
+
+    assert_equal [5], calls
+    assert_equal [5], opened
+  ensure
+    worker&.close
   end
 end

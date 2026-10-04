@@ -27,6 +27,8 @@ module Aljam3
           @screen = :opening
           draw_window
           @network_worker.submit(-> {
+            next unless @request_number == request_number && @screen == :opening
+
             full_book = @reading.book(book.fetch("id"))
             [full_book, hit && @reading.locate(full_book, hit)]
           }) do |data, error|
@@ -252,7 +254,9 @@ module Aljam3
           @reader[:loading_text] = false
         else
           @reader[:loading_text] = true
-          @page_worker.submit(-> { @reading.page(book.fetch("id"), file.fetch("id"), number) }) do |page, error|
+          @page_worker.submit(-> {
+            @reading.page(book.fetch("id"), file.fetch("id"), number) if @screen == :reader && @page_request == request_number
+          }) do |page, error|
             next unless @screen == :reader && @page_request == request_number
 
             @reader.merge!(page:, loading_text: false, text_error: error && error_message(error))
