@@ -79,16 +79,17 @@ module Aljam3
       request(url, headers:, timeout: 8) do |response|
         partial = response.code == "206"
         expected = response["content-length"] && Integer(response["content-length"])
+        validator = response["etag"] unless response["etag"]&.start_with?("W/")
+        validator ||= response["last-modified"]
         if partial
           range = response["content-range"]&.match(/\Abytes (\d+)-(\d+)\/(\d+)\z/)
-          unless range && range[1].to_i == offset && range[2].to_i + 1 == range[3].to_i && (!expected || expected == range[3].to_i - offset)
+          same_file = !offset.positive? || validator == saved.fetch("validator")
+          unless same_file && range && range[1].to_i == offset && range[2].to_i + 1 == range[3].to_i && (!expected || expected == range[3].to_i - offset)
             raise ResponseError.new(416), "Invalid partial download response."
           end
           expected = range[3].to_i
         end
         received = partial ? offset : 0
-        validator = response["etag"] unless response["etag"]&.start_with?("W/")
-        validator ||= response["last-modified"]
         FileUtils.rm_f(metadata) unless partial
         last_update = 0
         File.open(temporary, partial ? "ab" : "wb") do |file|

@@ -166,6 +166,27 @@ class HTTPTest < Minitest::Test
     end
   end
 
+  def test_changed_validator_in_partial_response_restarts_without_mixing_editions
+    Dir.mktmpdir do |directory|
+      target = File.join(directory, "book.pdf")
+      old_pdf = "%PDF-1.7\nold edition"
+      new_pdf = "%PDF-1.7\nnew content"
+      first = response(old_pdf[0, 12], headers: { "Content-Length" => old_pdf.bytesize, "ETag" => '"old"' })
+      changed = response(new_pdf[12..], status: "206 Partial Content", headers: {
+        "Content-Range" => "bytes 12-#{new_pdf.bytesize - 1}/#{new_pdf.bytesize}", "ETag" => '"new"'
+      })
+      restarted = nil
+      with_server(first, changed, ->(request) { restarted = request; response(new_pdf) }) do |url|
+        http = Aljam3::HTTP.new
+        assert_raises(Aljam3::ConnectionError) { http.download(url, target, resume: true) }
+        http.download(url, target, resume: true)
+      end
+      assert_equal new_pdf, File.binread(target)
+      refute_nil restarted, "A changed edition must be downloaded from its beginning"
+      refute_match(/^Range:/i, restarted)
+    end
+  end
+
   def test_invalid_content_range_retries_from_the_start
     Dir.mktmpdir do |directory|
       target = File.join(directory, "book.pdf")
