@@ -23,14 +23,28 @@ module MotionReport
     interactions = samples.group_by { |sample| sample.fetch("name") }.to_h do |name, runs|
       gaps = runs.flat_map { |sample| frames_for.call(sample).each_cons(2).map { |a, b| (b[0] - a[0]) * 1000 } }
       costs = runs.flat_map { |sample| frames_for.call(sample).map { |frame| frame[1..5].sum } }
+      first_frames = runs.filter_map do |sample|
+        first = frames_for.call(sample).first
+        (native.fetch("started_unix") + first[0] - sample.fetch("started")) * 1000 if first
+      end
       [name, { frame_work_ms: distribution(costs), frame_interval_ms: distribution(gaps),
+        first_frame_ms: distribution(first_frames), frames_per_run: runs.map { |sample| frames_for.call(sample).length },
         gaps_over_33ms: gaps.count { |gap| gap > 1000.0 / 30 }, intervals: gaps.length }]
     end
     report = { ghost: benchmark.fetch("ghost"), frames: frames.length, transfer_bytes: benchmark.fetch("transfer_bytes"),
       frame_work_ms: distribution(work), interactions:, counters: native.fetch("counters"),
       note: "Frame intervals cover active transitions only. Headless runs measure work; ghost runs also include OS presentation scheduling." }
+    busy_frames = samples.filter_map do |sample|
+      if (interval = sample["ruby_busy"])
+        frames_for.call({ "started" => interval[0], "finished" => interval[1] }).length
+      end
+    end
+    report[:frames_while_ruby_busy] = busy_frames
     File.write(File.join(directory, "performance.json"), JSON.pretty_generate(report))
     puts JSON.pretty_generate(report)
+    if benchmark["native_timing"] && benchmark["ghost"] && busy_frames.any? { |count| count < 2 }
+      raise "Native animations stopped while Ruby was busy: #{busy_frames.inspect}"
+    end
     report
   end
 

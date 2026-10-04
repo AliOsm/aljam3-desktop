@@ -69,7 +69,9 @@ class MotionBenchmark
       measure("reader_options/ruby_busy") do
         @app.open_dialog(:reader_options)
         @service.child.flush
+        started = Time.now.to_f
         sleep 0.09 # the renderer must keep presenting while Ruby is occupied
+        @busy_interval = [started, Time.now.to_f]
       end
       @app.close_dialog
       settle
@@ -102,7 +104,8 @@ class MotionBenchmark
     pace(0.3)
     raise "Animation timer survived settling" if get(:motion).active?
 
-    { passed: true, ghost: ENV["SCARPE_NATIVE_GHOST"] == "1", samples: @samples, transfer_bytes: bytes,
+    { passed: true, ghost: ENV["SCARPE_NATIVE_GHOST"] == "1", native_timing: @service.respond_to?(:transition),
+      samples: @samples, transfer_bytes: bytes,
       scene: "1160x820 split reader; real PDF page; long Arabic text; disk transfer and SQLite progress persistence" }
   ensure
     FileUtils.rm_f(File.join(@output, "transfer.bin"))
@@ -114,13 +117,15 @@ class MotionBenchmark
 
   def measure(name)
     @app.tick
+    @busy_interval = nil
     started = Time.now.to_f
     yield
-    settle
-    @samples << { name:, round: @round, started:, finished: Time.now.to_f }
+    finished = settle
+    @samples << { name:, round: @round, started:, finished:, ruby_busy: @busy_interval }
   end
 
   def settle
+    @service.child.flush # the real event loop flushes immediately after a handler
     deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 3
     while get(:motion).active?
       raise "Animation did not settle" if Process.clock_gettime(Process::CLOCK_MONOTONIC) > deadline
@@ -128,7 +133,9 @@ class MotionBenchmark
       @service.pump.step
       @automation.frames if ENV["SCARPE_NATIVE_HEADLESS"] == "1"
     end
+    finished = Time.now.to_f
     @automation.wait_frames
+    finished
   end
 
   def pace(seconds)

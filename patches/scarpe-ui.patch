@@ -883,7 +883,7 @@
  #[test]
 --- a/native/src/paint/decor.rs
 +++ b/native/src/paint/decor.rs
-@@ -8,14 +8,15 @@
+@@ -8,14 +8,24 @@
  use tiny_skia::{FillRule, LineJoin, Stroke, Transform};
  
  /// Fills the slot's box (or the background's own width/height), rounded by `curve`.
@@ -894,6 +894,15 @@
          return;
      }
      let curve = node.props.f32("curve").unwrap_or(0.0);
++    if curve == 0.0 {
++        if let Paint::Solid(color) = &paint {
++            let mut shader = tiny_skia::Shader::SolidColor(color.to_skia());
++            shader.apply_opacity(opacity);
++            if let tiny_skia::Shader::SolidColor(color) = shader {
++                if canvas.fill_aligned_rect(lbox.rect, color, lbox.clip) { return; }
++            }
++        }
++    }
      let Some(path) = canvas.rect_path(lbox.rect, curve, 0.0) else { return };
 -    with_shader(&paint, lbox.rect, images, |shader| {
 +    with_shader(&paint, lbox.rect, images, |mut shader| {
@@ -901,7 +910,7 @@
          canvas.fill_path(&path, shader, FillRule::Winding, Transform::identity(), lbox.clip);
      });
  }
-@@ -41,17 +42,17 @@
+@@ -41,17 +51,17 @@
  const SCROLLBAR: Color = Color::rgba(0, 0, 0, 90);
  
  /// A thin overlay thumb on every slot whose content overflows it.
@@ -1494,7 +1503,24 @@
          self.answer_what_waits_on(app, "app closed");
          let Some(view) = self.views.remove(&app) else { return };
          self.text.forget_layout(view.doc_root);
-@@ -664,10 +690,12 @@
+@@ -555,7 +581,7 @@
+         let AppView { layout, ui, frames, .. } = view;
+         let Some(layout) = layout.as_ref() else { return };
+         let started = Instant::now();
+-        let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
+         paint::paint(&mut scene, pm, scale);
+         *frames += 1;
+         self.stats.since(Phase::Paint, started);
+@@ -632,6 +658,7 @@
+     /// The window presented a frame: answer `frames` requests that were waiting for it.
+     pub fn frame_presented(&mut self, app: Id) {
+         self.stats.frame_shown();
++        for event in self.motion.presented(app) { self.out.send(event); }
+         self.stats.mark("first_present");
+         let frames = self.views.get(&app).map(|v| v.frames).unwrap_or(0);
+         let mut waiting = false;
+@@ -664,10 +691,12 @@
  /// paint reads them from the node itself. A line's strokewidth is not one (its box includes the
  /// stroke), nor is anything a Para shapes into its text.
  fn changes_only_looks(kind: &Kind, key: &str) -> bool {
@@ -1510,7 +1536,70 @@
          Kind::Para | Kind::TextDrawable => matches!(key, "text_cursor" | "text_marker"),
 --- a/native/src/paint/mod.rs
 +++ b/native/src/paint/mod.rs
-@@ -401,30 +401,82 @@
+@@ -263,8 +263,54 @@
+     }
+ 
+     pub fn fill_rect(&mut self, rect: Rect, color: Color, clip: Option<Rect>) {
++        if self.fill_aligned_rect(rect, color.to_skia(), clip) { return; }
+         if let Some(path) = self.rect_path(rect, 0.0, 0.0) {
+             self.fill(&path, color, clip);
++        }
++    }
++
++    /// Pixel-aligned solid rectangles need no path rasterisation or edge AA.
++    /// Pass device coordinates with an identity transform to tiny-skia's fast
++    /// rectangle blitter; fractional edges keep the existing path renderer.
++    pub fn fill_aligned_rect(&mut self, rect: Rect, color: tiny_skia::Color, clip: Option<Rect>) -> bool {
++        let rect = self.reachable(rect, 2.0);
++        let (ox, oy) = self.origin;
++        let (x, y, w, h) = (rect.x * self.scale - ox as f32, rect.y * self.scale - oy as f32, rect.w * self.scale, rect.h * self.scale);
++        if [x,y,w,h].iter().any(|n| !n.is_finite() || n.fract() != 0.0) { return false; }
++        let Some(rect) = tiny_skia::Rect::from_xywh(x,y,w,h) else { return true };
++        let paint = tiny_skia::Paint { shader: Shader::SolidColor(color), anti_alias: false, ..tiny_skia::Paint::default() };
++        let mut held = self.clip_mask.take();
++        match self.clipping(&mut held, clip, Canvas::reach(rect, Transform::identity(), 0.0)) {
++            Clipping::Nothing => {},
++            Clipping::Whole if color.alpha() < 1.0 => self.blend_rect(rect, color),
++            Clipping::Whole => self.pm.fill_rect(rect, &paint, Transform::identity(), None),
++            Clipping::Through(mask) => self.pm.fill_rect(rect, &paint, Transform::identity(), Some(mask)),
++        }
++        self.clip_mask = held;
++        true
++    }
++
++    // Uniform source-over needs only premultiplied integer blending, avoiding a
++    // shader pipeline dispatch for every scanline of a full-window backdrop.
++    // Match tiny-skia's default lowp rounding exactly: (value + 255) >> 8.
++    fn blend_rect(&mut self, rect: tiny_skia::Rect, color: tiny_skia::Color) {
++        let source = color.premultiply().to_color_u8();
++        let inverse = u32::from(255 - source.alpha());
++        let source = u32::from_le_bytes([source.red(), source.green(), source.blue(), source.alpha()]);
++        let stride = self.pm.width() as usize * 4;
++        let left = rect.left().max(0.0).min(self.pm.width() as f32) as usize * 4;
++        let right = rect.right().max(0.0).min(self.pm.width() as f32) as usize * 4;
++        let top = rect.top().max(0.0).min(self.pm.height() as f32) as usize;
++        let bottom = rect.bottom().max(0.0).min(self.pm.height() as f32) as usize;
++        for row in self.pm.data_mut().chunks_exact_mut(stride).take(bottom).skip(top) {
++            for pixel in row[left..right].chunks_exact_mut(4) {
++                // Two independent 16-bit products per word: R/B and G/A. Each
++                // product plus rounding fits its lane, with no cross-channel carry.
++                let destination = u32::from_le_bytes(pixel.try_into().unwrap());
++                let rb = (((destination & 0x00ff00ff) * inverse + 0x00ff00ff) >> 8) & 0x00ff00ff;
++                let ga = ((((destination >> 8) & 0x00ff00ff) * inverse + 0x00ff00ff) >> 8) & 0x00ff00ff;
++                pixel.copy_from_slice(&(source + rb + (ga << 8)).to_le_bytes());
++            }
+         }
+     }
+ 
+@@ -382,6 +428,7 @@
+ 
+ /// Everything painting needs besides the pixmap.
+ pub struct Scene<'a> {
++    pub now: std::time::Instant,
+     pub doc: &'a Doc,
+     pub layout: &'a Layout,
+     pub view: &'a mut ViewState,
+@@ -401,30 +448,82 @@
      canvas.pm.fill(BACKGROUND.to_skia());
      let layout = scene.layout;
      paint_run(scene, &mut canvas, &layout.order, only, 0);
@@ -1525,7 +1614,7 @@
 -        elements::tooltip::paint(&mut canvas, scene.view.tooltip.as_mut(), scene.text, layout.size);
 -    }
 -    crate::dialogs::paint_modal(&mut canvas, scene.view, scene.text, layout.size);
-+        elements::tooltip::paint(canvas, scene.view.tooltip.as_mut(), scene.text, scene.layout.size);
++        elements::tooltip::paint(canvas, scene.view.tooltip.as_mut(), scene.text, scene.layout.size, scene.now);
 +    }
 +    crate::dialogs::paint_modal(canvas, scene.view, scene.text, scene.layout.size);
  }
@@ -1609,7 +1698,7 @@
  }
  
  /// The laid-out Mask children of a slot.
-@@ -473,7 +525,7 @@
+@@ -473,7 +572,7 @@
          return;
      }
      match &node.kind {
@@ -1618,6 +1707,38 @@
          Kind::Border => decor::border(canvas, node, lbox, scene.images),
          // Art inside a shape block is painted with its shape, as one path.
          k if k.is_art() && shapes::in_shape(doc, node) => {}
+@@ -502,6 +601,31 @@
+ #[cfg(test)]
+ mod tests {
+     use super::*;
++
++    #[test]
++    fn aligned_rectangle_blits_match_path_pixels_at_different_scales_and_opacities() {
++        for scale in [1.0, 1.25, 2.0] {
++            for color in [Color::rgba(0,0,0,26), Color::rgba(220,80,40,150), Color::WHITE] {
++                for opacity in [0.13, 0.6, 1.0] {
++                    for clip in [None, Some(Rect::new(12.5, 4.5, 51.3, 34.7))] {
++                        let mut old = Pixmap::new(200,160).unwrap();
++                        for (i, pixel) in old.pixels_mut().iter_mut().enumerate() {
++                            *pixel = tiny_skia::Color::from_rgba8(i as u8,(i / 5) as u8,(i * 17) as u8,(i * 7) as u8).premultiply().to_color_u8();
++                        }
++                        let mut new = old.clone();
++                        let rect = Rect::new(8.0,12.0,64.0,40.0);
++                        let path = shapes::rounded_rect(rect, 0.0).unwrap();
++                        let mut shader = Shader::SolidColor(color.to_skia());
++                        shader.apply_opacity(opacity);
++                        Canvas::new(&mut old,scale).fill_path(&path,shader.clone(),FillRule::Winding,Transform::identity(),clip);
++                        let Shader::SolidColor(color) = shader else { unreachable!() };
++                        assert!(Canvas::new(&mut new,scale).fill_aligned_rect(rect,color,clip));
++                        assert_eq!(old.data(),new.data(),"{scale}x opacity {opacity} clip {clip:?}");
++                    }
++                }
++            }
++        }
++    }
+ 
+     /// A small deterministic stream of numbers in [0, 1).
+     struct Numbers(u64);
 --- a/native/src/paint/damage.rs
 +++ b/native/src/paint/damage.rs
 @@ -124,15 +124,30 @@
@@ -1662,10 +1783,12 @@
  struct Look {
      /// Where it can paint (logical px); None for a turned image, which may be anywhere.
      bounds: Option<Rect>,
-@@ -158,12 +174,15 @@
+@@ -157,13 +173,16 @@
+ /// Brings `frame` up to date with `scene`, painting as little as it can.
  pub fn repaint(scene: &mut Scene, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory, revisions: &Revisions) -> Repaint {
      let hovered: HashSet<Id> = scene.view.hover_chain.iter().copied().collect();
-     let mut now = look_at(scene.doc, scene.layout, scene.view, &hovered, (frame.width(), frame.height()), scale, revisions.now());
+-    let mut now = look_at(scene.doc, scene.layout, scene.view, &hovered, (frame.width(), frame.height()), scale, revisions.now());
++    let mut now = look_at(scene.doc, scene.layout, scene.view, &hovered, (frame.width(), frame.height()), scale, revisions.now(), scene.now);
 +    if memory.underlay.is_some() && overlay_split(scene, &now).is_none() {
 +        memory.underlay = None;
 +    }
@@ -1789,6 +1912,28 @@
          if now.nodes.contains_key(&id) || before.nodes.contains_key(&id) {
              changed.insert(id);
          } else if let Some(painted) = painted_ancestor(doc, now, id) {
+@@ -347,7 +432,7 @@
+     }
+ }
+ 
+-fn look_at(doc: &Doc, layout: &Layout, view: &ViewState, hovered: &HashSet<Id>, size: (u32, u32), scale: f32, revision: u64) -> Frame {
++fn look_at(doc: &Doc, layout: &Layout, view: &ViewState, hovered: &HashSet<Id>, size: (u32, u32), scale: f32, revision: u64, now: std::time::Instant) -> Frame {
+     let mut nodes = HashMap::with_capacity(layout.order.len());
+     for &id in &layout.order {
+         let (Some(node), Some(lbox)) = (doc.get(id), layout.boxes.get(&id)) else { continue };
+@@ -365,9 +450,9 @@
+         revision,
+         size,
+         scale,
+-        // A tooltip counts from when the pointer rests on its owner, not only once it shows, so
+-        // the frame that brings it up is painted whole.
+-        overlaid: view.popup.is_some() || view.modal.is_some() || view.tooltip.as_ref().is_some_and(|t| !t.dismissed),
++        // Pending tooltips do not turn every hover frame into a full repaint.
++        // Use the same timestamp as painting, including the frame when it appears.
++        overlaid: view.popup.is_some() || view.modal.is_some() || view.tooltip.as_ref().is_some_and(|t| t.visible(now)),
+         scrolling: scrolling(layout),
+         order: layout.order.clone(),
+         nodes,
 --- a/native/tests/damage.rs
 +++ b/native/tests/damage.rs
 @@ -99,6 +99,57 @@
@@ -1849,7 +1994,33 @@
  }
  
  #[test]
-@@ -546,3 +597,24 @@
+@@ -416,6 +467,25 @@
+     assert_eq!(window.repaint(&mut h), Repaint::Nothing, "then nothing is left to paint");
+ }
+ 
++#[test]
++fn pending_tooltips_keep_hover_animation_repaints_small() {
++    let mut h = Harness::new();
++    busy_scene(&mut h);
++    props(&mut h, 9, json!({"tooltip":"Press","hover_amount":0.0}));
++    let mut window = Window::open(&mut h, 2.0);
++    let button = h.rt.layout_of(APP).unwrap().rect(9).unwrap();
++    mouse(&mut h, "move", button.x + 10.0, button.y + 10.0);
++    h.rt.views.get_mut(&APP).unwrap().ui.tooltip.as_mut().unwrap().due = std::time::Instant::now() + std::time::Duration::from_secs(5);
++    for amount in [0.1, 0.5, 1.0] {
++        props(&mut h, 9, json!({"hover_amount":amount}));
++        assert!(partial(&window.repaint(&mut h), &window, 0.15));
++    }
++    h.rt.views.get_mut(&APP).unwrap().ui.tooltip.as_mut().unwrap().due = std::time::Instant::now();
++    assert_eq!(window.repaint(&mut h), Repaint::Everything);
++    mouse(&mut h, "move", 0.0, 300.0);
++    assert_eq!(window.repaint(&mut h), Repaint::Everything);
++}
++
+ /// Whether the frame looks like a full paint. `verify` checks a repainted rect against the
+ /// same rect painted with no node skipped, so a rect that paints wrong both ways (a layer
+ /// that forgets where the rect sits) needs this look at the whole picture as well. Edges a
+@@ -546,3 +616,24 @@
      props(&mut h, 3, json!({"stroke": {"rgba": [0, 0, 255, 255]}}));
      window.repaint(&mut h);
  }
@@ -1876,7 +2047,19 @@
 +}
 --- a/native/src/headless.rs
 +++ b/native/src/headless.rs
-@@ -27,8 +27,10 @@
+@@ -18,17 +18,18 @@
+ /// Answers every line `input` has until it ends, Ruby quits the last app or stdout closes.
+ /// Returns the exit code.
+ ///
+-/// `input` is read on a thread of its own, as in a window. This thread blocks writing stdout
+-/// whenever Ruby is busy and not reading (Shoes-Spec's `advance` reads only at its next
+-/// request); meanwhile stdin keeps draining into memory, so Ruby never blocks writing to us
+-/// and neither side waits on the other for good.
++/// As in a window, input and output have their own threads. Input keeps draining
++/// while Ruby is not reading replies, and the bounded output queue lets short
++/// transitions keep painting while a Ruby handler is busy.
+ pub fn serve(rt: &mut Runtime, input: impl Read + Send + 'static, exit_after: Option<Duration>) -> i32 {
+     let (batches, arrived) = mpsc::channel();
      std::thread::spawn(move || read_batches(input, |batch| batches.send(batch).is_ok()));
      let mut closing_at = exit_after.map(|after| Instant::now() + after);
      let mut orphaned_at: Option<Instant> = None;
@@ -1888,7 +2071,7 @@
          let batch = match due {
              None => arrived.recv().map_err(|_| RecvTimeoutError::Disconnected),
              Some(at) => arrived.recv_timeout(at.saturating_duration_since(Instant::now())),
-@@ -47,7 +49,8 @@
+@@ -47,7 +48,8 @@
                      }
                  }
              }
@@ -1898,7 +2081,7 @@
                  let running: Vec<_> = rt.views.iter().filter(|(_, view)| view.running).map(|(app, _)| *app).collect();
                  if running.is_empty() {
                      return 0;
-@@ -58,7 +61,16 @@
+@@ -58,7 +60,16 @@
                  orphaned_at = Some(Instant::now());
              }
              // Ruby never answered `closed` with `quit`.
@@ -1943,9 +2126,12 @@
      /// Brings a window's last frame up to date, repainting only what changed since `memory`
      /// last saw it (paint::damage). The view is clean afterwards.
      pub fn repaint(&mut self, app: Id, frame: &mut Pixmap, scale: f32, memory: &mut FrameMemory) -> Repaint {
-@@ -44,6 +62,9 @@
+@@ -42,8 +60,11 @@
+         let Some(view) = self.views.get_mut(&app) else { return Repaint::Nothing };
+         let AppView { layout, ui, frames, dirty, .. } = view;
          let Some(layout) = layout.as_ref() else { return Repaint::Nothing };
-         let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
+-        let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
          let plan = damage::repaint(&mut scene, frame, scale, memory, &self.revisions);
 +        let (built, reused) = memory.take_underlay_counts();
 +        self.stats.count("underlay_builds", built);
@@ -1953,9 +2139,36 @@
          *frames += 1;
          *dirty = false;
          self.stats.since(Phase::Paint, started);
+@@ -77,7 +98,7 @@
+         let Some(view) = self.views.get_mut(&app) else { return Ok(()) };
+         let AppView { layout, ui, .. } = view;
+         let Some(layout) = layout.as_ref() else { return Ok(()) };
+-        let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
+         damage::verify(&mut scene, plan, frame, scale, full, before)
+     }
+ 
+@@ -102,7 +123,7 @@
+             let Some(view) = self.views.get_mut(&app) else { return };
+             let AppView { layout, ui, .. } = view;
+             let Some(layout) = layout.as_ref() else { return };
+-            let mut scene = Scene { doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
++            let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout, view: ui, text: &mut self.text, images: &mut self.images };
+             damage::repaint(&mut scene, &mut frame, scale, &mut memory, &self.revisions)
+         };
+         self.count_repaint(&plan, (frame.width(), frame.height()));
+@@ -116,7 +137,7 @@
+         let (w, h) = crate::limits::picture_size(view.size, scale)?;
+         let mut pm = Pixmap::new(w, h)?;
+         let AppView { layout, ui, .. } = view;
+-        let mut scene = Scene { doc: &self.doc, layout: layout.as_ref()?, view: ui, text: &mut self.text, images: &mut self.images };
++        let mut scene = Scene { now: Instant::now(), doc: &self.doc, layout: layout.as_ref()?, view: ui, text: &mut self.text, images: &mut self.images };
+         paint::paint(&mut scene, &mut pm, scale);
+         Some(pm)
+     }
 --- /dev/null
 +++ b/native/src/runtime/motion.rs
-@@ -0,0 +1,114 @@
+@@ -0,0 +1,130 @@
 +//! Short visual transitions run beside painting, independently of Ruby's event
 +//! loop. A late frame samples elapsed time once; it never replays missed steps.
 +
@@ -1981,11 +2194,12 @@
 +    origin: Instant,
 +    frozen: Option<f64>,
 +    jobs: BTreeMap<u64, Transition>,
++    completed: Vec<(Id, Outgoing)>,
 +}
 +
 +impl Default for Motion {
 +    fn default() -> Self {
-+        Self { origin: Instant::now(), frozen: None, jobs: BTreeMap::new() }
++        Self { origin: Instant::now(), frozen: None, jobs: BTreeMap::new(), completed: Vec::new() }
 +    }
 +}
 +
@@ -1993,12 +2207,25 @@
 +    fn now(&self) -> f64 { self.frozen.unwrap_or_else(|| self.origin.elapsed().as_secs_f64()) }
 +
 +    pub fn running(&self, app: Option<Id>) -> bool {
-+        self.frozen.is_none() && self.jobs.values().any(|job| app.is_none_or(|app| job.app == app))
++        self.frozen.is_none() && (self.jobs.values().any(|job| app.is_none_or(|app| job.app == app)) ||
++            self.completed.iter().any(|(id, _)| app.is_none_or(|app| *id == app)))
 +    }
 +
-+    pub fn cancel(&mut self, token: u64) { self.jobs.remove(&token); }
++    pub fn cancel(&mut self, token: u64) {
++        self.jobs.remove(&token);
++        self.completed.retain(|(_, event)| !matches!(event, Outgoing::TransitionEnd { token: id, .. } if *id == token));
++    }
 +
-+    pub fn forget(&mut self, ids: &[Id]) { self.jobs.retain(|_, job| !ids.contains(&job.id) && !ids.contains(&job.app)); }
++    pub fn forget(&mut self, ids: &[Id]) {
++        self.jobs.retain(|_, job| !ids.contains(&job.id) && !ids.contains(&job.app));
++        self.completed.retain(|(app, event)| !ids.contains(app) && !matches!(event, Outgoing::TransitionEnd { id, .. } if ids.contains(id)));
++    }
++
++    pub fn presented(&mut self, app: Id) -> Vec<Outgoing> {
++        let (ready, pending): (Vec<_>, Vec<_>) = self.completed.drain(..).partition(|(id, _)| *id == app);
++        self.completed = pending;
++        ready.into_iter().map(|(_, event)| event).collect()
++    }
 +}
 +
 +impl Runtime {
@@ -2065,7 +2292,9 @@
 +            self.set_props(id, props.clone());
 +            if let Some(app) = self.doc.app_of(id).filter(|_| moved) { self.push_layout(app); }
 +            if let Some(token) = completed {
-+                self.out.send(Outgoing::TransitionEnd { token, id, props });
++                if let Some(app) = self.doc.app_of(id) {
++                    self.motion.completed.push((app, Outgoing::TransitionEnd { token, id, props }));
++                }
 +            }
 +        }
 +    }
@@ -2191,3 +2420,16 @@
      # The accessibility tree as a screen reader meets it (DESIGN 12): the window's Hash, with
      # Symbol keys, each node's :children inside it. platform: what AppKit hands VoiceOver,
      # read from a real window (macOS).
+--- a/native/src/elements/tooltip.rs
++++ b/native/src/elements/tooltip.rs
+@@ -53,8 +53,8 @@
+     })
+ }
+ 
+-pub fn paint(canvas: &mut Canvas, tip: Option<&mut Tooltip>, text: &mut TextEngine, window: (f32, f32)) {
+-    let Some(tip) = tip.filter(|t| t.visible(Instant::now())) else { return };
++pub fn paint(canvas: &mut Canvas, tip: Option<&mut Tooltip>, text: &mut TextEngine, window: (f32, f32), now: Instant) {
++    let Some(tip) = tip.filter(|t| t.visible(now)) else { return };
+     tip.shown = true;
+     let shaped = text.shape(&RichText::plain(&tip.text, TextStyle::new(TEXT_SIZE, INK)), Some(MAX_WIDTH));
+     let (w, h) = (shaped.width.ceil() + PAD.0 * 2.0, shaped.height.ceil() + PAD.1 * 2.0);
