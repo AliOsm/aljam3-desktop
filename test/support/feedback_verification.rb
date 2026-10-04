@@ -6,7 +6,7 @@ require_relative "alignment_verification"
 # Real native input and real workers, with disposable data and controlled I/O.
 class FeedbackVerification
   class Transfer
-    attr_accessor :error
+    attr_accessor :error, :remove_gate, :remove_error
 
     def initialize(store)
       @store, @finish = store, Queue.new
@@ -27,6 +27,12 @@ class FeedbackVerification
 
     def finish = @finish << true
     def repair_download_sizes(after: 0) = nil
+    def remove(id)
+      @remove_gate&.pop
+      raise @remove_error if @remove_error
+
+      @store.discard_download(id)
+    end
   end
 
   def initialize(app, automation, output:)
@@ -50,6 +56,7 @@ class FeedbackVerification
     inline_feedback
     notice_interactions
     downloads
+    removal
     exports
     cache_feedback
     appearances
@@ -273,6 +280,52 @@ class FeedbackVerification
     check("retrying from the export dialog also clears the old error notice", !@notices.find(:export_failed))
     pump_until { @notices.find(:export_done) }
     clear_notices
+  end
+
+  def removal
+    @app.navigate(:saved)
+    pump_until { !get(:busy) }
+    check("The completed book appears in the saved library before removal",
+      get(:result).data.fetch("books").any? { |book| book.fetch("id") == @book.fetch("id") })
+    @transfer.remove_gate = gate = Queue.new
+    @app.confirm_remove_download(@book)
+    click(get(:action_views).fetch("إزالة النسخة"))
+    @app.close_dialog
+    finished = false
+    get(:export_worker).submit(-> { true }) { finished = true }
+    gate << true
+    pump_until { finished && !get(:busy) }
+    check("Removal still reports completion after its dialog was dismissed", !!@notices.find(:removed))
+    check("A dismissed removal refreshes the saved library",
+      get(:result).data.fetch("books").none? { |book| book.fetch("id") == @book.fetch("id") })
+    clear_notices
+
+    @store.prepare_download(@book)
+    @queue.enqueue(@book)
+    @transfer.finish
+    @app.refresh_download_state
+    pump_until { @store.downloaded?(@book.fetch("id")) && !get(:busy) && get(:result).data.fetch("books").any? { |book| book.fetch("id") == @book.fetch("id") } }
+    check("A newly completed download refreshes the visible saved library", true)
+    clear_notices
+    @transfer.remove_error = Errno::EACCES.new("test PDF is busy")
+    @app.confirm_remove_download(@book)
+    click(get(:action_views).fetch("إزالة النسخة"))
+    @app.close_dialog
+    gate << true
+    failure_key = [:remove_failed, @book.fetch("id")]
+    pump_until { @notices.find(failure_key) }
+    check("Removal failures remain actionable after dismissing the dialog", @store.downloaded?(@book.fetch("id")))
+    @transfer.remove_error = nil
+    @transfer.remove_gate = nil
+    click(get(:action_views).fetch([:notification, :action]))
+    click(get(:action_views).fetch("إزالة النسخة"))
+    pump_until { @notices.find(:removed) && !get(:busy) }
+    check("Retrying removal clears the error and removes the book", !@notices.find(failure_key) && !@store.downloaded?(@book.fetch("id")))
+    clear_notices
+  ensure
+    @transfer.remove_gate = nil
+    @transfer.remove_error = nil
+    gate << true if gate
   end
 
   def cache_feedback

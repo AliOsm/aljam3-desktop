@@ -134,15 +134,21 @@ module Aljam3
           dialog[:busy] = true
           draw_window
           @export_worker.submit(-> { @download_queue.remove(book.fetch("id")) }) do |_result, error|
-            @downloaded_ids = @store.downloaded_ids unless error
-            next unless @dialog.equal?(dialog)
-
             if error
-              @dialog.merge!(busy: false, error: error_message(error))
-              draw_window
+              message = error_message(error)
+              if @dialog.equal?(dialog)
+                @dialog.merge!(busy: false, error: message)
+                draw_window
+              else
+                @notifications.push([:remove_failed, book.fetch("id")], persistent: true) do
+                  { error: true, message: "تعذّر إزالة النسخة المحمّلة", detail: message,
+                    action_label: "إعادة المحاولة", action: -> { confirm_remove_download(book) } }
+                end
+              end
             else
-              close_dialog
-              request_catalog if @screen == :saved
+              close_dialog if @dialog.equal?(dialog)
+              @notifications.dismiss([:remove_failed, book.fetch("id")])
+              refresh_download_state
               @notifications.push(:removed) do |count|
                 { message: count == 1 ? "تمت إزالة النسخة المحمّلة" : "تمت إزالة #{count} نسخ محمّلة",
                   detail: "مواضع القراءة والفواصل محفوظة." }

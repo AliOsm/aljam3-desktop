@@ -40,6 +40,7 @@ module Aljam3
         @render_number += 1
         @page_request += 1
         @busy = false
+        @catalog_refresh_pending = false
         @error = @dialog = @dialog_scroll = @results = @text_surface = @pdf_surface = nil
         @dialog_stack = []
         LOCATION_FIELDS.each { |key| instance_variable_set("@#{key}", location[key]) }

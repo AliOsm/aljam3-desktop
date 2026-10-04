@@ -104,6 +104,9 @@ module Aljam3
         @connection = @api.connection
         update_connection
       end
+      if @catalog_refresh_pending && !@editing_field && !dialog_active? && !@notification_focus
+        request_catalog
+      end
       if @redraw_pending && !@split_drag && !@editing_field && !dialog_active? && !@notification_focus
         draw_window
         @redraw_pending = false
@@ -241,6 +244,7 @@ module Aljam3
       @screen, @query, @mode = screen, "", screen == :authors ? :authors : :content
       @search_scope = screen == :saved ? :downloaded : :all
       @result = @results = @error = @dialog = @dialog_scroll = nil
+      @catalog_refresh_pending = false
       @filters, @scope_filters, @expanded, @scope_label = filters.dup, filters.dup.freeze, {}, label
       @search_pool_size, @search_signature = Store::Search::POOL_SIZE, nil
       @mode = :books unless filters.empty?
@@ -252,6 +256,7 @@ module Aljam3
     end
 
     def request_catalog(page: 1, expand: false)
+      @catalog_refresh_pending = false
       @editing_field = nil
       signature = [@query.strip, @screen, @mode, @filters.dup, @search_scope, @search_order]
       @search_pool_size = Store::Search::POOL_SIZE if @search_signature != signature
@@ -317,7 +322,9 @@ module Aljam3
     end
 
     def refresh_download_state
-      @downloaded_ids = @store.downloaded_ids
+      downloaded = @store.downloaded_ids
+      @catalog_refresh_pending = true if @screen == :saved && @downloaded_ids != downloaded
+      @downloaded_ids = downloaded
       @download_states = @store.download_state_counts
       update_activity
       if @screen == :reader
