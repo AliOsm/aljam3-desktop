@@ -24,4 +24,6 @@ PackageVerification.call(bundle:, home: scratch, output:)
 if windows
   require_relative "../packaging/verify_windows_launcher"
   WindowsLauncherVerification.call(bundle:, home: scratch, output:)
+  PackageVerification.call(bundle:, home: scratch, output: File.join(output, "window-icons"),
+    probe: File.join(root, "packaging/window_icon_probe.rb"))
 end

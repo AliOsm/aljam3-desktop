@@ -6,7 +6,7 @@ require "json"
 require "timeout"
 
 module PackageVerification
-  def self.call(bundle:, home:, output:)
+  def self.call(bundle:, home:, output:, probe: File.join(__dir__, "probe.rb"))
     root = File.expand_path("..", __dir__)
     windows = Gem.win_platform?
     FileUtils.mkdir_p([home, output])
@@ -16,7 +16,7 @@ module PackageVerification
     env = {
       "HOME" => home, "USERPROFILE" => home, "LOCALAPPDATA" => home,
       "ALJAM3_DATA_DIR" => File.join(home, "data"), "ALJAM3_API_URL" => "http://127.0.0.1:1",
-      "ALJAM3_VERIFY_OUTPUT" => output, "SCARPE_RUN_FILE" => File.join(root, "packaging/probe.rb"),
+      "ALJAM3_VERIFY_OUTPUT" => output, "SCARPE_RUN_FILE" => probe,
       "SCARPE_NATIVE_HEADLESS" => "1", "SCARPE_NATIVE_GHOST" => nil,
       "PATH" => [File.join(root, "vendor/scarpe/spec/support/fakebin"), *system_path].join(File::PATH_SEPARATOR),
       "SPEC_CLIPBOARD_FILE" => File.join(home, "clipboard.txt"), "SPEC_TRAP_FILE" => File.join(home, "trapped.txt")

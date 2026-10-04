@@ -1,3 +1,21 @@
+diff --git a/lacci/lib/shoes.rb b/lacci/lib/shoes.rb
+index 4797d1c..bd71724 100644
+--- a/lacci/lib/shoes.rb
++++ b/lacci/lib/shoes.rb
+@@ -186,11 +186,12 @@ class Shoes
+       features: [],
+       margin: nil,
+       owner: nil,
++      icon: nil,
+       **_extras,
+       &app_code_body
+     )
+       f = [features].flatten # Make sure this is a list, not a single symbol
+-      app = Shoes::App.new(title:, width:, height:, resizable:, features: f, owner:, &app_code_body)
++      app = Shoes::App.new(title:, width:, height:, resizable:, features: f, owner:, icon:, &app_code_body)
+ 
+       # If there's a pending Shoes subclass (e.g., class Book < Shoes), use it
+       if Shoes.pending_app_class
 diff --git a/lacci/lib/shoes/app.rb b/lacci/lib/shoes/app.rb
 index 279d1db..cd78984 100644
 --- a/lacci/lib/shoes/app.rb

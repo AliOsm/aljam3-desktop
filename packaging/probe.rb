@@ -28,6 +28,8 @@ ensure
 end
 load File.join(root, "app/app.rb")
 app = Shoes.APPS.first
+icon = Shoes::DisplayService.display_service.query_display_drawable_for(app.linkable_id).props.fetch("icon")
+raise "App icon did not reach the renderer" unless icon == File.join(Aljam3::ROOT, "assets/brand/app-icon.png") && File.file?(icon)
 step = 0
 pdf_rect = pdf_bounds = pdf_pixels = nil
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
@@ -146,7 +148,7 @@ app.every(0.1) do
       File.write(File.join(output, "passed.json"), JSON.pretty_generate({ passed: true, ruby: RUBY_VERSION,
         platform: RUBY_PLATFORM, startup_encoding: { locale: Encoding.locale_charmap, filesystem: Encoding.find("filesystem").name },
         build: JSON.parse(File.read(File.join(root, "build.json"))), streaming:, distant_pages:, alignment:,
-        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache pdf_distant_page_budget unicode_bundle_and_data_paths] }))
+        checks: %w[https sqlite arabic_tokenizer offline_fallback arabic_input clipboard pdf text rtl_panes persistent_dark_theme pdf_theme_redraw book_search native_rendering arabic_highlight_pixels match_navigation draggable_divider reading_options persistent_history persistent_bookmarks persistent_reader_settings pdf_range_seeking pdf_streaming_pixels pdf_range_cache pdf_distant_page_budget unicode_bundle_and_data_paths app_icon] }))
       app.close
     end
   rescue StandardError => error
