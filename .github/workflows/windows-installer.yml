@@ -59,10 +59,11 @@ jobs:
     name: Verify x64 app on Windows 11 ARM
     needs: installer
     runs-on: windows-11-arm
-    timeout-minutes: 15
+    timeout-minutes: 25
     env:
-      # Rendering the full screenshot suite through x64 emulation needs longer.
-      ALJAM3_VERIFY_TIMEOUT: '300'
+      # The complete install/upgrade screenshot suite can exceed five minutes
+      # per launch through x64 emulation. Keep every check and allow ten minutes.
+      ALJAM3_VERIFY_TIMEOUT: '600'
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
