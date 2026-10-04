@@ -51,7 +51,7 @@ module Aljam3
       end
 
       def apply_theme
-        style(Shoes::Para, font: FONT, size: 16, stroke: ink, margin: 0, align: "right")
+        style(Shoes::Para, font: FONT, size: 16, stroke: ink, margin: 0, align: "right", owns_text: true)
         style(Shoes::Button, font: FONT, size: 15, height: 36)
         style(Shoes::EditLine, font: "#{FONT} 17", height: 40, stroke: ink, fill: card_color, border_color: line_color)
         style(Shoes::Link, stroke: ink, underline: "none")

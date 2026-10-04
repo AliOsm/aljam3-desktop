@@ -34,6 +34,7 @@ class InteractionVerification
     history
     pdf_controls
     exports
+    text_lifecycle
     { passed: true, checks: @checks }
   end
 
@@ -62,6 +63,38 @@ class InteractionVerification
   end
 
   def shot(name) = @automation.snapshot(File.join(@output, "#{name}.png"), scale: 1.5)
+
+  def text_lifecycle
+    service = Shoes::DisplayService.display_service
+    registry = service.instance_variable_get(:@display_drawable_for)
+    baseline = registry.size
+    paragraph = fragment = link = nil
+    slot = @app.stack do
+      link = @app.link("رابط") { }
+      fragment = @app.span(link)
+      paragraph = @app.para(fragment)
+    end
+    paragraph.replace(fragment, " نص")
+    check("Replacing text preserves fragments still in use", !fragment.destroyed && !link.destroyed)
+    paragraph.replace("نص جديد")
+    check("Replacing app text releases old nested fragments and links", fragment.destroyed && link.destroyed)
+    reusable = nil
+    slot.append do
+      reusable = @app.span("نص قابل لإعادة الاستخدام")
+      paragraph = @app.para(reusable, owns_text: false)
+    end
+    paragraph.remove
+    check("Paragraphs can opt out of fragment ownership for reuse", !reusable.destroyed)
+    slot.append { @app.para(reusable) }
+    slot.clear
+    check("A reused fragment is released by its new owning paragraph", reusable.destroyed)
+    20.times do
+      slot.clear { @app.para(@app.span(@app.link("رابط آخر") { })) }
+    end
+    slot.remove
+    @automation.wait_frames
+    check("Repeated rich-text rebuilds leave no registered drawables", registry.size == baseline)
+  end
 
   def selection_and_scroll
     @app.navigate(:home)

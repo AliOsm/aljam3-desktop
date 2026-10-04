@@ -1,0 +1,73 @@
+--- a/lacci/lib/shoes/drawables/para.rb
++++ b/lacci/lib/shoes/drawables/para.rb
+@@ -2,7 +2,9 @@
+ require_relative 'font_helper.rb'
+ class Shoes
+   class Para < Shoes::Drawable 
++    include OwnedText
+   include FontHelper
++    shoes_styles :owns_text
+     shoes_styles :text_items, :size, :family, :font_weight, :font, :font_variant, :emphasis, :kerning, :weight, :wrap
+     shoes_style(:stroke) { |val, _name| Shoes::Colors.to_rgb(val) }
+     shoes_style(:fill) { |val, _name| Shoes::Colors.to_rgb(val) }
+@@ -279,8 +281,10 @@
+     # Text_children alternates strings and TextDrawables, so we can't just pass
+     # it as a Shoes style. It won't serialize.
+     def update_text_children(children)
++      previous = @text_children || []
+       @text_children = children.flatten.map { |child| utf8_text(child) }
+       @text_children.each { |child| child.text_parent = self if child.is_a?(TextDrawable) }
++      release_text_children(previous - @text_children) if owns_text?
+       # This should signal the display drawable to change
+       self.text_items = text_children_to_items(@text_children)
+     end
+--- a/lacci/lib/shoes/drawables/text_drawable.rb
++++ b/lacci/lib/shoes/drawables/text_drawable.rb
+@@ -1,6 +1,28 @@
+ # frozen_string_literal: true
+ 
+ class Shoes
++  # By default fragments may be reused after their paragraph is removed. A view
++  # that creates disposable fragments can own them instead, releasing their
++  # registrations and event handlers on replacement or destruction.
++  module OwnedText
++    def owns_text?
++      @owns_text || (is_a?(TextDrawable) && parent.respond_to?(:owns_text?) && parent.owns_text?)
++    end
++
++    def destroy
++      release_text_children(@text_children) if owns_text?
++      super
++    end
++
++    private
++
++    def release_text_children(children)
++      Array(children).each do |child|
++        child.destroy if child.is_a?(TextDrawable) && child.parent.equal?(self)
++      end
++    end
++  end
++
+   # underline and strikethrough, for text blocks and the fragments inside them.
+   #
+   # A style that sets one to nil or false means "none", and says so on the wire, so a
+@@ -36,6 +58,7 @@
+   # Much of what this does and how is similar to Para.
+   # It's a very similar API.
+   class TextDrawable < Shoes::Drawable
++    include OwnedText
+     shoes_styles :text_items, :size, :stroke, :strokewidth, :fill, :undercolor, :font
+     shoes_styles :justify, :rise, :stretch, :strikecolor, :variant # as on text blocks (ledger F5)
+     shoes_styles :weight, :family, :emphasis, :kerning # the manual lists span for these too (F5)
+@@ -122,8 +145,10 @@
+     # Text_children alternates strings and TextDrawables, so we can't just pass
+     # it as a Shoes style. It won't serialize.
+     def update_text_children(children)
++      previous = @text_children || []
+       @text_children = children.flatten.map { |child| utf8_text(child) }
+       @text_children.each { |child| child.text_parent = self if child.is_a?(TextDrawable) }
++      release_text_children(previous - @text_children) if owns_text?
+       # This should signal the display drawable to change
+       self.text_items = text_children_to_items(@text_children)
+     end
