@@ -10,6 +10,13 @@ module Aljam3
     READER_GAP = 16
 
     module Components
+      def schedule_once(seconds, &block)
+        task = timer(seconds) do
+          task.remove
+          block.call
+        end
+      end
+
       def row(**styles, &block)
         flow(width: 1.0, height: 36, direction: "rtl", valign: "center", **styles, &block)
       end

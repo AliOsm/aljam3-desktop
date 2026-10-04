@@ -153,7 +153,7 @@ module Aljam3
                 @page_text = para(*reader_text_parts(content), selectable: true, font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
                 if !@reader[:loading_text] && @reader.delete(:focus_match)
                   page_text = @page_text
-                  timer(0) { focus_reader_match if @page_text == page_text && @screen == :reader }
+                  schedule_once(0) { focus_reader_match if @page_text == page_text && @screen == :reader }
                 end
               end
             end

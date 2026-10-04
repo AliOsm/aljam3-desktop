@@ -161,7 +161,7 @@ module Aljam3
         icon_theme = control.style[:variant] == "solid" ? :dark : @theme
         control.style(text: label.empty? ? "" : "تم النسخ", icon: asset_path("icons", "check", theme: icon_theme), tooltip: "تم النسخ")
         (@copy_receipts ||= {})[control.linkable_id] = receipt = Object.new
-        timer(2) do
+        schedule_once(2) do
           next unless @copy_receipts[control.linkable_id].equal?(receipt)
 
           @copy_receipts.delete(control.linkable_id)

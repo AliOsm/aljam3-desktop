@@ -35,6 +35,7 @@ class InteractionVerification
     pdf_controls
     exports
     text_lifecycle
+    feedback_timer_lifecycle
     { passed: true, checks: @checks }
   end
 
@@ -94,6 +95,23 @@ class InteractionVerification
     slot.remove
     @automation.wait_frames
     check("Repeated rich-text rebuilds leave no registered drawables", registry.size == baseline)
+  end
+
+  def feedback_timer_lifecycle
+    service = Shoes::DisplayService.display_service
+    registry = service.instance_variable_get(:@display_drawable_for)
+    timers = -> { registry.values.count { |item| item.kind == "SubscriptionItem" && item.props["shoes_api_name"] == "timer" } }
+    baseline = timers.call
+    control = @app.action("نسخ") { }
+    20.times { @app.copy_with_feedback("نص", control:, label: "نسخ") }
+    Timeout.timeout(5) do
+      until get(:copy_receipts).empty?
+        @automation.wait_frames
+        service.pump.step(0.02)
+      end
+    end
+    check("Repeated copy feedback releases completed one-shot timers", timers.call == baseline)
+    control.remove
   end
 
   def selection_and_scroll
