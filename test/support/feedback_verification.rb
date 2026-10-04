@@ -307,6 +307,7 @@ class FeedbackVerification
     pump_until { @store.downloaded?(@book.fetch("id")) && !get(:busy) && get(:result).data.fetch("books").any? { |book| book.fetch("id") == @book.fetch("id") } }
     check("A newly completed download refreshes the visible saved library", true)
     clear_notices
+    @app.navigate(:home)
     @transfer.remove_error = Errno::EACCES.new("test PDF is busy")
     @app.confirm_remove_download(@book)
     click(get(:action_views).fetch("إزالة النسخة"))
@@ -322,6 +323,10 @@ class FeedbackVerification
     pump_until { @notices.find(:removed) && !get(:busy) }
     check("Retrying removal clears the error and removes the book", !@notices.find(failure_key) && !@store.downloaded?(@book.fetch("id")))
     clear_notices
+    @app.navigate_history(:back)
+    pump_until { !get(:busy) }
+    check("Returning to the saved library does not restore a removed book from history",
+      get(:screen) == :saved && get(:result).data.fetch("books").none? { |book| book.fetch("id") == @book.fetch("id") })
   ensure
     @transfer.remove_gate = nil
     @transfer.remove_error = nil

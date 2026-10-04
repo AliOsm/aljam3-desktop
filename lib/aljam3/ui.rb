@@ -323,7 +323,10 @@ module Aljam3
 
     def refresh_download_state
       downloaded = @store.downloaded_ids
-      @catalog_refresh_pending = true if @screen == :saved && @downloaded_ids != downloaded
+      if @downloaded_ids != downloaded
+        @download_revision = (@download_revision || 0) + 1
+        @catalog_refresh_pending = true if @search_scope == :downloaded && %i[home browse saved authors].include?(@screen)
+      end
       @downloaded_ids = downloaded
       @download_states = @store.download_state_counts
       update_activity

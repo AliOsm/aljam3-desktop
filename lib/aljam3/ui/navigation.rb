@@ -12,7 +12,7 @@ module Aljam3
       def current_location
         fields = LOCATION_FIELDS.to_h { |key| [key, instance_variable_get("@#{key}")] }
         %i[filters scope_filters expanded].each { |key| fields[key] = (fields[key] || {}).dup }
-        fields.merge(reader: @screen == :reader ? @reader.slice(*READER_FIELDS) : nil,
+        fields.merge(download_revision: @download_revision || 0, reader: @screen == :reader ? @reader.slice(*READER_FIELDS) : nil,
           scroll: { results: @results&.scroll_top || 0, text: @text_surface&.scroll_top || 0, pdf: @pdf_surface&.scroll_top || 0 })
       end
 
@@ -49,6 +49,8 @@ module Aljam3
         end
         @pending_location_scroll = location.fetch(:scroll).dup
         @navigation_motion = 0
+        local_result = @search_scope == :downloaded || %i[offline local].include?(@source)
+        @result = nil if local_result && location[:download_revision] != (@download_revision || 0)
         if @screen == :reader
           @reader = location.fetch(:reader).dup
           @bookmarks = @store.bookmarks(@reader.fetch(:book).fetch("id"))
