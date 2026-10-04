@@ -3,6 +3,8 @@
 // and the renderer's frame deadlines. Measure them as an active UI workload,
 // without activating a window or preventing display/system sleep.
 #import <Foundation/Foundation.h>
+#include <stdio.h>
+#include <unistd.h>
 
 static id activity;
 
