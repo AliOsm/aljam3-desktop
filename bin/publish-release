@@ -24,9 +24,17 @@ versions.each do |version|
     notes.write("Windows: run the installer. Mac: extract the ZIP and move Aljam3.app to Applications.\n\nApps are unsigned/not notarized; Windows or macOS may show a security prompt. Updates are verified with Ed25519 signatures. Books and reading positions are preserved.\n")
     notes.flush
     revision = ENV.fetch("GITHUB_SHA") { IO.popen(["git", "rev-parse", "HEAD"], &:read).strip }
+    tag = "refs/tags/v#{version}"
+    references = IO.popen(["git", "ls-remote", "--tags", "origin", tag, "#{tag}^{}"], &:read)
+    abort "Could not verify release tag" unless $?.success?
+    references = references.lines.to_h { |line| sha, name = line.split; [name, sha] }
+    tagged_revision = references["#{tag}^{}"] || references[tag]
+    abort "Release tag points to a different build" if tagged_revision && tagged_revision != revision
+    # Existing tags need no new workflow-writing permission for older build commits.
+    target = tagged_revision ? ["--verify-tag"] : ["--target", revision]
     license = File.expand_path("../packaging/Sparkle-LICENSE.txt", __dir__)
     abort "Draft release creation failed" unless system("gh", "release", "create", "v#{version}", *files, feed, license,
-      "--draft", "--target", revision, "--title", "#{version}", "--notes-file", notes.path)
+      "--draft", *target, "--title", "#{version}", "--notes-file", notes.path)
     abort "Release publication failed" unless system("gh", "release", "edit", "v#{version}", "--draft=false", "--latest")
   end
 end
