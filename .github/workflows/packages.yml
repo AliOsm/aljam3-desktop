@@ -55,12 +55,19 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: vendor/scarpe/native
-      - uses: actions/cache@v4
+          cache-on-failure: true
+      - uses: actions/cache/restore@v4
+        id: pdfium
         with:
           path: vendor/pdfium
           key: pdfium-${{ matrix.target }}-${{ hashFiles('bin/build-pdfium', 'packaging/pdfium/*.patch') }}
       - name: Set up pinned runtime and native libraries
         run: ruby bin/setup
+      - uses: actions/cache/save@v4
+        if: steps.pdfium.outputs.cache-hit != 'true'
+        with:
+          path: vendor/pdfium
+          key: pdfium-${{ matrix.target }}-${{ hashFiles('bin/build-pdfium', 'packaging/pdfium/*.patch') }}
       - name: Application tests
         run: bundle exec rake test
       - name: Native layout, input, clipboard, and rendering tests

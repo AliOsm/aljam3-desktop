@@ -90,6 +90,7 @@ module Aljam3
         end
       end
       finish do
+        @closing = true
         save_reader_position if @screen == :reader
         @ticker.remove
         @preference_ticker.remove
@@ -113,8 +114,12 @@ module Aljam3
     end
 
     def tick
+      return if @closing
       pump_reader if @reader_pump
-      @workers.each(&:drain)
+      @workers.each do |worker|
+        worker.drain
+        return if @closing
+      end
       render_dialog if @dialog_redraw_pending && @dialog && !@editing_field
       refresh_download_state if @download_queue.tick
       if @connection != @api.connection

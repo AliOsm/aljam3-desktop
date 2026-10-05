@@ -10,10 +10,23 @@ require File.join(root, "app/lib/aljam3/updates")
 directory = Aljam3.data_directory
 build = JSON.parse(File.read(File.join(root, "build.json")))
 store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
+if build.fetch("version") == "0.0.2"
+  raise "Active download was not safely queued before shutdown" unless store.download(90_001).fetch(:status) == :queued
+  raise "Paused download changed during update" unless store.download(90_002).fetch(:status) == :paused
+  raise "Partial download progress lost" unless store.download(90_001).fetch(:bytes) == 40
+  raise "Partial download content changed" unless File.read(File.join(directory, "transfer.part")) == "partially downloaded book"
+end
 store.save_preference("update_checked_at", Time.now.to_i)
 store.close
 load File.join(root, "app/app.rb")
 app = Shoes.APPS.first
+downloader = app.instance_variable_get(:@downloader)
+real_download = downloader.method(:call)
+downloader.define_singleton_method(:call) do |id, check:, &progress|
+  next real_download.call(id, check:, &progress) unless [90_001, 90_002].include?(id)
+  progress.call(0.4, "PDF", 40, 100)
+  loop { check.call; sleep 0.01 }
+end
 phase = 0
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
 app.every(0.1) do
@@ -21,6 +34,7 @@ app.every(0.1) do
     raise "Update UI timed out" if Process.clock_gettime(Process::CLOCK_MONOTONIC) - started > 180
     store = app.instance_variable_get(:@store)
     if build.fetch("version") == "0.0.2"
+      next unless app.instance_variable_get(:@download_queue).current&.dig(:book, "id") == 90_001
       raise "Reading position lost" unless store.preference("reading:1").fetch("number") == 72
       raise "Preference lost" unless store.preference("update_sentinel") == "مكتبة الجامع"
       raise "Downloaded book lost" unless store.downloaded?(1)
@@ -29,7 +43,7 @@ app.every(0.1) do
       before.each { |path, digest| raise "Book content changed" unless Digest::SHA256.file(path).hexdigest == digest }
       raise "Updater reported failure" if File.read(File.join(directory, "updates/install.log")).include?("Package checksum mismatch")
       File.write(File.join(output, "passed.json"), JSON.pretty_generate(passed: true, version: "0.0.2",
-        checks: %w[signed_feed verified_download restart actual_upgrade preserved_books preserved_reading_position preserved_preferences offline_search]))
+        checks: %w[signed_feed verified_download restart actual_upgrade preserved_books preserved_reading_position preserved_preferences offline_search safely_queued_active_download resumed_download preserved_paused_download preserved_partial_file]))
       app.close
       next
     end
@@ -48,6 +62,10 @@ app.every(0.1) do
       updater = Aljam3::Updates.new(directory:, resources: root, transport:)
       app.instance_variable_set(:@updater, updater)
       store.save_preference("update_sentinel", "مكتبة الجامع")
+      queue = app.instance_variable_get(:@download_queue)
+      [90_001, 90_002].each { |id| queue.enqueue(store.book(1).merge("id" => id)) }
+      queue.pause(90_002)
+      File.write(File.join(directory, "transfer.part"), "partially downloaded book")
       app.open_book(store.book(1))
       app.turn_page(72)
       app.check_updates
@@ -56,6 +74,7 @@ app.every(0.1) do
       state = app.instance_variable_get(:@update_state)
       raise "Update check/download failed" if state == :error
       next unless state == :ready && app.instance_variable_get(:@page_image)
+      next unless app.instance_variable_get(:@download_queue).current&.dig(:bytes) == 40
       app.open_dialog(:updates)
       phase = 2
     when 2

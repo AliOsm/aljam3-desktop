@@ -42,10 +42,13 @@ app.timer(0.5) do
       end
     end
     File.write(File.join(output, "passed.json"), JSON.pretty_generate(passed: true, states_checked: checks))
+    # Exercise closing from a worker callback inside UI#tick, as a real update does.
+    updater.define_singleton_method(:install) { |_package| true }
+    app.instance_variable_set(:@update_state, :ready)
+    app.restart_for_update
   rescue StandardError => error
     File.write(File.join(output, "failed.txt"), error.full_message)
     warn error.full_message
-  ensure
     app.close
   end
 end

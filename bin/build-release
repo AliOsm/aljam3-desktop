@@ -5,7 +5,10 @@ require_relative "../lib/aljam3/version"
 versions = ENV["ALJAM3_TEST_PAIR"] == "true" ? %w[0.0.1 0.0.2] : [Aljam3::VERSION]
 versions.each do |version|
   ENV["ALJAM3_VERSION"] = version
-  %w[package verify-package].each do |command|
+  commands = ["package"]
+  # The pair has identical application code; the actual upgrade exercises 0.0.1.
+  commands << "verify-package" if version == versions.last
+  commands.each do |command|
     abort "#{command} failed" unless system("bundle", "exec", "ruby", "bin/#{command}")
   end
   command = Gem.win_platform? ? "build-installer" : "archive-package"
