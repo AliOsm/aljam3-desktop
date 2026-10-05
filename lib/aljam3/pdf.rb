@@ -21,6 +21,7 @@ module Aljam3
     attach_function :load_custom_document, :FPDF_LoadCustomDocument, [:pointer, :string], :pointer
     attach_function :close_document, :FPDF_CloseDocument, [:pointer], :void
     attach_function :page_count, :FPDF_GetPageCount, [:pointer], :int
+    attach_function :page_index_offsets, :FPDF_GetPageIndexObjectOffsets, [:pointer, :int, :pointer, :ulong], :ulong
     attach_function :load_page, :FPDF_LoadPage, [:pointer, :int], :pointer
     attach_function :close_page, :FPDF_ClosePage, [:pointer], :void
     attach_function :page_width, :FPDF_GetPageWidthF, [:pointer], :float
@@ -176,6 +177,12 @@ module Aljam3
         count = PDFium.page_count(document.pointer)
         raise ArgumentError, "Page #{page} is outside this PDF (#{count} pages)." unless (1..count).cover?(page)
 
+        if source.is_a?(RemotePDF)
+          offsets = FFI::MemoryPointer.new(:ulong_long, RemotePDF::CACHE_BLOCKS)
+          length = PDFium.page_index_offsets(document.pointer, page - 1, offsets, RemotePDF::CACHE_BLOCKS)
+          access&.check!
+          source.prefetch_index(offsets.read_array_of_ulong_long(length), check:)
+        end
         pdf_page = PDFium.load_page(document.pointer, page - 1)
         access&.check!
         raise "Unable to read this PDF page." if pdf_page.null?

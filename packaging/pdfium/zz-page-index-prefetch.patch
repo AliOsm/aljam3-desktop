@@ -1,0 +1,68 @@
+--- a/public/fpdfview.h
++++ b/public/fpdfview.h
+@@ -713,6 +707,16 @@
+ // Return value:
+ //          Total number of pages in the document.
+ FPDF_EXPORT int FPDF_CALLCONV FPDF_GetPageCount(FPDF_DOCUMENT document);
++
++// Aljam3 extension: byte offsets of unresolved top-level page-tree objects
++// preceding page_index in a flat tree. These are optional prefetch hints only;
++// normal PDFium traversal still validates the tree and selects the page.
++// Writes at most capacity entries; returns zero for unsupported trees.
++FPDF_EXPORT unsigned long FPDF_CALLCONV
++FPDF_GetPageIndexObjectOffsets(FPDF_DOCUMENT document,
++                              int page_index,
++                              unsigned long long* offsets,
++                              unsigned long capacity);
+ 
+ // Function: FPDF_LoadPage
+ //          Load a page inside the document.
+--- a/fpdfsdk/fpdf_view.cpp
++++ b/fpdfsdk/fpdf_view.cpp
+@@ -23,6 +23,7 @@
+ #include "core/fpdfapi/parser/cpdf_document.h"
+ #include "core/fpdfapi/parser/cpdf_name.h"
+ #include "core/fpdfapi/parser/cpdf_parser.h"
++#include "core/fpdfapi/parser/cpdf_reference.h"
+ #include "core/fpdfapi/parser/cpdf_stream.h"
+ #include "core/fpdfapi/parser/cpdf_string.h"
+ #include "core/fpdfapi/parser/fpdf_parser_decode.h"
+@@ -468,6 +469,38 @@
+   return pExtension ? pExtension->GetPageCount() : doc->GetPageCount();
+ }
+ 
++FPDF_EXPORT unsigned long FPDF_CALLCONV
++FPDF_GetPageIndexObjectOffsets(FPDF_DOCUMENT document,
++                              int page_index,
++                              unsigned long long* offsets,
++                              unsigned long capacity) {
++  auto* doc = CPDFDocumentFromFPDFDocument(document);
++  if (!doc || !doc->GetParser() || !offsets || !capacity ||
++      page_index < 0 || page_index >= doc->GetPageCount()) {
++    return 0;
++  }
++  auto* root = doc->GetRoot();
++  auto pages = root ? root->GetDictFor(pdfium::catalog::kPages) : nullptr;
++  auto kids = pages ? pages->GetArrayFor("Kids") : nullptr;
++  if (!kids || kids->size() != static_cast<size_t>(doc->GetPageCount())) {
++    return 0;
++  }
++  unsigned long written = 0;
++  for (int index = 0; index <= page_index && written < capacity; ++index) {
++    auto object = kids->GetObjectAt(index);
++    auto* reference = object ? object->AsReference() : nullptr;
++    if (!reference || doc->GetIndirectObject(reference->GetRefObjNum())) {
++      continue;
++    }
++    const auto offset = doc->GetParser()->GetObjectPositionOrZero(
++        reference->GetRefObjNum());
++    if (offset > 0 && offset < doc->GetParser()->GetDocumentSize()) {
++      offsets[written++] = static_cast<unsigned long long>(offset);
++    }
++  }
++  return written;
++}
++
+ FPDF_EXPORT FPDF_PAGE FPDF_CALLCONV FPDF_LoadPage(FPDF_DOCUMENT document,
+                                                   int page_index) {
+   auto* doc = CPDFDocumentFromFPDFDocument(document);

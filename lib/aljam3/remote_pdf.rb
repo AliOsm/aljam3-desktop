@@ -35,6 +35,33 @@ module Aljam3
       bytes
     end
 
+    def prefetch_index(offsets, check:)
+      check.call
+      indices = offsets.select { |offset| offset.positive? && offset < size }
+        .map { |offset| offset / BLOCK_SIZE }.uniq.reject { |index| @blocks.key?(index) }.take(CACHE_BLOCKS)
+      return if indices.size < 4 || !@http.respond_to?(:read_ranges)
+
+      ranges = indices.map { |index| [index * BLOCK_SIZE, BLOCK_SIZE] }
+      responses = @http.read_ranges(@resolved_url, ranges:, validator: @validator, check:)
+      raise RemoteFileChangedError, "The PDF changed. Please retry." unless responses.all? { |response| response.size == @size }
+
+      check.call
+      indices.zip(responses).each do |index, response|
+        @blocks[index] = response.bytes
+        @blocks.shift if @blocks.size > CACHE_BLOCKS
+      end
+    rescue RemoteFileChangedError
+      @blocks.clear
+      @size = @validator = nil
+      @resolved_url = @url
+      raise
+    rescue ResponseError => error
+      raise unless [401, 403].include?(error.status) && @resolved_url != @url
+
+      @resolved_url = @url
+      retry
+    end
+
     private
 
     def block(index, last: index, check: -> {})

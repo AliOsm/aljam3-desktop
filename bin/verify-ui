@@ -21,7 +21,7 @@ Dir.mktmpdir("aljam3-ui-") do |scratch|
     "ALJAM3_API_URL" => probe == "ui" ? "https://aljam3.com" : "http://127.0.0.1:1", "SCARPE_NATIVE_HEADLESS" => "1",
     "SCARPE_NATIVE_BIN" => File.join(root, "vendor/scarpe/native/target/release/scarpe-native#{Gem.win_platform? ? '.exe' : ''}"),
     "PATH" => [File.join(root, "vendor/scarpe/spec/support/fakebin"), ENV.fetch("PATH")].join(File::PATH_SEPARATOR),
-    "ALJAM3_BENCHMARK_PDF" => File.join(root, ".cache/smoke/books/1/1.pdf"),
+    "ALJAM3_BENCHMARK_PDF" => ENV.fetch("ALJAM3_BENCHMARK_PDF", File.join(root, ".cache/smoke/books/1/1.pdf")),
     "SCARPE_NATIVE_STATS" => probe == "motion_benchmark" ? output : nil,
     "SPEC_TRAP_FILE" => File.join(scratch, "trapped.txt"), "SPEC_CLIPBOARD_FILE" => File.join(scratch, "clipboard.txt")
   }

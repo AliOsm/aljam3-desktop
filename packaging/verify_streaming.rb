@@ -14,6 +14,13 @@ module StreamingVerification
       @requests += 1
       result
     end
+
+    def read_ranges(...)
+      results = super
+      @bytes += results.sum { |result| result.bytes.bytesize }
+      @requests += results.length
+      results
+    end
   end
 
   def self.call(file:, local_path:, pages: [1, 72], max_bytes: nil)

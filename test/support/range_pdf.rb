@@ -64,37 +64,36 @@ module RangePDF
   def self.serve(pdf, delay: 0)
     requests = []
     server = TCPServer.new("127.0.0.1", 0)
+    handlers = []
     thread = Thread.new do
-      socket = nil
       loop do
         socket = server.accept
-        headers = +""
-        while (line = socket.gets) && line != "\r\n"
-          headers << line
-        end
-        range = headers.match(/^Range: bytes=(\d+)-(\d+)/i)
-        raise "Reader requested the full PDF" unless range
+        handlers << Thread.new(socket) do |connection|
+          headers = +""
+          while (line = connection.gets) && line != "\r\n"
+            headers << line
+          end
+          range = headers.match(/^Range: bytes=(\d+)-(\d+)/i)
+          raise "Reader requested the full PDF" unless range
 
-        first, last = range.captures.map(&:to_i)
-        last = [last, pdf.bytesize - 1].min
-        bytes = pdf.byteslice(first..last)
-        requests << [first, bytes.bytesize]
-        sleep delay if delay.positive?
-        begin
-          socket.write("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes #{first}-#{last}/#{pdf.bytesize}\r\nContent-Length: #{bytes.bytesize}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n")
-          socket.write(bytes)
+          first, last = range.captures.map(&:to_i)
+          last = [last, pdf.bytesize - 1].min
+          bytes = pdf.byteslice(first..last)
+          requests << [first, bytes.bytesize]
+          sleep delay if delay.positive?
+          connection.write("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes #{first}-#{last}/#{pdf.bytesize}\r\nContent-Length: #{bytes.bytesize}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n")
+          connection.write(bytes)
         rescue Errno::EPIPE, Errno::ECONNRESET
           # A superseded page may cancel an in-flight response.
         ensure
-          socket.close
+          connection.close
         end
       end
-    ensure
-      socket&.close
     end
     yield "http://127.0.0.1:#{server.addr[1]}/book.pdf", requests
   ensure
     thread&.kill&.join
+    handlers&.each { |handler| handler.kill.join }
     server&.close
   end
 end

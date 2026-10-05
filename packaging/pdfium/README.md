@@ -72,7 +72,23 @@ PDF.js references inspected at commit
 - [`ChunkedStreamManager`](https://github.com/mozilla/pdf.js/blob/7445074a761d7d4697370546fc32f53b5620d4b2/src/core/chunked_stream.js): deduplicates and groups missing ranges; optional background prefetch.
 - [`getDocument` options](https://github.com/mozilla/pdf.js/blob/7445074a761d7d4697370546fc32f53b5620d4b2/src/display/api.js): defaults to 64 KiB chunks; both `disableAutoFetch` and `disableStream` must be true to prevent background fetching. Aljam3's web viewer sets both.
 
-Range requests alone do not guarantee small transfers. Flat page trees, damaged
-indexes, large images, or shared resources can still require more bytes. The
+`zz-page-index-prefetch.patch` exposes optional byte-offset hints for unresolved
+top-level page dictionaries in flat trees. The reader fetches up to 128 distinct
+64 KiB blocks through four independent, validated HTTP connections before the
+normal page traversal. Already parsed dictionaries and cached blocks are skipped.
+The hints never select pages or replace PDFium's traversal, so irregular trees
+and missing hints retain the normal parser behavior. Compressed dictionary
+objects also retain the normal path. No image streams are deliberately prefetched
+by this index step. It uses the existing 8 MiB byte cache, and failed/cancelled
+batches publish no partial results or leave live connections behind.
+
+This addresses the same scattered top-level dictionary reads that PDF.js requests
+concurrently. A generated 96-page, 18 MiB image PDF exercises this path with
+40 ms of latency per request; correctness checks compare distant and reversed
+seeks with local page pixels. `mise run verify-scroll` accepts
+`ALJAM3_BENCHMARK_PDF=/nonexistent` to use this generated fixture.
+
+Range requests alone do not guarantee small transfers. Very large flat trees,
+damaged indexes, large images, or shared resources can still require more bytes. The
 reader does not start a background download or accept a host's full HTTP 200
 response in place of a requested range.

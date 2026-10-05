@@ -69,6 +69,45 @@ module Aljam3
       @range_http = @range_origin = nil
     end
 
+    # PDF page dictionaries can be scattered across a flat page tree. Fetch
+    # their known byte ranges concurrently with a separate connection per worker.
+    # Publish no partial batch if a request fails or navigation cancels the work.
+    def read_ranges(url, ranges:, validator: nil, check: -> {})
+      jobs, completed, results, failure = Queue.new, Queue.new, Array.new(ranges.length), nil
+      ranges.each_with_index { |range, index| jobs << [index, range] }
+      jobs.close
+      batch_check = -> { raise failure if failure; check.call }
+      workers = [ranges.length, 4].min.times.map do
+        Thread.new do
+          client = HTTP.new
+          while (job = jobs.pop)
+            batch_check.call
+            index, (offset, length) = job
+            results[index] = client.read_range(url, offset:, length:, validator:, check: batch_check)
+          end
+        rescue StandardError => error
+          failure ||= error
+        ensure
+          begin
+            client&.close
+          rescue StandardError => error
+            failure ||= error
+          ensure
+            completed << true
+          end
+        end
+      end
+      workers.length.times do
+        completed.pop
+        raise failure if failure
+      end
+      workers.each(&:join)
+      batch_check.call
+      results
+    ensure
+      workers&.each { |worker| worker.kill.join if worker.alive? }
+    end
+
     def download(url, destination, validate_pdf: true, resume: false, check: -> {}, &progress)
       FileUtils.mkdir_p(File.dirname(destination))
       temporary = "#{destination}.part"

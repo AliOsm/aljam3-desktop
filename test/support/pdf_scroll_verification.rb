@@ -22,12 +22,16 @@ class PDFScrollVerification
     RangePDF.serve(data, delay: 0.04) do |url, requests|
       reports[:online] = exercise(:online, url, data)
       reports[:online][:range_requests] = requests.size
+      reports[:online][:range_bytes] = requests.sum(&:last)
+      reports[:online][:file_bytes] = data.bytesize
       reports[:online][:range_delay_ms] = 40
       reports[:offline] = exercise(:offline, url, data)
     end
     result = { passed: @checks.all? { |item| item[:passed] }, fixture: real ? "96-page scanned book 1" : "96-page generated image PDF",
       measurements: reports, checks: @checks }
     File.write(File.join(@output, "scroll-performance.json"), JSON.pretty_generate(result))
+    raise @checks.reject { |item| item[:passed] }.map { |item| item[:check] }.join("; ") if @strict && !result[:passed]
+
     result
   ensure
     @app.navigate(:home)
@@ -48,8 +52,6 @@ class PDFScrollVerification
   def surface = get(:pdf_surface)
 
   def check(message, condition)
-    raise message if @strict && !condition
-
     @checks << { check: message, passed: !!condition }
   end
 

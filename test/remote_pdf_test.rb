@@ -27,6 +27,10 @@ class RemotePDFTest < Minitest::Test
       bytes = (length / size).times.map { |part| ((offset / size + part) % 256).chr.b * size }.join
       Aljam3::HTTP::Range.new(bytes, 100_000_000, @edition.to_s, @redirect || url)
     end
+
+    def read_ranges(url, ranges:, **options)
+      ranges.map { |offset, length| read_range(url, offset:, length:, **options) }
+    end
   end
 
   def test_seeking_crosses_blocks_and_reuses_cached_bytes
@@ -63,6 +67,24 @@ class RemotePDFTest < Minitest::Test
     assert_equal [[0, size], [5 * size, 8 * size], [13 * size, 4 * size]], http.calls.map { |call| call[1, 2] }
     assert_equal expected, source.read(5 * size, 12 * size)
     assert_equal 3, http.calls.size
+  end
+
+  def test_index_prefetch_is_bounded_and_reuses_only_valid_complete_batches
+    http = HTTP.new
+    source = Aljam3::RemotePDF.new("book.pdf", http:)
+    size = Aljam3::RemotePDF::BLOCK_SIZE
+    source.size
+    source.prefetch_index([0, -1, 100_000_001, *(1..160).map { |n| n * size }], check: -> {})
+    assert_equal 129, http.calls.size
+    before = http.calls.size
+    assert_equal "\x40".b, source.read(64 * size, 1)
+    assert_equal before, http.calls.size
+    assert_equal 128, source.instance_variable_get(:@blocks).size
+    http.edition = 2
+    assert_raises(Aljam3::RemoteFileChangedError) do
+      source.prefetch_index((170..180).map { |n| n * size }, check: -> {})
+    end
+    assert_empty source.instance_variable_get(:@blocks)
   end
 
   def test_expired_cdn_url_is_resolved_again_without_discarding_valid_cached_chunks

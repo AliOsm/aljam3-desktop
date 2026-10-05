@@ -63,4 +63,25 @@ class PDFPipelineTest < Minitest::Test
       end
     end
   end
+
+  def test_scattered_flat_page_index_prefetch_keeps_correct_pixels_and_bounded_bytes
+    data = RangePDF.image_document(pages: 96)
+    Dir.mktmpdir do |directory|
+      path = File.join(directory, "flat.pdf")
+      File.binwrite(path, data)
+      pdf = Aljam3::PDF.new(cache: File.join(directory, "renders"))
+      RangePDF.serve(data) do |url, requests|
+        source = Aljam3::RemotePDF.new(url)
+        [96, 1, 48, 95].each do |page|
+          remote = pdf.render_bitmap(source, page:, width: 240)
+          local = pdf.render_bitmap(path, page:, width: 240)
+          assert_equal local.pixels, remote.pixels, "Index hints cannot change the page selected by PDFium"
+        end
+        assert_operator requests.sum(&:last), :<, data.bytesize / 2
+        assert_operator source.instance_variable_get(:@blocks).size, :<=, Aljam3::RemotePDF::CACHE_BLOCKS
+      end
+    ensure
+      pdf&.close
+    end
+  end
 end

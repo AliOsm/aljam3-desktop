@@ -1,7 +1,7 @@
 {
   "version": "0.1.26",
   "baseline_revision": "1f1681055167e32b7049bdd1c71c157597487791",
-  "measured_at": "2026-10-05T12:07:24.947151+00:00",
+  "measured_at": "2026-10-05T12:43:15.054837+00:00",
   "host": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
   "method": "Separate sequential headless native runs, same public 96-page scanned PDF, 120 wheel inputs scheduled at 60 Hz, then page 96 / 48 seeks and a return to 96. Online mode uses a local HTTP range server adding 40 ms per request. Actual input intervals and run durations are included. This measures displayed page availability and first displayed pixels, not guaranteed frame rate or Internet latency. Baseline performance checks intentionally report failures without aborting the comparison.",
   "baseline": {
@@ -12,7 +12,7 @@
         "wheel_samples": 120,
         "duration_ms": 2000.07,
         "pages_crossed": 11,
-        "input_interval_p95_ms": 16.74,
+        "input_interval_p95_ms": 17.67,
         "initial_scroll": 0,
         "requested_scroll_distance": 4723.2,
         "actual_scroll_distance": 4723,
@@ -23,30 +23,32 @@
         "missing_image_percent": 75.0,
         "incomplete_viewport_samples": 97,
         "incomplete_viewport_percent": 80.83,
-        "longest_blank_ms": 1836.11,
+        "longest_blank_ms": 1887.52,
         "long_seeks": [
           {
             "page": 96,
-            "first_pixels_ms": 236.09,
-            "sharp_and_prefetched_ms": 285.75
+            "first_pixels_ms": 241.24,
+            "sharp_and_prefetched_ms": 286.99
           },
           {
             "page": 48,
-            "first_pixels_ms": 206.02,
-            "sharp_and_prefetched_ms": 422.9
+            "first_pixels_ms": 205.83,
+            "sharp_and_prefetched_ms": 435.88
           }
         ],
-        "cached_return_ms": 9.48,
+        "cached_return_ms": 9.9,
         "cached_return_immediate": false,
         "retained_pixel_bytes": null,
         "range_requests": 11,
+        "range_bytes": 662516,
+        "file_bytes": 1252340,
         "range_delay_ms": 40
       },
       "offline": {
         "wheel_samples": 120,
         "duration_ms": 2000.07,
         "pages_crossed": 11,
-        "input_interval_p95_ms": 16.71,
+        "input_interval_p95_ms": 17.11,
         "initial_scroll": 0,
         "requested_scroll_distance": 4723.2,
         "actual_scroll_distance": 4723,
@@ -57,20 +59,20 @@
         "missing_image_percent": 75.0,
         "incomplete_viewport_samples": 97,
         "incomplete_viewport_percent": 80.83,
-        "longest_blank_ms": 1775.93,
+        "longest_blank_ms": 1799.98,
         "long_seeks": [
           {
             "page": 96,
-            "first_pixels_ms": 148.59,
-            "sharp_and_prefetched_ms": 191.7
+            "first_pixels_ms": 154.41,
+            "sharp_and_prefetched_ms": 204.11
           },
           {
             "page": 48,
-            "first_pixels_ms": 152.27,
-            "sharp_and_prefetched_ms": 335.87
+            "first_pixels_ms": 162.15,
+            "sharp_and_prefetched_ms": 345.78
           }
         ],
-        "cached_return_ms": 12.86,
+        "cached_return_ms": 10.22,
         "cached_return_immediate": false,
         "retained_pixel_bytes": null
       }
@@ -150,7 +152,7 @@
         "wheel_samples": 120,
         "duration_ms": 2000.1,
         "pages_crossed": 11,
-        "input_interval_p95_ms": 28.66,
+        "input_interval_p95_ms": 27.51,
         "initial_scroll": 0,
         "requested_scroll_distance": 4723.2,
         "actual_scroll_distance": 4723,
@@ -165,26 +167,28 @@
         "long_seeks": [
           {
             "page": 96,
-            "first_pixels_ms": 126.51,
-            "sharp_and_prefetched_ms": 168.16
+            "first_pixels_ms": 126.89,
+            "sharp_and_prefetched_ms": 169.89
           },
           {
             "page": 48,
-            "first_pixels_ms": 86.7,
-            "sharp_and_prefetched_ms": 404.66
+            "first_pixels_ms": 94.34,
+            "sharp_and_prefetched_ms": 407.22
           }
         ],
-        "cached_return_ms": 8.47,
+        "cached_return_ms": 10.14,
         "cached_return_immediate": true,
         "retained_pixel_bytes": 33384832,
         "range_requests": 13,
+        "range_bytes": 859124,
+        "file_bytes": 1252340,
         "range_delay_ms": 40
       },
       "offline": {
         "wheel_samples": 120,
         "duration_ms": 2000.11,
         "pages_crossed": 11,
-        "input_interval_p95_ms": 27.61,
+        "input_interval_p95_ms": 28.54,
         "initial_scroll": 0,
         "requested_scroll_distance": 4723.2,
         "actual_scroll_distance": 4723,
@@ -199,16 +203,16 @@
         "long_seeks": [
           {
             "page": 96,
-            "first_pixels_ms": 43.55,
-            "sharp_and_prefetched_ms": 125.24
+            "first_pixels_ms": 43.35,
+            "sharp_and_prefetched_ms": 125.21
           },
           {
             "page": 48,
-            "first_pixels_ms": 59.12,
-            "sharp_and_prefetched_ms": 316.48
+            "first_pixels_ms": 43.97,
+            "sharp_and_prefetched_ms": 269.3
           }
         ],
-        "cached_return_ms": 8.8,
+        "cached_return_ms": 8.88,
         "cached_return_immediate": true,
         "retained_pixel_bytes": 33384832
       }
@@ -295,5 +299,317 @@
         "passed": true
       }
     ]
+  },
+  "flat_index": {
+    "before_parallel_index": {
+      "passed": false,
+      "fixture": "96-page generated image PDF",
+      "measurements": {
+        "online": {
+          "wheel_samples": 120,
+          "duration_ms": 2220.75,
+          "pages_crossed": 11,
+          "input_interval_p95_ms": 51.47,
+          "initial_scroll": 0,
+          "requested_scroll_distance": 4723.2,
+          "actual_scroll_distance": 4723,
+          "first_page": 1,
+          "last_page": 11,
+          "renders_during_scrolling": 18,
+          "missing_image_samples": 0,
+          "missing_image_percent": 0.0,
+          "incomplete_viewport_samples": 0,
+          "incomplete_viewport_percent": 0.0,
+          "longest_blank_ms": 0,
+          "long_seeks": [
+            {
+              "page": 96,
+              "first_pixels_ms": 3631.23,
+              "sharp_and_prefetched_ms": 3700.24
+            },
+            {
+              "page": 48,
+              "first_pixels_ms": 109.16,
+              "sharp_and_prefetched_ms": 686.8
+            }
+          ],
+          "cached_return_ms": 42.54,
+          "cached_return_immediate": true,
+          "retained_pixel_bytes": 32587776,
+          "range_requests": 129,
+          "range_delay_ms": 40
+        },
+        "offline": {
+          "wheel_samples": 120,
+          "duration_ms": 2002.35,
+          "pages_crossed": 11,
+          "input_interval_p95_ms": 39.15,
+          "initial_scroll": 0,
+          "requested_scroll_distance": 4723.2,
+          "actual_scroll_distance": 4723,
+          "first_page": 1,
+          "last_page": 11,
+          "renders_during_scrolling": 30,
+          "missing_image_samples": 0,
+          "missing_image_percent": 0.0,
+          "incomplete_viewport_samples": 0,
+          "incomplete_viewport_percent": 0.0,
+          "longest_blank_ms": 0,
+          "long_seeks": [
+            {
+              "page": 96,
+              "first_pixels_ms": 45.56,
+              "sharp_and_prefetched_ms": 134.76
+            },
+            {
+              "page": 48,
+              "first_pixels_ms": 71.77,
+              "sharp_and_prefetched_ms": 308.73
+            }
+          ],
+          "cached_return_ms": 13.75,
+          "cached_return_immediate": true,
+          "retained_pixel_bytes": 33275904
+        }
+      },
+      "checks": [
+        {
+          "check": "online: pages render while wheel input continues",
+          "passed": true
+        },
+        {
+          "check": "online: scrolling crosses at least eight pages",
+          "passed": true
+        },
+        {
+          "check": "online: page updates preserve wheel distance",
+          "passed": true
+        },
+        {
+          "check": "online: visible-page loading occupies under 20% of continuous-scroll samples",
+          "passed": true
+        },
+        {
+          "check": "online: every visible page has pixels in at least 80% of scroll samples",
+          "passed": true
+        },
+        {
+          "check": "online: uncached long seeks produce pixels within 1.5 seconds",
+          "passed": false
+        },
+        {
+          "check": "online: returning to a recent page has no loading placeholder",
+          "passed": true
+        },
+        {
+          "check": "online: returning to a recent page does not render it again",
+          "passed": true
+        },
+        {
+          "check": "online: retained page pixels stay within 32 MiB",
+          "passed": true
+        },
+        {
+          "check": "online: scrolling writes no PNG files",
+          "passed": true
+        },
+        {
+          "check": "offline: pages render while wheel input continues",
+          "passed": true
+        },
+        {
+          "check": "offline: scrolling crosses at least eight pages",
+          "passed": true
+        },
+        {
+          "check": "offline: page updates preserve wheel distance",
+          "passed": true
+        },
+        {
+          "check": "offline: visible-page loading occupies under 20% of continuous-scroll samples",
+          "passed": true
+        },
+        {
+          "check": "offline: every visible page has pixels in at least 80% of scroll samples",
+          "passed": true
+        },
+        {
+          "check": "offline: uncached long seeks produce pixels within 1.5 seconds",
+          "passed": true
+        },
+        {
+          "check": "offline: returning to a recent page has no loading placeholder",
+          "passed": true
+        },
+        {
+          "check": "offline: returning to a recent page does not render it again",
+          "passed": true
+        },
+        {
+          "check": "offline: retained page pixels stay within 32 MiB",
+          "passed": true
+        },
+        {
+          "check": "offline: scrolling writes no PNG files",
+          "passed": true
+        }
+      ]
+    },
+    "current": {
+      "passed": true,
+      "fixture": "96-page generated image PDF",
+      "measurements": {
+        "online": {
+          "wheel_samples": 120,
+          "duration_ms": 2000.14,
+          "pages_crossed": 11,
+          "input_interval_p95_ms": 30.51,
+          "initial_scroll": 0,
+          "requested_scroll_distance": 4723.2,
+          "actual_scroll_distance": 4723,
+          "first_page": 1,
+          "last_page": 11,
+          "renders_during_scrolling": 18,
+          "missing_image_samples": 0,
+          "missing_image_percent": 0.0,
+          "incomplete_viewport_samples": 0,
+          "incomplete_viewport_percent": 0.0,
+          "longest_blank_ms": 0,
+          "long_seeks": [
+            {
+              "page": 96,
+              "first_pixels_ms": 1066.55,
+              "sharp_and_prefetched_ms": 1134.04
+            },
+            {
+              "page": 48,
+              "first_pixels_ms": 120.41,
+              "sharp_and_prefetched_ms": 680.45
+            }
+          ],
+          "cached_return_ms": 17.64,
+          "cached_return_immediate": true,
+          "retained_pixel_bytes": 33275904,
+          "range_requests": 135,
+          "range_bytes": 10921154,
+          "file_bytes": 18916546,
+          "range_delay_ms": 40
+        },
+        "offline": {
+          "wheel_samples": 120,
+          "duration_ms": 2000.14,
+          "pages_crossed": 11,
+          "input_interval_p95_ms": 30.55,
+          "initial_scroll": 0,
+          "requested_scroll_distance": 4723.2,
+          "actual_scroll_distance": 4723,
+          "first_page": 1,
+          "last_page": 11,
+          "renders_during_scrolling": 28,
+          "missing_image_samples": 0,
+          "missing_image_percent": 0.0,
+          "incomplete_viewport_samples": 0,
+          "incomplete_viewport_percent": 0.0,
+          "longest_blank_ms": 0,
+          "long_seeks": [
+            {
+              "page": 96,
+              "first_pixels_ms": 68.0,
+              "sharp_and_prefetched_ms": 130.56
+            },
+            {
+              "page": 48,
+              "first_pixels_ms": 36.82,
+              "sharp_and_prefetched_ms": 231.97
+            }
+          ],
+          "cached_return_ms": 9.21,
+          "cached_return_immediate": true,
+          "retained_pixel_bytes": 33275904
+        }
+      },
+      "checks": [
+        {
+          "check": "online: pages render while wheel input continues",
+          "passed": true
+        },
+        {
+          "check": "online: scrolling crosses at least eight pages",
+          "passed": true
+        },
+        {
+          "check": "online: page updates preserve wheel distance",
+          "passed": true
+        },
+        {
+          "check": "online: visible-page loading occupies under 20% of continuous-scroll samples",
+          "passed": true
+        },
+        {
+          "check": "online: every visible page has pixels in at least 80% of scroll samples",
+          "passed": true
+        },
+        {
+          "check": "online: uncached long seeks produce pixels within 1.5 seconds",
+          "passed": true
+        },
+        {
+          "check": "online: returning to a recent page has no loading placeholder",
+          "passed": true
+        },
+        {
+          "check": "online: returning to a recent page does not render it again",
+          "passed": true
+        },
+        {
+          "check": "online: retained page pixels stay within 32 MiB",
+          "passed": true
+        },
+        {
+          "check": "online: scrolling writes no PNG files",
+          "passed": true
+        },
+        {
+          "check": "offline: pages render while wheel input continues",
+          "passed": true
+        },
+        {
+          "check": "offline: scrolling crosses at least eight pages",
+          "passed": true
+        },
+        {
+          "check": "offline: page updates preserve wheel distance",
+          "passed": true
+        },
+        {
+          "check": "offline: visible-page loading occupies under 20% of continuous-scroll samples",
+          "passed": true
+        },
+        {
+          "check": "offline: every visible page has pixels in at least 80% of scroll samples",
+          "passed": true
+        },
+        {
+          "check": "offline: uncached long seeks produce pixels within 1.5 seconds",
+          "passed": true
+        },
+        {
+          "check": "offline: returning to a recent page has no loading placeholder",
+          "passed": true
+        },
+        {
+          "check": "offline: returning to a recent page does not render it again",
+          "passed": true
+        },
+        {
+          "check": "offline: retained page pixels stay within 32 MiB",
+          "passed": true
+        },
+        {
+          "check": "offline: scrolling writes no PNG files",
+          "passed": true
+        }
+      ]
+    }
   }
 }
