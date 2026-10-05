@@ -5,12 +5,15 @@ on:
       build_run_id:
         description: Optional Mac package run to recheck the update lifecycle
         default: ''
+      windows_run_id:
+        description: Windows package run to recheck the actual update on ARM
+        default: ''
 permissions:
   contents: read
   actions: read
 jobs:
   helpers:
-    if: inputs.build_run_id == ''
+    if: inputs.build_run_id == '' && inputs.windows_run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -45,6 +48,43 @@ jobs:
         if: always()
         with:
           name: update-helper-${{ runner.os }}
+          path: dist/update-verification/
+          retention-days: 1
+
+  windows-lifecycle:
+    if: inputs.windows_run_id != ''
+    runs-on: windows-11-arm
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aljam3-windows-x64
+          path: dist
+          run-id: ${{ inputs.windows_run_id }}
+          github-token: ${{ github.token }}
+      - name: Bootstrap bundled Ruby from the installer
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem dist/*-setup.exe | Sort-Object Name | Select-Object -Last 1).FullName
+          $expected = (Get-Content "$installer.sha256").Split(' ')[0]
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne $expected) { throw 'Installer checksum mismatch' }
+          $installation = Join-Path $env:RUNNER_TEMP 'Aljam3'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$installation`"") -PassThru -Wait
+          if ($process.ExitCode) { throw 'Bootstrap installation failed' }
+          $runtime = Join-Path $installation 'resources/ruby'
+          $libraries = @('site_ruby/3.4.0', 'site_ruby/3.4.0/x64-mingw-ucrt', 'site_ruby', 'vendor_ruby/3.4.0', 'vendor_ruby/3.4.0/x64-mingw-ucrt', 'vendor_ruby', '3.4.0', '3.4.0/x64-mingw-ucrt')
+          "RUBYLIB=$(($libraries | ForEach-Object { Join-Path $runtime "lib/ruby/$_" }) -join ';')" >> $env:GITHUB_ENV
+          "ALJAM3_TEST_RUBY=$runtime/bin.real/ruby.exe" >> $env:GITHUB_ENV
+      - name: Verify actual update using fresh results
+        shell: pwsh
+        run: |
+          & $env:ALJAM3_TEST_RUBY bin/retest-windows-update
+          if ($LASTEXITCODE) { throw 'Update verification failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: update-lifecycle-windows-arm
           path: dist/update-verification/
           retention-days: 1
 

@@ -1,0 +1,32 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "json"
+require "digest"
+abort "Use a disposable Windows CI runner" unless ENV["GITHUB_ACTIONS"] == "true" && Gem.win_platform?
+root = File.expand_path("..", __dir__)
+resources = File.expand_path("../..", ENV.fetch("ALJAM3_TEST_RUBY"))
+# ALJAM3_TEST_RUBY is resources/ruby/bin.real/ruby.exe.
+resources = File.dirname(resources)
+seed = File.join(root, ".cache/update-seed.rb")
+FileUtils.mkdir_p(".cache")
+File.write(seed, <<~RUBY)
+  ENV["SSL_CERT_FILE"] = #{File.join(resources, 'ruby/lib/ca-bundle.crt').inspect}
+  ENV.delete("SSL_CERT_DIR")
+  ENV.delete("SQLITE_TOKENIZER_AR_EXTENSION")
+  require "rubygems"
+  Gem.use_paths(#{File.join(resources, 'gems').inspect}, [#{File.join(resources, 'ruby/lib/ruby/gems/3.4.0').inspect}])
+  require #{File.join(resources, 'app/lib/aljam3').inspect}
+  directory = #{File.join(root, '.cache/smoke').inspect}
+  store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
+  Aljam3::Downloader.new(api: Aljam3::API.new, store: store, directory: File.join(directory, "books")).call(1)
+  store.close
+RUBY
+raise "Seed failed" unless system(ENV.fetch("ALJAM3_TEST_RUBY"), seed)
+# A deliberately stale report must not let the verifier pass without an upgrade.
+FileUtils.mkdir_p("dist/update-verification")
+File.write("dist/update-verification/passed.json", JSON.generate(passed: false, stale: true))
+raise "Update failed" unless system(ENV.fetch("ALJAM3_TEST_RUBY"), "bin/verify-update")
+report = JSON.parse(File.read("dist/update-verification/passed.json"))
+raise "Stale report survived" unless report["passed"] && report["version"] == "0.0.2" && !report["stale"]

@@ -24,6 +24,7 @@ else
 end
 home = File.join(workspace, "home")
 output = File.join(root, "dist/update-verification")
+%w[passed.json failed.txt].each { |name| FileUtils.rm_f(File.join(output, name)) }
 FileUtils.mkdir_p([home, output])
 FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(home, "data"))
 sentinel = File.join(workspace, "books.json")
