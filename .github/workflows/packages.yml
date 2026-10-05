@@ -2,6 +2,11 @@ name: Build packages
 
 on:
   workflow_dispatch:
+    inputs:
+      test_pair:
+        description: Build and verify the temporary 0.0.1 to 0.0.2 update
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -18,9 +23,10 @@ jobs:
           - runner: windows-2022
             target: windows-x64
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 60
+    timeout-minutes: 120
     env:
       MACOSX_DEPLOYMENT_TARGET: '13.0'
+      ALJAM3_TEST_PAIR: ${{ inputs.test_pair }}
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
@@ -62,28 +68,39 @@ jobs:
           bundle exec ruby bin/verify-ui interaction
       - name: Download and verify a real sample book
         run: bundle exec ruby bin/smoke
-      - name: Assemble standalone application
-        run: bundle exec ruby bin/package
       - name: Keep the invisible Mac benchmark from background throttling
         if: runner.os == 'macOS'
         run: |
           clang -dynamiclib -framework Foundation packaging/macos_motion_activity.m -o "$RUNNER_TEMP/motion-activity.dylib"
           echo "ALJAM3_MOTION_ACTIVITY=$RUNNER_TEMP/motion-activity.dylib" >> "$GITHUB_ENV"
-      - name: Verify relocated app with its bundled Ruby
+      - name: Build and verify release packages
         env:
-          # The relocated runtime renders the complete light/dark screenshot suite.
-          ALJAM3_VERIFY_TIMEOUT: '240'
-        run: ruby bin/verify-package
-      - name: Archive verified app
-        run: ruby bin/archive-package
+          ALJAM3_VERIFY_TIMEOUT: '600'
+        run: bundle exec ruby bin/build-release
+      - name: Verify Windows installation and uninstallation
+        if: runner.os == 'Windows'
+        env:
+          ALJAM3_VERIFY_TIMEOUT: '600'
+        run: ruby bin/verify-installer
+      - name: Sign test update metadata
+        if: inputs.test_pair
+        env:
+          UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
+        run: ruby bin/sign-release dist 0.0.2
+      - name: Verify actual update and relaunch from 0.0.1 to 0.0.2
+        if: inputs.test_pair
+        run: ruby bin/verify-update
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Aljam3-${{ matrix.target }}
           path: |
             dist/*.zip
+            dist/*-setup.exe
             dist/*.sha256
             dist/verification/
+            dist/installer-verification/
+            dist/update-verification/
           if-no-files-found: warn
           retention-days: 1
 
@@ -107,7 +124,7 @@ jobs:
           sw_vers
           cd input
           shasum -a 256 -c *.zip.sha256
-          ditto -x -k Aljam3-*.zip ../dist
+          ditto -x -k "$(ls Aljam3-*.zip | sort -V | tail -1)" ../dist
       - name: Prepare headless verification helpers
         run: ruby bin/setup --prepare
       - name: Exercise bundled PDF cancellation and rapid navigation

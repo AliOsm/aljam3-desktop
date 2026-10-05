@@ -1,0 +1,55 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "json"
+require "digest"
+require "timeout"
+
+abort "Run only on disposable macOS/Windows CI runners" unless ENV["GITHUB_ACTIONS"] == "true"
+root = File.expand_path("..", __dir__)
+windows = Gem.win_platform?
+target = windows ? "windows-x64" : "macos-arm64"
+suffix = windows ? "-setup.exe" : ".zip"
+workspace = File.join(root, ".cache/Update Test - مكتبة الجامع")
+FileUtils.rm_rf(workspace)
+FileUtils.mkdir_p(workspace)
+bundle = File.join(workspace, windows ? "Installed App" : "Aljam3.app")
+old = File.join(root, "dist/Aljam3-0.0.1-#{target}#{suffix}")
+new_package = File.join(root, "dist/Aljam3-0.0.2-#{target}#{suffix}")
+if windows
+  abort "Old installer failed" unless system([old, old], "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=#{bundle}")
+else
+  abort "Old app extraction failed" unless system("ditto", "-x", "-k", old, workspace)
+end
+home = File.join(workspace, "home")
+output = File.join(root, "dist/update-verification")
+FileUtils.mkdir_p([home, output])
+FileUtils.cp_r(File.join(root, ".cache/smoke"), File.join(home, "data"))
+sentinel = File.join(workspace, "books.json")
+books = Dir.glob(File.join(home, "data/books/**/*.pdf"))
+raise "No downloaded sample books" if books.empty?
+File.write(sentinel, JSON.generate(books.to_h { |path| [path, Digest::SHA256.file(path).hexdigest] }))
+env = {
+  "ALJAM3_DATA_DIR" => File.join(home, "data"), "ALJAM3_API_URL" => "http://127.0.0.1:1",
+  "SCARPE_NATIVE_HEADLESS" => "1", "SCARPE_RUN_FILE" => File.join(root, "packaging/update_probe.rb"),
+  "ALJAM3_VERIFY_OUTPUT" => output, "ALJAM3_UPGRADE_MANIFEST" => File.join(root, "dist/update-0.0.2.json"),
+  "ALJAM3_UPGRADE_PACKAGE" => new_package, "ALJAM3_UPGRADE_SENTINEL" => sentinel
+}
+launcher = File.join(bundle, windows ? "Aljam3.exe" : "Contents/MacOS/aljam3")
+log = File.open(File.join(output, "app.log"), "w")
+pid = Process.spawn(env, [launcher, launcher], out: log, err: log)
+begin
+  Timeout.timeout(360) do
+    until File.file?(File.join(output, "passed.json"))
+      raise File.read(File.join(output, "failed.txt")) if File.file?(File.join(output, "failed.txt"))
+      sleep 0.25
+    end
+  end
+  puts File.read(File.join(output, "passed.json"))
+ensure
+  Process.detach(pid)
+  log.close
+  Dir.glob(File.join(home, "data/updates/*.log")).each { |path| FileUtils.cp(path, output) }
+  FileUtils.cp(File.join(home, "data/launcher.log"), output) if File.file?(File.join(home, "data/launcher.log"))
+end

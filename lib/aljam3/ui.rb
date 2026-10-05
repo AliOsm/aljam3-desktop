@@ -16,10 +16,11 @@ require_relative "ui/feedback"
 require_relative "ui/exports"
 require_relative "ui/motion"
 require_relative "ui/navigation"
+require_relative "ui/updates"
 
 module Aljam3
   module UI
-    include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation
+    include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation, UpdateScreen
 
     def setup
       directory = Aljam3.data_directory
@@ -42,6 +43,7 @@ module Aljam3
       @network_worker, @render_worker, @page_worker, @export_worker = Array.new(4) { Worker.new }
       @workers = [@network_worker, @render_worker, @page_worker, @export_worker]
       @notifications = Notifications.new
+      setup_updates(directory)
       @file_operations = {}
       @download_queue = Downloads.new(store: @store, downloader: @downloader) { |download| notify_download(download) }
       @downloaded_ids = @store.downloaded_ids
@@ -137,6 +139,7 @@ module Aljam3
         render_pdf if reader_pdf?
       end
       tick_feedback
+      tick_updates
     end
 
     def draw_window
@@ -239,10 +242,11 @@ module Aljam3
           navigation_button("التصنيفات", :categories, width: 88)
           navigation_button("المؤلفون", :authors, width: 80)
           navigation_button("الكتب", :browse, width: 68)
-          stack(width: -606, height: 1)
+          stack(width: -642, height: 1)
           navigation_button("كتبي المحمّلة", :saved, width: 116)
           navigation_button("التنزيلات", :downloads, width: 90)
           icon_button(@theme == :dark ? "sun" : "moon", @theme == :dark ? "الوضع الفاتح" : "الوضع الداكن") { toggle_theme }
+          icon_button("refresh-cw", "تحديثات التطبيق", key: :app_updates) { open_dialog(:updates) }
         end
       end
     end

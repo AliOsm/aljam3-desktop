@@ -89,7 +89,7 @@ fn launch() -> io::Result<i32> {
     {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
-            "ملفات التطبيق غير مكتملة. استخرج ملف ZIP بالكامل ثم افتح Aljam3.exe.",
+            "ملفات التطبيق غير مكتملة. أعد تثبيت الجامع باستخدام برنامج التثبيت.",
         ));
     }
     let mut command = Command::new(runtime.join("bin.real/ruby.exe"));
@@ -97,6 +97,7 @@ fn launch() -> io::Result<i32> {
         .arg(resources.join("boot.rb"))
         .args(env::args_os().skip(1))
         .env("RUBYLIB", rubylib)
+        .env("ALJAM3_LAUNCHER_PID", process::id().to_string())
         .env("SCARPE_NATIVE_BIN", root.join("scarpe-native.exe"))
         .env("SSL_CERT_FILE", runtime.join("lib/ca-bundle.crt"))
         .env_remove("SSL_CERT_DIR")

@@ -6,10 +6,15 @@ require "fileutils"
 require "rbconfig"
 require "digest"
 require "json"
+require "openssl"
+require "base64"
+require_relative "../lib/aljam3/version"
 
 ROOT = File.expand_path("..", __dir__)
 WINDOWS = Gem.win_platform?
 TARGET = WINDOWS ? "windows-x64" : "macos-arm64"
+VERSION = ENV.fetch("ALJAM3_VERSION", Aljam3::VERSION)
+abort "Invalid version" unless /\A\d+\.\d+\.\d+\z/.match?(VERSION)
 RUBY_ASSETS = {
   "macos-arm64" => ["macos-arm64", "5c76fb1a8fdc991f524c9df94188cfe76bba23c6ac84393ad68a3014ce4f62a8"],
   "windows-x64" => ["windows-x86_64", "25105b5a0e43bf3a41591f926ac9b033c482d1787a7c6e150b33c200d41ab5d0"]
@@ -60,6 +65,7 @@ Dir.chdir(ROOT) do
   end
   copy("vendor/scarpe/native/assets/fonts", File.join(resources, "licenses/scarpe-fonts"))
   copy("packaging/boot.rb", File.join(resources, "boot.rb"))
+  copy("packaging/update-public.pem", File.join(resources, "update-public.pem"))
   copy("README.md", File.join(WINDOWS ? bundle : resources, "README.md"))
   gems = %w[base64 logger ffi sqlite3 chunky_png].map { |name| Gem::Specification.find_by_name(name) }
   gems.each do |spec|
@@ -72,7 +78,7 @@ Dir.chdir(ROOT) do
   renderer = "scarpe-native#{'.exe' if WINDOWS}"
   copy("vendor/scarpe/native/target/release/#{renderer}", File.join(binary_dir, renderer))
   revision = IO.popen(["git", "rev-parse", "HEAD"], &:read).strip
-  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: "0.0.1", revision:, target: TARGET,
+  File.write(File.join(resources, "build.json"), JSON.pretty_generate({ version: VERSION, revision:, target: TARGET,
     ruby: "3.4.7", scarpe: "47256367a4d3cefbb39756d8c3287814db72e927", gems: gems.map(&:full_name) }))
 
   if WINDOWS
@@ -81,10 +87,29 @@ Dir.chdir(ROOT) do
     run("rc", "/nologo", "/fo", resource, "packaging/windows-icon.rc")
     run("rustc", "packaging/windows-launcher.rs", "--edition", "2021", "-O", "-C", "target-feature=+crt-static",
       "-C", "linker=#{linker}", "-C", "link-arg=#{resource}", "-o", File.join(bundle, "Aljam3.exe"))
+    run("rustc", "packaging/windows-updater.rs", "--edition", "2021", "-O", "-C", "target-feature=+crt-static",
+      "-C", "linker=#{linker}", "-o", File.join(resources, "update.exe"))
   else
+    sparkle_archive = ".cache/packaging/Sparkle-2.10.0.tar.xz"
+    checksum = "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c"
+    unless File.file?(sparkle_archive) && Digest::SHA256.file(sparkle_archive).hexdigest == checksum
+      run("curl", "--fail", "--location", "--silent", "--show-error", "--retry", "2",
+        "https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz", "--output", sparkle_archive)
+    end
+    abort "Sparkle checksum mismatch" unless Digest::SHA256.file(sparkle_archive).hexdigest == checksum
+    framework_dir = File.join(bundle, "Contents/Frameworks")
+    FileUtils.mkdir_p(framework_dir)
+    run("tar", "-xf", sparkle_archive, "-C", framework_dir, "./Sparkle.framework")
+    run("clang", "-fobjc-arc", "-mmacosx-version-min=13.0", "-F#{framework_dir}", "-framework", "Sparkle",
+      "-framework", "AppKit", "-Wl,-rpath,@loader_path/../Frameworks", "packaging/macos-updater.m", "-o", File.join(resources, "update"))
     copy("packaging/macos-launcher", File.join(binary_dir, "aljam3"))
     FileUtils.chmod(0o755, File.join(binary_dir, "aljam3"))
     copy("packaging/Info.plist", File.join(bundle, "Contents/Info.plist"))
+    plist = File.join(bundle, "Contents/Info.plist")
+    %w[CFBundleVersion CFBundleShortVersionString].each { |key| run("/usr/libexec/PlistBuddy", "-c", "Set :#{key} #{VERSION}", plist) }
+    public_key = Base64.strict_encode64(OpenSSL::PKey.read(File.read("packaging/update-public.pem")).public_to_der.byteslice(-32, 32))
+    run("/usr/libexec/PlistBuddy", "-c", "Add :SUPublicEDKey string #{public_key}", plist)
+    run("/usr/libexec/PlistBuddy", "-c", "Add :SUEnableAutomaticChecks bool false", plist)
     %w[ar en].each { |language| copy("packaging/#{language}.lproj", File.join(resources, "#{language}.lproj")) }
     iconset = File.join(ROOT, ".cache/packaging/aljam3.iconset")
     FileUtils.mkdir_p(iconset)
@@ -101,6 +126,7 @@ Dir.chdir(ROOT) do
 
       run("codesign", "--force", "--sign", "-", "--timestamp=none", path, out: File::NULL, err: File::NULL)
     end
+    run("codesign", "--force", "--deep", "--sign", "-", "--timestamp=none", File.join(framework_dir, "Sparkle.framework"))
     run("codesign", "--force", "--sign", "-", "--timestamp=none", bundle)
     run("codesign", "--verify", "--deep", "--strict", bundle)
   end

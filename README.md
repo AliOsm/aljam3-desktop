@@ -33,7 +33,9 @@ GitHub builds run manually. Temporary artifacts expire after one day; delete tes
 
 ## Installation and data
 
-On Mac, extract the ZIP and move `Aljam3.app` to Applications. The app is ad-hoc signed without notarization; macOS may require **Privacy & Security → Open Anyway**. On Windows, run the installer or extract the entire portable ZIP. Windows executables are unsigned and may trigger SmartScreen.
+On Mac, extract the ZIP and move `Aljam3.app` to Applications. The app is ad-hoc signed without notarization; macOS may require **Privacy & Security → Open Anyway**. On Windows, run the installer. Windows executables are unsigned and may trigger SmartScreen.
+
+Installed apps check GitHub Releases daily and download signed updates in the background. Use the update icon to check manually, then choose **إعادة التشغيل والتحديث** when ready. Books and reading positions survive the restart. Mac installation uses [Sparkle](https://sparkle-project.org); Windows uses the installer with a recovery copy of the previous app.
 
 Books, settings, and reading positions are stored outside the app:
 

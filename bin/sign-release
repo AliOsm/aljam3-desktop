@@ -1,0 +1,29 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "openssl"
+require "json"
+require "base64"
+require "digest"
+require_relative "../lib/aljam3/updates"
+
+directory, version = ARGV
+abort "Usage: bin/sign-release DIRECTORY VERSION (UPDATE_PRIVATE_KEY required)" unless directory && version
+abort "Invalid version" unless /\A\d+\.\d+\.\d+\z/.match?(version)
+key = OpenSSL::PKey.read(ENV.fetch("UPDATE_PRIVATE_KEY"))
+public_key = OpenSSL::PKey.read(File.read(File.expand_path("../packaging/update-public.pem", __dir__)))
+abort "Wrong release signing key" unless key.public_to_der == public_key.public_to_der
+packages = {}
+{ "macos-arm64" => ".zip", "windows-x64" => "-setup.exe" }.each do |target, suffix|
+  name = "Aljam3-#{version}-#{target}#{suffix}"
+  path = File.join(directory, name)
+  next unless File.file?(path)
+  packages[target] = { url: "https://github.com/#{Aljam3::Updates::REPOSITORY}/releases/download/v#{version}/#{name}",
+    size: File.size(path), sha256: Digest::SHA256.file(path).hexdigest }
+  packages[target][:sparkle_signature] = Base64.strict_encode64(key.sign(nil, File.binread(path))) if target == "macos-arm64"
+end
+abort "No packages found" if packages.empty?
+payload = JSON.generate({ version:, packages: })
+envelope = { payload: Base64.strict_encode64(payload), signature: Base64.strict_encode64(key.sign(nil, payload)) }
+File.write(File.join(directory, "update-#{version}.json"), JSON.pretty_generate(envelope) + "\n")
+puts "Signed #{version}: #{packages.keys.join(', ')}"
