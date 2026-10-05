@@ -64,10 +64,12 @@ module Aljam3
       end
 
       def save_page_image
+        image, file, number = @reader.values_at(:image, :file, :number)
+        return unless image
+
         path = export_destination("png", page: @reader.fetch(:number))
         return unless path
 
-        image, file, number = @reader.values_at(:image, :file, :number)
         book_id = @reader.fetch(:book).fetch("id")
         # A queued render can evict the displayed image before this job runs.
         # Keep the original page identity so retries also survive navigation.

@@ -6,6 +6,7 @@ require_relative "ui/theme"
 require_relative "ui/components"
 require_relative "ui/catalog"
 require_relative "ui/reader"
+require_relative "ui/reader_pdf"
 require_relative "ui/book_search"
 require_relative "ui/dialogs"
 require_relative "ui/browsing"
@@ -18,7 +19,7 @@ require_relative "ui/navigation"
 
 module Aljam3
   module UI
-    include Theme, Components, Catalog, Reader, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation
+    include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation
 
     def setup
       directory = Aljam3.data_directory
@@ -86,8 +87,10 @@ module Aljam3
         end
       end
       finish do
+        save_reader_position if @screen == :reader
         @ticker.remove
         @preference_ticker.remove
+        @reader_pump&.remove
         @motion.cancel
         @download_queue.close
         @workers.each(&:close)
@@ -106,6 +109,7 @@ module Aljam3
     end
 
     def tick
+      pump_reader if @reader_pump
       @workers.each(&:drain)
       render_dialog if @dialog_redraw_pending && @dialog && !@editing_field
       refresh_download_state if @download_queue.tick
@@ -137,7 +141,7 @@ module Aljam3
       @dialog[:scroll] = @dialog_results.scroll_top if @dialog && @dialog_results
       scroll = @results&.scroll_top || 0
       text_scroll = @text_surface&.scroll_top || 0
-      pdf_scroll = @pdf_surface&.scroll_top || 0
+      remember_pdf_anchor
       @progress_views = {}
       @main_width = @screen == :reader ? width - PAGE_MARGIN * 2 : [width - PAGE_MARGIN * 2, 1120].min
       @content_height = [height - PAGE_TOP - STATUS_HEIGHT - 16, 260].max
@@ -172,7 +176,6 @@ module Aljam3
       update_activity
       @results.scroll_top = scroll if @results
       @text_surface.scroll_top = text_scroll if @screen == :reader && @text_surface
-      @pdf_surface.scroll_top = pdf_scroll if @screen == :reader && @pdf_surface
       restore_navigation_scroll
     end
 

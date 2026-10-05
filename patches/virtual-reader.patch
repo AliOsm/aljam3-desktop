@@ -1,0 +1,167 @@
+--- a/lacci/lib/shoes/drawables/image.rb
++++ b/lacci/lib/shoes/drawables/image.rb
+@@ -9,7 +9,7 @@
+ 
+     shoes_styles :url, :width, :height, :top, :left, :click, :rotate_angle, :transform_origin
+     # What a screen reader calls the picture (EXT, ledger N1); Shoes 3 left images unnamed.
+-    shoes_style :alt
++    shoes_styles :alt, :night_mode
+     shoes_events :click, :hover, :leave
+ 
+     init_args :url
+--- a/lacci/lib/shoes/drawables/slot.rb
++++ b/lacci/lib/shoes/drawables/slot.rb
+@@ -92,6 +92,18 @@
+   def scroll_top=(top)
+     @scroll_top = top.to_i
+     send_self_event(top.to_i, event_name: "scroll_top")
++  end
++
++  # Observe native wheel and scrollbar changes without polling layout.
++  def on_scroll(&block)
++    @scroll_handler = block
++    self
++  end
++
++  def scrolled_to(top)
++    changed = @scroll_top != top
++    @scroll_top = top
++    @scroll_handler&.call(top) if changed
+   end
+ 
+   # We use method_missing for drawable-creating methods like "button".
+--- a/lib/scarpe/native/display_service.rb
++++ b/lib/scarpe/native/display_service.rb
+@@ -190,7 +190,8 @@
+         Shoes::DisplayService.para_hit_cache[message["id"]] = message["value"] if display_drawable(message["id"])
+       when "layout" then laid_out(message["rects"])
+       when "resize" then resized(message["app"], message["w"], message["h"])
+-      when "scroll" then lacci_drawable(message["id"])&.instance_variable_set(:@scroll_top, message["top"])
++      when "scroll"
++        guarded("scroll handler") { lacci_drawable(message["id"])&.scrolled_to(message["top"]) }
+       when "transition_end" then transition_ended(message)
+       when "closed" then closed(message["app"])
+       when "log" then log_from_child(message["level"].to_s, message["msg"])
+--- a/native/src/elements/image.rs
++++ b/native/src/elements/image.rs
+@@ -35,7 +35,8 @@
+     /// The batch the file was last looked at in.
+     looked: u64,
+     /// The picture resampled to the device sizes it is drawn at, the last used first.
+-    sized: Vec<Rc<Pixmap>>,
++    sized: Vec<(bool, Rc<Pixmap>)>,
++    night: Option<Rc<Pixmap>>,
+ }
+ 
+ /// How many sizes of one picture are kept, for a picture shown at several sizes at once.
+@@ -68,21 +69,46 @@
+             return entry.image.clone();
+         }
+         let image = file.and_then(|_| decode(path)).map(Rc::new);
+-        self.entries.insert(path.to_path_buf(), Entry { file, image: image.clone(), looked: batch, sized: Vec::new() });
++        self.entries.insert(path.to_path_buf(), Entry { file, image: image.clone(), looked: batch, sized: Vec::new(), night: None });
+         image
++    }
++
++    /// A display-only night variant. The original pixels and exported file stay intact.
++    pub fn in_mode(&mut self, path: &Path, night: bool) -> Option<Rc<Pixmap>> {
++        let image = self.get(path)?;
++        if !night { return Some(image); }
++        let entry = self.entries.get_mut(path)?;
++        if entry.night.is_none() {
++            let mut copy = image.as_ref().clone();
++            for px in copy.data_mut().chunks_exact_mut(4) {
++                // Work in premultiplied space, preserving transparency and mapping
++                // paper to warm charcoal, ink to a soft off-white.
++                let a = px[3] as u32;
++                let luma = (54 * px[0] as u32 + 183 * px[1] as u32 + 19 * px[2] as u32) / 256;
++                for (i, (paper, ink)) in [(30u32, 232u32), (27, 226), (26, 213)].into_iter().enumerate() {
++                    px[i] = ((paper * a + (ink - paper) * (a - luma) + 127) / 255) as u8;
++                }
++            }
++            entry.night = Some(Rc::new(copy));
++        }
++        entry.night.clone()
+     }
+ 
+     /// The picture at `path` resampled to exactly `w` x `h` pixels, made the first time and kept
+     /// after. None for a size too big to keep, or a picture not read.
+     pub fn at_size(&mut self, path: &Path, w: u32, h: u32) -> Option<Rc<Pixmap>> {
++        self.at_size_in_mode(path, w, h, false)
++    }
++
++    fn at_size_in_mode(&mut self, path: &Path, w: u32, h: u32, night: bool) -> Option<Rc<Pixmap>> {
+         if w == 0 || h == 0 || w as u64 * h as u64 > MOST_KEPT_PIXELS {
+             return None;
+         }
+         let entry = self.entries.get_mut(path)?;
+-        let image = entry.image.clone()?;
+-        if let Some(i) = entry.sized.iter().position(|copy| copy.width() == w && copy.height() == h) {
+-            let copy = entry.sized.remove(i);
+-            entry.sized.insert(0, copy.clone());
++        let image = if night { entry.night.clone()? } else { entry.image.clone()? };
++        if let Some(i) = entry.sized.iter().position(|(mode, copy)| *mode == night && copy.width() == w && copy.height() == h) {
++            let (_, copy) = entry.sized.remove(i);
++            entry.sized.insert(0, (night, copy.clone()));
+             return Some(copy);
+         }
+         let mut copy = Pixmap::new(w, h)?;
+@@ -90,7 +116,7 @@
+         let paint = PixmapPaint { quality: FilterQuality::Bicubic, ..PixmapPaint::default() };
+         copy.draw_pixmap(0, 0, image.as_ref().as_ref(), &paint, Transform::from_scale(sx, sy), None);
+         let copy = Rc::new(copy);
+-        entry.sized.insert(0, copy.clone());
++        entry.sized.insert(0, (night, copy.clone()));
+         entry.sized.truncate(SIZES_KEPT);
+         self.resampled += 1;
+         Some(copy)
+@@ -201,7 +227,8 @@
+         return;
+     }
+     let path = url(node);
+-    let Some(mut img) = path.as_ref().and_then(|p| images.get(p)) else {
++    let night = node.props.truthy("night_mode");
++    let Some(mut img) = path.as_ref().and_then(|p| images.in_mode(p, night)) else {
+         if node.props.str("url").is_some_and(|u| !u.is_empty()) {
+             placeholder(canvas, r, lbox.clip);
+         }
+@@ -215,7 +242,7 @@
+     let (w, h) = ((r.right() * base.sx + base.tx).round() - x0, (r.bottom() * base.sy + base.ty).round() - y0);
+     let same_size = w as u32 == img.width() && h as u32 == img.height();
+     if let (None, Some(p), false) = (turned, &path, same_size) {
+-        if let Some(copy) = images.at_size(p, w as u32, h as u32) {
++        if let Some(copy) = images.at_size_in_mode(p, w as u32, h as u32, night) {
+             img = copy;
+         }
+     }
+--- a/native/tests/images.rs
++++ b/native/tests/images.rs
+@@ -106,3 +106,28 @@
+     pixel(&mut h, 30.0, 15.0);
+     assert_eq!(resampled(&h), 2, "a new size makes one more copy");
+ }
++
++#[test]
++fn night_mode_is_cached_display_only_and_survives_resizing_and_rewrites() {
++    let path = scratch("night-mode").join("page.png");
++    png(&path, 20, [255, 255, 255]);
++    let original = std::fs::read(&path).unwrap();
++    let mut h = Harness::new();
++    h.feed(&app(200, 100, &[
++        create(3, "Image", 2, json!({"url": path, "width": 80, "height": 80, "night_mode": true})),
++        create(4, "Image", 2, json!({"url": path, "left": 100, "width": 80, "height": 80})),
++    ]));
++    assert_eq!(pixel(&mut h, 40.0, 40.0), json!([30, 27, 26, 255]));
++    assert_eq!(pixel(&mut h, 140.0, 40.0), json!([255, 255, 255, 255]));
++    assert_eq!(std::fs::read(&path).unwrap(), original);
++    let resampled = h.rt.stats.counter("images_resampled");
++    for _ in 0..3 { pixel(&mut h, 40.0, 40.0); }
++    assert_eq!(h.rt.stats.counter("images_resampled"), resampled);
++    h.feed(&format!("{}\n{{\"t\":\"flush\"}}\n", json!({"t": "props", "id": 3, "props": {"night_mode": false}})));
++    assert_eq!(pixel(&mut h, 40.0, 40.0), json!([255, 255, 255, 255]));
++    h.feed(&format!("{}\n{{\"t\":\"flush\"}}\n", json!({"t": "props", "id": 3, "props": {"night_mode": true, "width": 60}})));
++    assert_eq!(pixel(&mut h, 30.0, 40.0), json!([30, 27, 26, 255]));
++    png(&path, 25, [0, 0, 0]);
++    set_url(&mut h, 3, path.to_str().unwrap());
++    assert_eq!(pixel(&mut h, 30.0, 40.0), json!([232, 226, 213, 255]));
++}

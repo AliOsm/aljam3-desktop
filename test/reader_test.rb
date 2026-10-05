@@ -2,6 +2,7 @@
 
 require_relative "test_helper"
 require_relative "../lib/aljam3/ui/reader"
+require_relative "../lib/aljam3/ui/reader_pdf"
 require_relative "../lib/aljam3/ui/navigation"
 require_relative "../lib/aljam3/ui/reader_tools"
 require_relative "../lib/aljam3/ui/downloads"
@@ -10,6 +11,7 @@ require "timeout"
 class ReaderTest < StoreTestCase
   class Reader
     include Aljam3::UI::Reader
+    include Aljam3::UI::ReaderPDF
     include Aljam3::UI::Navigation
     include Aljam3::UI::ReaderTools
     include Aljam3::UI::DownloadScreen
@@ -22,6 +24,7 @@ class ReaderTest < StoreTestCase
       @renders = []
     end
 
+    def start_reader_pump; end
     def draw_window; end
     def refresh_window; end
     def page_text_control

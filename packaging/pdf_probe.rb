@@ -5,6 +5,7 @@ require "digest"
 require "tmpdir"
 require_relative "../test/support/pdf_read_failure_verification"
 require_relative "../test/support/pdf_navigation_verification"
+require_relative "../test/support/continuous_reader_verification"
 
 root = ENV.fetch("ALJAM3_BUNDLE_ROOT")
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
@@ -30,6 +31,7 @@ app.timer(0.5) do
   begin
     automation = Scarpe::Native::Automation.new(Shoes::DisplayService.display_service)
     report[:navigation] = PDFNavigationVerification.new(app, automation).call
+    report[:continuous] = ContinuousReaderVerification.new(app, automation, output:).call
     File.write(File.join(output, "passed.json"), JSON.pretty_generate(report))
   rescue StandardError => error
     File.write(File.join(output, "failed.txt"), error.full_message)

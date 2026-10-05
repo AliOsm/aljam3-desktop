@@ -41,7 +41,12 @@ class MotionBenchmark
     @app.instance_variable_set(:@reader, reader_scene)
     @app.instance_variable_set(:@screen, :reader)
     @app.instance_variable_set(:@bookmarks, [])
+    @app.prepare_pdf_volume
+    get(:pdf_images)[72] = rendered
     @app.draw_window
+    get(:pdf_viewport).learn(72, width: rendered.width, height: rendered.height)
+    @app.jump_pdf_page(72)
+    raise "Benchmark PDF is not displayed" unless get(:page_image)&.url == rendered.path
     @automation.wait_frames
     get(:download_queue).close
     queue = Aljam3::Downloads.new(store:, downloader: Transfer.new(File.join(@output, "transfer.bin")))

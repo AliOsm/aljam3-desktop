@@ -7,9 +7,11 @@ module Aljam3
     module Navigation
       LOCATION_FIELDS = %i[screen mode query filters scope_filters scope_label search_scope search_order
         result result_query source expanded search_pool_size search_signature].freeze
-      READER_FIELDS = %i[book files file number zoom mode text_size tashkeel split_ratio query].freeze
+      READER_FIELDS = %i[book files file number zoom mode text_size tashkeel split_ratio pdf_appearance pdf_anchor query].freeze
 
       def current_location
+        remember_pdf_anchor
+        save_reader_position if @screen == :reader
         fields = LOCATION_FIELDS.to_h { |key| [key, instance_variable_get("@#{key}")] }
         %i[filters scope_filters expanded].each { |key| fields[key] = (fields[key] || {}).dup }
         fields.merge(download_revision: @download_revision || 0, reader: @screen == :reader ? @reader.slice(*READER_FIELDS) : nil,
@@ -70,6 +72,10 @@ module Aljam3
           next if key == :results && @busy
           next if key == :text && @reader[:loading_text]
           next if key == :pdf && !@reader[:image]
+          if key == :pdf && @reader[:pdf_anchor]
+            @pending_location_scroll.delete(key)
+            next
+          end
 
           surface.scroll_top = @pending_location_scroll.delete(key)
         end

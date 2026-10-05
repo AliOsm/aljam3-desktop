@@ -257,9 +257,10 @@ class InteractionVerification
     @app.open_book(@book)
     image = Struct.new(:path, :width, :height).new(File.join(Aljam3::ROOT, "assets/brand/app-icon.png"), 1024, 1024)
     get(:reader).merge!(mode: :split, image: image)
+    get(:pdf_images)[get(:reader).fetch(:number)] = image
     @app.draw_window
     check("Fit is disabled when the page is already fitted", get(:fit_button).state == "disabled")
-    @app.define_singleton_method(:render_pdf) { draw_pdf_image }
+    @app.define_singleton_method(:request_pdf_page) {}
     click(get(:zoom_in_button))
     check("Zooming enables Fit and retains its page-shaped icon", get(:reader)[:zoom] == 1.25 && get(:fit_button).state.nil? && get(:fit_button).icon.end_with?("page-fit.png"))
     click(get(:fit_button))
@@ -273,7 +274,7 @@ class InteractionVerification
     @automation.resize(1160, 820)
     @app.tick
   ensure
-    @app.singleton_class.remove_method(:render_pdf) if @app.singleton_methods.include?(:render_pdf)
+    @app.singleton_class.remove_method(:request_pdf_page) if @app.singleton_methods.include?(:request_pdf_page)
   end
 
   def exports

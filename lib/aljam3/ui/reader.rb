@@ -58,12 +58,13 @@ module Aljam3
         @bookmarks = @store.bookmarks(book.fetch("id"))
         @reader = { book:, files:, file: file || files.first, zoom: 1.0,
           mode: options.fetch("mode", "split").to_sym, text_size: options.fetch("text_size", 20),
-          tashkeel: options.fetch("tashkeel", true), split_ratio: options.fetch("split_ratio", 0.5), query: query.to_s }
+          tashkeel: options.fetch("tashkeel", true), split_ratio: options.fetch("split_ratio", 0.5), pdf_appearance: options.fetch("pdf_appearance", "auto"), query: query.to_s }
         @screen = :reader
         turn_page(file ? location.fetch("number", 1) : 1, notice:)
       end
 
       def close_reader
+        save_reader_position
         return navigate_history(:back) if @history&.back?
 
         @page_request = (@page_request || 0) + 1
@@ -75,12 +76,13 @@ module Aljam3
       end
 
       def save_reader_options
-        @store.save_preference("reader", @reader.slice(:mode, :text_size, :tashkeel, :split_ratio))
+        @store.save_preference("reader", @reader.slice(:mode, :text_size, :tashkeel, :split_ratio, :pdf_appearance))
       end
 
       def draw_reader
-        @pdf_surface = @text_surface = @page_image = @copy_button = @page_text = @drag = nil
-        @fit_button = @zoom_in_button = @zoom_out_button = nil
+        @pdf_surface = @text_surface = @text_content = @page_image = @copy_button = @page_text = @drag = nil
+        @fit_button = @zoom_in_button = @zoom_out_button = @match_label = nil
+        @previous_match_button = @next_match_button = nil
         book = @reader.fetch(:book)
         para Text.plain(book.fetch("title")), left: PAGE_MARGIN + 48, top: PAGE_TOP,
           width: @main_width - 48, size: 22, font: HEADING_FONT, wrap: "trim"
@@ -144,21 +146,36 @@ module Aljam3
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
           @text_surface = stack(width: 1.0, height:, scroll: true, direction: "rtl") do
-            stack(margin: 20) do
-              if @reader[:text_error]
-                para @reader[:text_error], size: 15, stroke: muted
-                action("إعادة تحميل النص", margin_top: 16) { turn_page(@reader.fetch(:number)) }
-              else
-                content = @reader[:loading_text] ? "جارٍ تحميل النص…" : (page_text.strip.empty? ? "لا يتوفر نص لهذه الصفحة." : page_text)
-                @page_text = para(*reader_text_parts(content), selectable: true, font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
-                if !@reader[:loading_text] && @reader.delete(:focus_match)
-                  page_text = @page_text
-                  schedule_once(0) { focus_reader_match if @page_text == page_text && @screen == :reader }
-                end
-              end
-            end
+            @text_content = stack(margin: 20)
           end
         end
+        update_reader_text(restore: false)
+      end
+
+      def update_reader_text(restore: true)
+        return unless @text_content
+
+        @page_text = nil
+        @text_content.clear do
+          if @reader[:text_error]
+            para @reader[:text_error], size: 15, stroke: muted
+            action("إعادة تحميل النص", margin_top: 16) { load_reader_text }
+          else
+            content = @reader[:loading_text] ? "جارٍ تحميل النص…" : (page_text.strip.empty? ? "لا يتوفر نص لهذه الصفحة." : page_text)
+            @page_text = para(*reader_text_parts(content), selectable: true, font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
+          end
+        end
+        @copy_button&.style(state: @reader[:loading_text] || page_text.strip.empty? ? "disabled" : nil)
+        if @match_label
+          count = Text.match_ranges(page_text, @reader.fetch(:query)).length
+          @match_label.text = "#{count.zero? ? 0 : @reader.fetch(:match_index, 0) + 1} / #{count} في الصفحة"
+          [@previous_match_button, @next_match_button].compact.each { |button| button.state = count.zero? ? "disabled" : nil }
+        end
+        if !@reader[:loading_text] && @reader.delete(:focus_match)
+          control = @page_text
+          schedule_once(0) { focus_reader_match if @screen == :reader && @page_text == control }
+        end
+        restore_navigation_scroll if restore
       end
 
       def copy_page
@@ -177,22 +194,15 @@ module Aljam3
         save_reader_options
       end
 
-      def reader_pdf_pane(width:, height:, top:)
-        @pdf_width, @pdf_height = width, height
-        @pdf_pane = stack(left: PAGE_MARGIN, top:, width:, height:) do
-          background surface, curve: CARD_RADIUS
-          border line_color, curve: CARD_RADIUS
-          @pdf_surface = stack(width: 1.0, height:, scroll: true, direction: "rtl")
-        end
-        draw_pdf_image
-      end
-
       def reader_pdf? = @screen == :reader && %i[pdf split].include?(@reader.fetch(:mode))
 
       def change_reader_mode(mode)
         return if @reader[:mode] == mode
 
+        remember_pdf_anchor
         @reader[:mode] = mode
+        invalidate_pdf_render
+        @pdf_scroll_pending = @pdf_render_due = nil
         save_reader_options
         draw_window
         render_pdf if reader_pdf?
@@ -207,16 +217,16 @@ module Aljam3
           border line_color, curve: CARD_RADIUS
         end
         row(left: (width - 340) / 2, top: bottom - 60, width: 340) do
-          icon_button("chevrons-right", "أول صفحة", state: number <= 1 ? "disabled" : nil) { turn_page(1) }
-          icon_button("arrow-right", "الصفحة السابقة", state: number <= 1 ? "disabled" : nil) { turn_page(number - 1) }
+          @first_page_button = icon_button("chevrons-right", "أول صفحة", state: number <= 1 ? "disabled" : nil) { turn_page(1) }
+          @previous_page_button = icon_button("arrow-right", "الصفحة السابقة", state: number <= 1 ? "disabled" : nil) { turn_page(@reader.fetch(:number) - 1) }
           para "الصفحة", width: 52, size: 14, align: "center", stroke: muted
           @page_field = input(number.to_s, width: 76, height: 36, align: "center", tooltip: "رقم الصفحة · Enter للانتقال") do
             @page_feedback.text = "" if @page_feedback
           end
           @page_field.finish = proc { go_to_page }
           para "من #{count}", width: 68, size: 14, align: "center", stroke: muted
-          icon_button("arrow-left", "الصفحة التالية", state: number >= count ? "disabled" : nil) { turn_page(number + 1) }
-          icon_button("chevrons-left", "آخر صفحة", state: number >= count ? "disabled" : nil) { turn_page(count) }
+          @next_page_button = icon_button("arrow-left", "الصفحة التالية", state: number >= count ? "disabled" : nil) { turn_page(@reader.fetch(:number) + 1) }
+          @last_page_button = icon_button("chevrons-left", "آخر صفحة", state: number >= count ? "disabled" : nil) { turn_page(count) }
         end
         @page_feedback = para "", left: (width - 340) / 2, top: bottom - 86, width: 340, size: 13, stroke: primary, align: "center"
         files = @reader.fetch(:files)
@@ -242,103 +252,77 @@ module Aljam3
       def turn_page(number, notice: nil, restoring: false)
         @pending_location_scroll = nil unless restoring
         @editing_field = nil
-        @text_surface = @pdf_surface = nil
-        file, book = @reader.values_at(:file, :book)
-        number = number.clamp(1, file.fetch("pages_count"))
-        @reader.merge!(number:, notice:, image: nil, pdf_error: nil, page: nil, text_error: nil, match_index: 0, focus_match: true)
-        @page_request = (@page_request || 0) + 1
-        request_number = @page_request
-        @store.save_reading(book.fetch("id"), file_id: file.fetch("id"), number:)
-        if @store.downloaded?(book.fetch("id"))
-          @reader[:page] = @store.page(file.fetch("id"), number)
-          @reader[:loading_text] = false
+        notice_changed = @reader[:notice] != notice
+        @reader[:notice] = notice
+        same_volume = @pdf_volume == reader_volume && @pdf_surface
+        @reader[:number] = number.clamp(1, @reader.fetch(:file).fetch("pages_count"))
+        @reader[:pdf_anchor] = nil unless restoring
+        @pdf_surface = @text_surface = @text_content = nil unless same_volume
+        prepare_pdf_volume
+        invalidate_pdf_render
+        activate_reader_page(@reader.fetch(:number))
+        if same_volume && !notice_changed
+          jump_pdf_page(@reader.fetch(:number))
         else
-          @reader[:loading_text] = true
+          @text_surface = @pdf_surface = nil
+          draw_window
+        end
+        render_pdf if reader_pdf?
+      end
+
+      def activate_reader_page(number, delay: false)
+        @reader.merge!(number:, page: nil, image: @pdf_images&.[](number), pdf_error: nil,
+          text_error: nil, loading_text: true, match_index: 0, focus_match: true)
+        @page_request = (@page_request || 0) + 1
+        @text_surface.scroll_top = 0 if @text_surface
+        update_reader_text
+        update_reader_page_controls
+        if delay
+          @text_load_due = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.12
+          start_reader_pump
+        else
+          load_reader_text
+        end
+      end
+
+      def load_reader_text
+        @text_load_due = nil
+        file, book, number = @reader.values_at(:file, :book, :number)
+        save_reader_position
+        if @reader[:text_error]
+          @reader.merge!(loading_text: true, text_error: nil)
+          update_reader_text
+        end
+        request_number = @page_request
+        if @store.downloaded?(book.fetch("id"))
+          @reader.merge!(page: @store.page(file.fetch("id"), number), loading_text: false)
+          update_reader_text
+        else
           @page_worker.submit(-> {
             @reading.page(book.fetch("id"), file.fetch("id"), number) if @screen == :reader && @page_request == request_number
           }) do |page, error|
             next unless @screen == :reader && @page_request == request_number
 
             @reader.merge!(page:, loading_text: false, text_error: error && error_message(error))
-            refresh_window
+            update_reader_text
           end
+          start_reader_pump
         end
-        draw_window
-        render_pdf if reader_pdf?
       end
 
-      def change_zoom(change)
-        zoom = (@reader.fetch(:zoom) + change).clamp(0.5, 3.0)
-        return if zoom == @reader[:zoom]
+      def save_reader_position
+        @store.save_reading(@reader.fetch(:book).fetch("id"), file_id: @reader.fetch(:file).fetch("id"), number: @reader.fetch(:number))
+      end
 
-        @reader[:zoom] = zoom
+      def update_reader_page_controls
+        number = @reader.fetch(:number)
+        last = number >= @reader.fetch(:file).fetch("pages_count")
+        @page_field.text = number.to_s if @page_field && @editing_field != @page_field
+        [@first_page_button, @previous_page_button].compact.each { |button| button.state = number <= 1 ? "disabled" : nil }
+        [@last_page_button, @next_page_button].compact.each { |button| button.state = last ? "disabled" : nil }
+        @bookmark_button&.style(icon: asset_path("icons", bookmarked? ? "bookmark-check" : "bookmark"),
+          color: bookmarked? ? accent : "transparent", toggled: bookmarked?, tooltip: bookmarked? ? "إزالة الفاصل" : "حفظ فاصل · Ctrl/⌘ D")
         update_pdf_controls
-        render_pdf if reader_pdf?
-      end
-
-      def fit_pdf_page
-        return if @reader.fetch(:zoom) == 1.0
-
-        @pdf_surface.scroll_top = 0 if @pdf_surface
-        change_zoom(1.0 - @reader.fetch(:zoom))
-      end
-
-      def update_pdf_controls
-        ready = @reader[:image] && !@reader[:pdf_error]
-        zoom = @reader.fetch(:zoom)
-        @fit_button&.style(state: ready && zoom != 1.0 ? nil : "disabled")
-        @zoom_in_button&.style(state: ready && zoom < 3.0 ? nil : "disabled")
-        @zoom_out_button&.style(state: ready && zoom > 0.5 ? nil : "disabled")
-      end
-
-      def render_pdf
-        @render_number = (@render_number || 0) + 1
-        render_number = @render_number
-        book, file, number, zoom = @reader.values_at(:book, :file, :number, :zoom)
-        pane_width = @pdf_width
-        check = -> { raise PDF::Cancelled unless @render_number == render_number && reader_pdf? }
-        @render_worker.submit(-> {
-          check.call
-          source = @reading.pdf_source(book.fetch("id"), file)
-          @pdf.render(source, page: number, width: (pane_width - 32) * zoom * 1.5, check:)
-        }) do |rendered, error|
-          next unless reader_pdf? && @render_number == render_number
-
-          @reader.merge!(image: rendered, pdf_error: error && error_message(error))
-          draw_pdf_image
-        end
-      end
-
-      def draw_pdf_image
-        return unless @pdf_surface
-
-        @page_image = nil
-        update_pdf_controls
-        @pdf_surface.clear do
-          if @reader[:pdf_error]
-            para @reader[:pdf_error], margin: 24, size: 15, stroke: muted
-            action("إعادة تحميل PDF", margin: 24) { render_pdf }
-          elsif (rendered = @reader[:image])
-            scale = [(@pdf_width - 32).fdiv(rendered.width), (@pdf_height - 32).fdiv(rendered.height)].min * @reader.fetch(:zoom)
-            display_width, display_height = [(rendered.width * scale).round, (rendered.height * scale).round]
-            @pan = (@pdf_width - display_width) / 2
-            image_top = [(@pdf_height - display_height) / 2, 16].max
-            stack(height: [display_height + 32, @pdf_height].max) do
-              @page_image = image(rendered.path, width: display_width, left: @pan, top: image_top, alt: "صفحة #{@reader.fetch(:number)} من الكتاب")
-              click { |_button, x, _y| @drag = [x, @pan] unless @dialog }
-              motion do |x, _y|
-                next unless @drag && !@dialog && display_width > @pdf_width
-
-                @pan = (@drag[1] + x - @drag[0]).clamp(@pdf_width - display_width, 0).round
-                @page_image.move(@pan, image_top)
-              end
-              release { @drag = nil }
-            end
-          else
-            para "جارٍ تحميل الكتاب المصوّر…", margin: 24, size: 15, stroke: muted
-          end
-        end
-        restore_navigation_scroll
       end
     end
   end

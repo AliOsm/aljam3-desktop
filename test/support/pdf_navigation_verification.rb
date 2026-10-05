@@ -128,6 +128,9 @@ class PDFNavigationVerification
         raise "Damaged cache left a PDF error" if get(:reader)[:pdf_error]
         raise "Damaged cache was not regenerated" unless File.binread(image.path) == original
         raise "Repaired page was not displayed" unless get(:page_image)&.url == image.path
+        wait_until { !get(:pdf_pending) }
+        @app.navigate(:home)
+        drain(:render_worker)
         @automation.wait_frames
         { cycles: scenarios.size, cancelled_image_reads: scenarios.size, scenarios: scenarios.uniq,
           latest_page: 6, latest_zoom: 1.25, latest_pixels_match: true, repaired_cache: true, range_requests: requests.size }

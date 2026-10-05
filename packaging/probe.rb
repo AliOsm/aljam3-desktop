@@ -66,6 +66,7 @@ app.every(0.1) do
       raise "Text missing" if app.page_text.strip.empty?
       app.copy_page
       raise "Arabic clipboard failed" unless app.clipboard == app.page_text
+      app.change_pdf_appearance("original")
       image = app.instance_variable_get(:@page_image)
       raise "PDF rendering failed" unless File.file?(image.url)
       pdf = automation.rect_of!(app.instance_variable_get(:@pdf_surface).linkable_id)
@@ -92,7 +93,10 @@ app.every(0.1) do
       bounds = automation.rect_of!(app.instance_variable_get(:@page_image).linkable_id)
       raise "PDF moved after switching themes" unless [bounds.x, bounds.y, bounds.w, bounds.h] == pdf_rect
       dark_pixels = ChunkyPNG::Image.from_file(File.join(output, "reader-dark.png")).crop(*pdf_bounds).pixels
-      raise "PDF changed after switching themes" unless dark_pixels == pdf_pixels
+      raise "Original PDF colors changed after switching themes" unless dark_pixels == pdf_pixels
+      app.change_pdf_appearance("auto")
+      automation.wait_frames
+      automation.snapshot(File.join(output, "reader-night.png"), scale: 2)
       app.open_book_search
       app.instance_variable_get(:@book_search)[:query] = "العلم"
       app.request_book_search

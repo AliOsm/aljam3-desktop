@@ -141,7 +141,7 @@ module Aljam3
           when :choices then [@dialog_stack.any? ? 408 : 520, choice_dialog_height]
           when :authors then [480, author_dialog_height]
           when :book_search then [720, book_search_dialog_height]
-          when :reader_options then [384, @reader[:mode] == :split ? 296 : 196]
+          when :reader_options then [384, @reader[:mode] == :split ? 384 : 284]
           when :reader_menu then [304, 216]
           when :bookmarks then [600, @bookmarks.empty? ? 128 : [99 + @bookmarks.length * 76, 496].min]
           when :shortcuts then [540, 384]

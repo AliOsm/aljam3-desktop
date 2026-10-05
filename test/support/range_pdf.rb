@@ -4,12 +4,13 @@ require "socket"
 
 module RangePDF
   # Separate page streams make accidental whole-file reads visible in byte counts.
-  def self.document(pages: 24, branch_size: nil)
+  def self.document(pages: 24, branch_size: nil, sizes: {})
     objects = ["<< /Type /Catalog /Pages 2 0 R >>",
       "<< /Type /Pages /Count #{pages} /Kids [#{pages.times.map { |i| "#{3 + i * 2} 0 R" }.join(' ')}] >>"]
     pages.times do |index|
       content = "#{(index + 1).fdiv(pages + 1)} 0.4 0.6 rg #{index % 24 * 8} 10 30 100 re f\n" + ("% padding\n" * 13_000)
-      objects << "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 240 320] /Resources << >> /Contents #{4 + index * 2} 0 R >>"
+      width, height = sizes.fetch(index + 1, [240, 320])
+      objects << "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 #{width} #{height}] /Resources << >> /Contents #{4 + index * 2} 0 R >>"
       objects << "<< /Length #{content.bytesize} >>\nstream\n#{content}endstream"
     end
     if branch_size

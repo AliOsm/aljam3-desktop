@@ -116,12 +116,14 @@ module Aljam3
         access&.check!
         check.call
         pixels = PDFium.buffer(bitmap).read_string_length(width * height * 4)
-        ChunkyPNG::Image.from_rgba_stream(width, height, pixels).save("#{target}.tmp", :fast_rgba)
+        write_png("#{target}.tmp", width, height, pixels)
+        check.call
         File.rename("#{target}.tmp", target)
         # Keep a small render cache, independently of the downloaded source PDFs.
         Dir.glob(File.join(@cache, "*.png")).sort_by { |file| File.mtime(file) }.reverse.drop(24).each { |file| File.delete(file) }
         Image.new(target, width, height)
       ensure
+        FileUtils.rm_f("#{target}.tmp")
         PDFium.destroy_bitmap(bitmap) if bitmap && !bitmap.null?
         PDFium.close_page(pdf_page) if pdf_page && !pdf_page.null?
         PDFium.close_document(document) if document && !document.null?
@@ -129,6 +131,19 @@ module Aljam3
     end
 
     private
+
+    # PDFium already supplies RGBA bytes. Compress scanlines directly in zlib,
+    # avoiding a Ruby integer and encoding work for every individual pixel.
+    def write_png(path, width, height, pixels)
+      stride = width * 4
+      scanlines = String.new(capacity: pixels.bytesize + height, encoding: Encoding::BINARY)
+      height.times { |row| scanlines << "\0" << pixels.byteslice(row * stride, stride) }
+      stream = ChunkyPNG::Datastream.new
+      stream.header_chunk = ChunkyPNG::Chunk::Header.new(width:, height:, color: ChunkyPNG::COLOR_TRUECOLOR_ALPHA)
+      stream.data_chunks << ChunkyPNG::Chunk::ImageData.new("IDAT", Zlib::Deflate.deflate(scanlines, Zlib::BEST_SPEED))
+      stream.end_chunk = ChunkyPNG::Chunk::End.new
+      stream.save(path)
+    end
 
     def cached_image(path)
       return unless File.file?(path)

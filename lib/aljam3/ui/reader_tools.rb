@@ -27,6 +27,7 @@ module Aljam3
         available = width - PAGE_MARGIN * 2 - READER_GAP
         @reader[:split_ratio] = (x - PAGE_MARGIN - READER_GAP / 2).fdiv(available).clamp(0.25, 0.75)
         pdf, text = reader_pane_widths
+        remember_pdf_anchor
         @pdf_width = pdf
         @pdf_pane.style(width: pdf)
         @text_pane.style(left: PAGE_MARGIN + pdf + READER_GAP, width: text)
@@ -107,10 +108,19 @@ module Aljam3
             state.text = @reader[:tashkeel] ? "مفعّل" : "متوقف"
           end
         end
+        para "ألوان صفحات PDF", top: 100, size: 16
+        @appearance_buttons = {}
+        row(top: 136) do
+          { "auto" => "حسب المظهر", "original" => "الأصلية", "night" => "ليلية" }.each_with_index do |(value, label), index|
+            gap = index < 2 ? 8 : 0
+            @appearance_buttons[value] = action(label, selected: @reader.fetch(:pdf_appearance, "auto") == value,
+              width: (@main_width - 16).fdiv(3) + gap, margin_right: gap) { change_pdf_appearance(value) }
+          end
+        end
         if @reader[:mode] == :split
-          separator(top: 100)
-          para "مساحة النص والصورة", top: 116, size: 16
-          row(top: 148) do
+          separator(top: 188)
+          para "مساحة النص والصورة", top: 204, size: 16
+          row(top: 236) do
             choices = { 0.35 => "نص أوسع", 0.5 => "متساويان", 0.65 => "صورة أوسع" }
             choices.each_with_index do |(ratio, label), index|
               gap = index < choices.length - 1 ? 8 : 0
@@ -123,7 +133,7 @@ module Aljam3
             end
           end
         end
-        para "تُحفظ اختياراتك تلقائيًا.", top: @reader[:mode] == :split ? 200 : 100, size: 13, stroke: muted
+        para "تُحفظ اختياراتك تلقائيًا.", top: @reader[:mode] == :split ? 288 : 188, size: 13, stroke: muted
       end
 
       def reader_keypress(key)
@@ -170,8 +180,8 @@ module Aljam3
         row(left: PAGE_MARGIN, top:, width: @main_width) do
           para "البحث: #{@reader.fetch(:query)[0, 64]}", width: -272, size: 15, stroke: primary, wrap: "trim"
           @match_label = para "#{position} / #{count} في الصفحة", width: 164, size: 14, stroke: muted, align: "center"
-          icon_button("arrow-right", "التطابق السابق · Shift F3", state: count.zero? ? "disabled" : nil) { move_reader_match(-1) }
-          icon_button("arrow-left", "التطابق التالي · F3", state: count.zero? ? "disabled" : nil) { move_reader_match(1) }
+          @previous_match_button = icon_button("arrow-right", "التطابق السابق · Shift F3", state: count.zero? ? "disabled" : nil) { move_reader_match(-1) }
+          @next_match_button = icon_button("arrow-left", "التطابق التالي · F3", state: count.zero? ? "disabled" : nil) { move_reader_match(1) }
           icon_button("x", "إزالة تمييز البحث") { clear_reader_matches }
         end
       end
