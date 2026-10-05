@@ -54,7 +54,7 @@ module Aljam3
       @search_pool_size = Store::Search::POOL_SIZE
       draw_window
       @ticker = every(0.1) { tick }
-      @preference_ticker = every(2) { refresh_motion_preference if @motion_preference == "system" }
+      @preference_ticker = every(2) { refresh_motion_preference }
       keypress do |key|
         if [:browser_back, :"alt_[", :alt_left].include?(key)
           navigate_history(:back)
@@ -354,11 +354,10 @@ module Aljam3
         background surface
         separator(width: 1.0)
         row(left: (width - @chrome_width) / 2, top: 2, width: @chrome_width, height: STATUS_HEIGHT - 4) do
-          @connection_text = para connection_message, width: -484, size: 13, stroke: muted, wrap: "trim", live: "polite"
+          @connection_text = para connection_message, width: -456, size: 13, stroke: muted, wrap: "trim", live: "polite"
           @reconnect_button = action("إعادة الاتصال", width: 126, height: 28, size: 13, variant: :ghost,
             hidden: !%i[offline unavailable].include?(@connection)) { refresh_connection }
           row(width: 330, height: 28) { draw_activity }
-          icon_button("sliders-horizontal", "إعدادات الحركة", width: 28, height: 28) { open_dialog(:motion_settings) }
         end
       end
     end

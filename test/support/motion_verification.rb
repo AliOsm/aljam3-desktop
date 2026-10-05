@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "motion_preference"
+
 require_relative "alignment_verification"
 
 class MotionVerification
@@ -14,12 +16,13 @@ class MotionVerification
     @app.tick
     get(:motion).cancel
     Shoes::DisplayService.display_service.clock.freeze!
-    @app.choose_motion("full")
+    MotionPreference.set(@app, reduced: false)
     AlignmentVerification.seed(get(:store))
     set(categories: AlignmentVerification::CATEGORIES, libraries: AlignmentVerification::LIBRARIES, downloaded_ids: get(:store).downloaded_ids)
     reader
     overlays
     navigation
+    categories
     nested_filters
     controls
     notifications
@@ -199,17 +202,72 @@ class MotionVerification
     @app.close_reader
     check("returning from a book crossfades and restores scroll", visual(get(:page_view), :opacity).zero? && get(:results).scroll_top == scroll)
     advance(0.05)
-    @app.choose_motion("reduced")
+    MotionPreference.set(@app, reduced: true)
     check("reducing motion mid-navigation settles and cleans outgoing pages", get(:page_transition).views.size == 1 && visual(get(:page_view), :opacity) == 1.0 && !get(:motion).active?)
     @app.navigate(:categories)
     check("reduced-motion navigation is immediate", visual(get(:page_view), :opacity) == 1.0 && get(:page_transition).views.size == 1 && !get(:motion).active?)
-    @app.choose_motion("full")
+    MotionPreference.set(@app, reduced: false)
     @app.navigate(:home)
     advance(0.04)
     @automation.resize(1160, 820)
     @app.tick
     advance(0.2)
     check("resize during navigation leaves a single settled page", get(:page_transition).views.size == 1 && visual(get(:page_view), :opacity) == 1.0)
+  end
+
+  def categories
+    all = AlignmentVerification::ALL_CATEGORIES
+    set(categories: all)
+    %i[home browse authors downloads].each do |from|
+      @app.navigate(from)
+      advance(0.2)
+      click(get(:navigation_buttons).fetch(:categories))
+      advance(0.04)
+      check("all categories fade when arriving from #{from}", visual(get(:page_view), :opacity).between?(0.1, 0.99))
+      advance(0.2)
+      check("categories settle to one interactive page from #{from}", get(:page_transition).views.size == 1 && !get(:motion).active?)
+    end
+    labels = -> { @automation.layout.select { |node| node[:kind] == "Para" }.map { |node| node[:text] } }
+    names = all.map { |category| category.fetch("name") }
+    check("the full category list is available", (labels.call & names).size == 105)
+    shot("categories-full")
+    viewport = @automation.rect_of!(get(:results).linkable_id)
+    @automation.wheel(30_000, x: viewport.x + viewport.w / 2, y: viewport.y + 30)
+    last = all.last
+    item = @automation.layout.find { |node| node[:kind] == "Para" && node[:text] == last.fetch("name") }
+    check("scrolling reaches the final category", item && item[:y] >= viewport.y && item[:y] + item[:h] <= viewport.y + viewport.h)
+    shot("categories-bottom")
+
+    field = @automation.layout.find { |node| node[:kind] == "EditLine" }
+    @automation.click({ id: field.fetch(:id) })
+    @automation.type("مَصْطَلَح")
+    check("Arabic filtering finds the last category including diacritics", (labels.call & names) == [last.fetch("name")])
+    @automation.key("control_a")
+    @automation.type("لايوجدتصنيفبهذاالاسم")
+    check("unmatched category searches show an empty state", labels.call.include?("لا توجد تصنيفات مطابقة") && (labels.call & names).empty?)
+    @automation.key("control_a")
+    @automation.key("backspace")
+    check("clearing the filter restores all categories", (labels.call & names).size == 105)
+    @automation.wheel(30_000, x: viewport.x + viewport.w / 2, y: viewport.y + 30)
+    @automation.click({ text: last.fetch("name") })
+    check("the final category opens its scoped books", get(:screen) == :browse && get(:scope_filters)[:category] == last.fetch("id"))
+    advance(0.2)
+
+    @app.navigate(:categories)
+    advance(0.03)
+    @app.navigate(:home)
+    advance(0.03)
+    @app.navigate(:categories)
+    advance(0.2)
+    check("interrupted full-list navigation leaves no stale page", get(:screen) == :categories &&
+      get(:page_transition).views.size == 1 && (labels.call & names).size == 105 && !get(:motion).active?)
+    MotionPreference.set(@app, reduced: true)
+    @app.navigate(:home)
+    @app.navigate(:categories)
+    check("full-list navigation respects OS Reduce Motion", visual(get(:page_view), :opacity) == 1.0 && !get(:motion).active?)
+    set(categories: AlignmentVerification::CATEGORIES)
+    @app.navigate(:home)
+    MotionPreference.set(@app, reduced: false)
   end
 
   def nested_filters
@@ -251,7 +309,7 @@ class MotionVerification
     advance(0.2)
     check("rapid back and close remove every nested view and restore input", !@app.dialog_active? && get(:dialog_transition).views.empty? && !get(:content_layer).style[:inert])
 
-    @app.choose_motion("reduced")
+    MotionPreference.set(@app, reduced: true)
     click(get(:action_views).fetch(:filters))
     click(get(:action_views).fetch([:filter, :author]))
     check("author picker uses the same filter width", @automation.rect_of!(get(:dialog_panel).linkable_id).w == bounds.w)
@@ -261,7 +319,7 @@ class MotionVerification
     check("resizing a nested picker retains its parent width", @automation.rect_of!(get(:dialog_panel).linkable_id).w == bounds.w)
     @automation.key("escape")
     @automation.key("escape")
-    @app.choose_motion("full")
+    MotionPreference.set(@app, reduced: false)
   end
 
   def notifications
@@ -284,27 +342,23 @@ class MotionVerification
   end
 
   def preferences
-    @app.open_dialog(:motion_settings)
-    advance(0.25)
-    click(get(:action_views).fetch(:motion))
-    advance(0.20)
-    @automation.click({ text: "تقليل الحركة" })
-    check("motion setting is saved and returns to its parent dialog", get(:motion).reduced &&
-      get(:store).preference("motion") == "reduced" && get(:dialog)&.dig(:type) == :motion_settings)
-    shot("motion-settings")
-    @app.close_dialog
-    check("reduced motion closes immediately", !@app.dialog_active? && !get(:motion).active?)
+    check("status bar has no motion settings button", !@automation.a11y.to_s.include?("إعدادات الحركة"))
+    get(:store).save_preference("motion", "full")
+    MotionPreference.set(@app, reduced: true)
+    check("OS Reduce Motion takes precedence over a former saved override", get(:motion).reduced)
     @app.open_dialog(:shortcuts)
     check("reduced motion opens immediately", get(:dialog_panel).style[:opacity] == 1.0 && !get(:motion).active?)
     @app.close_dialog
-    @app.choose_motion("full")
+    get(:store).save_preference("motion", "reduced")
+    MotionPreference.set(@app, reduced: false)
+    check("turning off OS Reduce Motion restores animation despite old settings", !get(:motion).reduced)
     @app.open_dialog(:share)
     advance(0.04)
     @app.close_dialog
-    @app.choose_motion("reduced")
+    MotionPreference.set(@app, reduced: true)
     check("changing the preference during exit completes cleanup", !@app.dialog_active? && !get(:motion).active? &&
       !get(:content_layer).style[:inert])
-    @app.choose_motion("system")
+    MotionPreference.system(@app)
     check("system preference is queried through the native runtime", get(:motion).reduced == @app.reduced_motion?)
   end
 end

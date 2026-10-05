@@ -1,0 +1,67 @@
+--- a/native/src/paint/damage.rs
++++ b/native/src/paint/damage.rs
+@@ -345,15 +345,23 @@
+         return Changed::Everything;
+     }
+     let mut changed = HashSet::new();
++    let mut slots = HashSet::new();
+     for id in revisions.changed_after(before.revision) {
+         if doc.get(id).is_some_and(|n| n.kind.is_slot()) {
+-            changed.extend(now.order.iter().copied().filter(|child| doc.is_descendant_of(*child, id)));
++            slots.insert(id);
+         }
+         if now.nodes.contains_key(&id) || before.nodes.contains_key(&id) {
+             changed.insert(id);
+         } else if let Some(painted) = painted_ancestor(doc, now, id) {
+             changed.insert(painted);
+         }
++    }
++    // A slot's style affects its descendants. Walk each painted node's ancestry
++    // once, rather than scanning the entire scene for every changed slot. Page
++    // replacement changes hundreds of slots together.
++    if !slots.is_empty() {
++        changed.extend(now.order.iter().copied().filter(|id|
++            doc.ancestors(*id).into_iter().any(|ancestor| slots.contains(&ancestor))));
+     }
+     Changed::Nodes(changed)
+ }
+@@ -712,6 +720,28 @@
+     }
+ 
+     #[test]
++    fn changed_slots_reach_nested_children_but_not_other_branches() {
++        let mut doc = Doc::default();
++        node(&mut doc, 2, "DocumentRoot", None, serde_json::json!({}));
++        node(&mut doc, 3, "Stack", Some(2), serde_json::json!({}));
++        node(&mut doc, 4, "Flow", Some(3), serde_json::json!({}));
++        node(&mut doc, 5, "Para", Some(4), serde_json::json!({}));
++        node(&mut doc, 6, "Stack", Some(2), serde_json::json!({}));
++        node(&mut doc, 7, "Para", Some(6), serde_json::json!({}));
++        node(&mut doc, 8, "Strong", Some(7), serde_json::json!({}));
++        node(&mut doc, 9, "Para", Some(2), serde_json::json!({}));
++        let before = frame_of(&[2, 3, 4, 5, 6, 7, 9, 10]);
++        let now = frame_of(&[2, 3, 4, 5, 6, 7, 9]);
++        let mut revisions = Revisions::default();
++        for id in [3, 4, 8, 10] { revisions.touch(id); }
++        let Changed::Nodes(changed) = changed_since(&before, &now, &doc, &revisions) else { panic!("bounded changes") };
++        assert_eq!(changed, HashSet::from([3, 4, 5, 7, 10]), "nested slots, a span, and a removed node");
++        revisions.touch(2);
++        let Changed::Nodes(changed) = changed_since(&before, &now, &doc, &revisions) else { panic!("bounded changes") };
++        assert_eq!(changed, HashSet::from([2, 3, 4, 5, 6, 7, 9, 10]), "a root change reaches every branch");
++    }
++
++    #[test]
+     fn revisions_answer_what_changed_since_a_frame() {
+         let mut revisions = Revisions::default();
+         revisions.touch(4);
+--- a/lib/scarpe/native/display_service.rb
++++ b/lib/scarpe/native/display_service.rb
+@@ -99,7 +99,7 @@
+ 
+     def create_display_drawable_for(kind, id, properties, parent_id:, is_widget:)
+       # At birth an unset style and an absent one mean the same, so nils stay home.
+-      props = Normalize.props(kind, properties).compact
++      props = Normalize.props(kind, properties.compact).compact
+       index = index_in_parent(id)
+       display = DisplayDrawable.new(id, kind, app_id_for(kind, id, parent_id), props)
+       display.attach_to(display_drawable(parent_id), index)

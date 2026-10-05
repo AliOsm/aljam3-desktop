@@ -1,8 +1,13 @@
 # frozen_string_literal: true
 
+require "json"
+require_relative "motion_preference"
+
 # Deterministic native checks shared by the source and packaged-app probes.
 # All data lives in the probes' disposable library.
 class AlignmentVerification
+  # Snapshot of all 105 public categories, including long Arabic names.
+  ALL_CATEGORIES = JSON.parse(File.read(File.expand_path("../fixtures/categories.json", __dir__))).freeze
   CATEGORIES = ["علوم القرآن", "الحديث وعلومه", "العقيدة", "الفقه وأصوله", "السيرة النبوية", "اللغة العربية"].each_with_index.map do |name, index|
     { "id" => 900_000 + index, "name" => name, "books_count" => (index + 1) * 321 }
   end.freeze
@@ -39,7 +44,7 @@ class AlignmentVerification
   end
 
   def call
-    @app.choose_motion("reduced") # Static checks; motion has its own timed interaction probe.
+    MotionPreference.set(@app, reduced: true) # Static checks; motion has its own timed interaction probe.
     parsed = Object.new.extend(FontHelper).parse_font(Aljam3::UI::HEADING_FONT)
     check("heading font resolves to the bundled family at its native weight", Shoes::FONTS.include?(parsed[4]) && parsed[2] == "500")
     store = @app.instance_variable_get(:@store)

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "motion_preference"
+
 require "timeout"
 require "tmpdir"
 require_relative "range_pdf"
@@ -42,7 +44,7 @@ class PDFNavigationVerification
   end
 
   def call
-    @app.choose_motion("reduced")
+    MotionPreference.set(@app, reduced: true)
     drain(:network_worker)
     @books = {}
     books = @books

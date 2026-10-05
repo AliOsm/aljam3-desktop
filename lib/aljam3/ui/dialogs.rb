@@ -133,7 +133,6 @@ module Aljam3
         popup = %i[select filters volumes reader_options reader_menu].include?(shell_type)
         menu = %i[select reader_menu].include?(type) && @dialog_stack.empty?
         requested_width, requested_height = case type
-          when :motion_settings then [440, 160]
           when :filters then [408, 308]
           when :select then [220, (menu ? 12 : 80) + @dialog.fetch(:choices).length * 44]
           when :volumes then [360, choice_dialog_height]
@@ -169,7 +168,7 @@ module Aljam3
         @dialog_rest_top = top
         @dialog_offset = popup ? (anchor && top < anchor[1] ? 5 : -5) : 8
         @dialog_duration = popup ? 0.14 : 0.20
-        title = @dialog.fetch(:title, { motion_settings: "إعدادات الحركة", filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
+        title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
           authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
           reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
           remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, "اختر"))
@@ -220,7 +219,6 @@ module Aljam3
         stack(left: padding - SCROLL_GUTTER, top: body_top, width: @main_width + SCROLL_GUTTER,
           padding_left: SCROLL_GUTTER, height: @content_height) do
           case type
-          when :motion_settings then draw_motion_settings
           when :filters then draw_filters
           when :select, :choices, :volumes then draw_choices
           when :authors then draw_author_choices

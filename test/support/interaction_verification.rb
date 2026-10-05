@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "motion_preference"
+
 require "timeout"
 require "socket"
 require_relative "alignment_verification"
@@ -12,7 +14,7 @@ class InteractionVerification
   end
 
   def call
-    @app.choose_motion("reduced")
+    MotionPreference.set(@app, reduced: true)
     # Finish startup requests before replacing their catalog with the fixture.
     ready = false
     get(:network_worker).submit(-> { nil }) { ready = true }

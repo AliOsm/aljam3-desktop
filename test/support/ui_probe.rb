@@ -1,10 +1,12 @@
 # frozen_string_literal: true
 
+require_relative "motion_preference"
+
 # Live integration check: scratch library, native headless renderer, fake clipboard.
 require "json"
 load File.expand_path("../../app.rb", __dir__)
 app = Shoes.APPS.first
-app.choose_motion("reduced")
+MotionPreference.set(app, reduced: true)
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
 step = 0
 started = Process.clock_gettime(Process::CLOCK_MONOTONIC)

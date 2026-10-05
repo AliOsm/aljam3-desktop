@@ -120,7 +120,8 @@ module Aljam3
 
       def draw_category_choices
         @category_choices.clear do
-          categories = @categories.select { |category| Text.normalize(category.fetch("name")).include?(Text.normalize(@query)) }
+          query = Text.normalize(@query)
+          categories = @categories.select { |category| Text.normalize(category.fetch("name")).include?(query) }
           if categories.empty?
             empty_state("لا توجد تصنيفات مطابقة", "جرّب اسمًا آخر أو امسح البحث.", icon: "search")
           else
@@ -132,11 +133,9 @@ module Aljam3
       def category_grid(categories)
         grid(categories, columns: 2, row_gap: 0) do |category, styles|
           stack(**styles) do
-            stack(padding_top: 16, padding_bottom: 16, height_group: "category_label") do
-              flow(width: 1.0, direction: "rtl", valign: "center") do
-                para text_link(category.fetch("name")) { browse_scope(:category, category) }, width: -100, size: 16
-                para "#{category.fetch('books_count', 0)} كتاب", width: 100, size: 13, stroke: muted, align: "left"
-              end
+            flow(width: 1.0, direction: "rtl", valign: "center", padding_top: 16, padding_bottom: 16, height_group: "category_label") do
+              para text_link(category.fetch("name")) { browse_scope(:category, category) }, width: -100, size: 16
+              para "#{category.fetch('books_count', 0)} كتاب", width: 100, size: 13, stroke: muted, align: "left"
             end
             separator
           end

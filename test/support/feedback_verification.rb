@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "motion_preference"
+
 require "timeout"
 require_relative "alignment_verification"
 
@@ -42,7 +44,7 @@ class FeedbackVerification
   end
 
   def call
-    @app.choose_motion("reduced") # Static checks; motion has its own timed interaction probe.
+    MotionPreference.set(@app, reduced: true) # Static checks; motion has its own timed interaction probe.
     get(:ticker).remove
     @app.tick
     AlignmentVerification.seed(@store)

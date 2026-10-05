@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "motion_preference"
+
 require_relative "alignment_verification"
 
 # The actual reader and Downloads worker, with controlled disk throughput instead
@@ -28,7 +30,7 @@ class MotionBenchmark
   end
 
   def call(pdf:)
-    @app.choose_motion("full")
+    MotionPreference.set(@app, reduced: false)
     store = get(:store)
     AlignmentVerification.seed(store)
     book = AlignmentVerification::BOOKS.first
@@ -79,7 +81,7 @@ class MotionBenchmark
     end
     @app.navigate(:home)
     settle
-    @app.instance_variable_set(:@categories, AlignmentVerification::CATEGORIES)
+    @app.instance_variable_set(:@categories, AlignmentVerification::ALL_CATEGORIES)
     @app.instance_variable_set(:@libraries, AlignmentVerification::LIBRARIES)
     4.times do |round|
       @round = round
@@ -122,7 +124,7 @@ class MotionBenchmark
     { passed: true, ghost: ENV["SCARPE_NATIVE_GHOST"] == "1", native_timing: @service.respond_to?(:transition),
       macos_activity: Object.const_defined?(:MOTION_ACTIVITY),
       samples: @samples, transfer_bytes: bytes,
-      scene: "1160x820 split reader; real PDF page; long Arabic text; disk transfer and SQLite progress persistence" }
+      scene: "1160x820 split reader; real PDF page; long Arabic text; 105 categories; disk transfer and SQLite progress persistence" }
   ensure
     FileUtils.rm_f(File.join(@output, "transfer.bin"))
   end
