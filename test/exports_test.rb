@@ -153,11 +153,9 @@ class ExportsTest < StoreTestCase
     source = File.join(@directory, "book.pdf")
     File.binwrite(source, RangePDF.document(pages: 2))
     pdf = Aljam3::PDF.new(cache: File.join(@directory, "renders"))
-    rendered = pdf.render(source, page: 1, width: 240)
-    expected = File.binread(rendered.path)
+    rendered = pdf.render_bitmap(source, page: 1, width: 240)
+    expected = rendered.pixels
     reading = Minitest::Mock.new
-    reading.expect(:pdf_source, source, [1, book.fetch("files").first])
-    reading.expect(:pdf_source, source, [1, book.fetch("files").first])
     view = View.new(@store, book)
     view.instance_variable_set(:@pdf, pdf)
     view.instance_variable_set(:@reading, reading)
@@ -171,14 +169,16 @@ class ExportsTest < StoreTestCase
     pdf.clear_cache
     reader.merge!(book: book(2), file: book(2).fetch("files").first, number: 2, image: nil)
     File.binwrite(view.answer, "previous image")
-    IO.stub(:copy_stream, ->(*) { raise Errno::ENOSPC }) do
+    pdf.stub(:save_bitmap, ->(*) { raise Errno::ENOSPC }) do
       assert_raises(Errno::ENOSPC) { work.call }
     end
     assert_equal "previous image", File.binread(view.answer)
     pdf.clear_cache
     work.call
 
-    assert_equal expected, File.binread(view.answer)
+    assert_equal expected, ChunkyPNG::Image.from_file(view.answer).to_rgba_stream
     reading.verify
+  ensure
+    pdf&.close
   end
 end

@@ -16,6 +16,7 @@ class ContinuousReaderVerification
   def call
     MotionPreference.set(@app, reduced: true)
     @app.navigate(:home)
+    get(:pdf).close
     @app.instance_variable_set(:@pdf, Aljam3::PDF.new(cache: File.join(Aljam3.data_directory, "continuous-renders")))
     data = RangePDF.document(pages: 36, sizes: { 3 => [600, 240], 9 => [240, 700], 36 => [600, 240] })
     RangePDF.serve(data) do |url, ranges|
@@ -49,7 +50,7 @@ class ContinuousReaderVerification
       settle
       check_page(27)
       check("fast scrolling coalesces text requests", calls.size - before <= 2)
-      check("decoded pages stay bounded after a long seek", get(:pdf_images).size <= 5 && get(:pdf_nodes).size <= 5)
+      check("decoded pages stay bounded after a long seek", @app.pdf_image_bytes <= Aljam3::UI::ReaderPDF::PDF_MEMORY_BYTES && get(:pdf_nodes).size <= 5)
       @app.toggle_reader_bookmark
       check("bookmarks follow the visible PDF page", get(:store).bookmarks(book.fetch("id")).last.fetch("number") == 27)
 
@@ -66,7 +67,7 @@ class ContinuousReaderVerification
       check("zoom resizes the existing image immediately", get(:page_image).equal?(previous) && previous.url == previous_path && previous.width > previous_width)
       check("zoom preserves the reading anchor", near_anchor?(anchor, view.anchor(surface.scroll_top)))
       settle
-      check("sharp zoom pixels replace the preview", get(:reader).fetch(:image).width == @app.pdf_render_width)
+      check("sharp zoom pixels replace the preview", get(:reader).fetch(:image).width >= @app.pdf_render_width)
       @app.fit_pdf_page
       settle
       check("fit returns to the active page", get(:reader)[:zoom] == 1.0 && (surface.scroll_top - view.top(9)).abs < 2)
@@ -172,7 +173,7 @@ class ContinuousReaderVerification
     @app.turn_page(1)
     settle
     original = get(:reader).fetch(:image)
-    digest = Digest::SHA256.file(original.path).hexdigest
+    digest = Digest::SHA256.hexdigest(original.pixels)
     @app.open_dialog(:reader_options)
     @automation.click({ id: get(:appearance_buttons).fetch("night").linkable_id })
     check("night preference persists", get(:store).preference("reader").fetch("pdf_appearance") == "night")
@@ -181,7 +182,7 @@ class ContinuousReaderVerification
     @automation.wait_frames
     rect = @automation.rect_of!(get(:page_image).linkable_id)
     check("PDF paper changes to the night palette", @automation.pixel(rect.x + rect.w - 8, rect.y + 8).first(3) == [30, 27, 26])
-    check("night mode leaves original PNG pixels untouched", Digest::SHA256.file(original.path).hexdigest == digest)
+    check("night mode leaves original export pixels untouched", Digest::SHA256.hexdigest(original.pixels) == digest)
     shot("continuous-night")
     @app.change_pdf_appearance("original")
     @automation.wait_frames
@@ -257,7 +258,7 @@ class ContinuousReaderVerification
     pdf, api = get(:pdf), get(:api)
     original_page = api.method(:page)
     failed_pdf = failed_text = false
-    pdf.define_singleton_method(:render) do |source, page:, **options|
+    pdf.define_singleton_method(:render_bitmap) do |source, page:, **options|
       if page == 30 && !failed_pdf
         failed_pdf = true
         raise Aljam3::ConnectionError, "Simulated page-range failure"
@@ -288,7 +289,7 @@ class ContinuousReaderVerification
     check_page(30)
     check("PDF and text recover independently after a connection failure", !get(:reader)[:pdf_error] && !get(:reader)[:text_error])
   ensure
-    pdf&.singleton_class&.remove_method(:render)
+    pdf&.singleton_class&.remove_method(:render_bitmap)
     api&.define_singleton_method(:page, original_page) if original_page
   end
 end

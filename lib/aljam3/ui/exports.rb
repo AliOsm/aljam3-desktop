@@ -64,22 +64,25 @@ module Aljam3
       end
 
       def save_page_image
-        image, file, number = @reader.values_at(:image, :file, :number)
+        image = @reader[:image]
         return unless image
 
         path = export_destination("png", page: @reader.fetch(:number))
         return unless path
 
         book_id = @reader.fetch(:book).fetch("id")
-        # A queued render can evict the displayed image before this job runs.
-        # Keep the original page identity so retries also survive navigation.
-        save_file([:image, path], path:, book_id:, worker: @render_worker) do
-          source = image.path
-          unless File.file?(source)
-            pdf = @reading.pdf_source(book_id, file)
-            source = @pdf.render(pdf, page: number, width: image.width).path
+        # Keep the original pixels alive across navigation and cache eviction.
+        # Compression happens on the export worker, never in the scroll path.
+        save_file([:image, path], path:, book_id:) do
+          if image.respond_to?(:pixels)
+            Tempfile.create([".aljam3-export-", ".png"], File.dirname(path), binmode: true) do |temporary|
+              temporary.close
+              @pdf.save_bitmap(image, temporary.path)
+              File.rename(temporary.path, path)
+            end
+          else
+            copy_export(image.path, path)
           end
-          copy_export(source, path)
         end
       end
 
@@ -112,6 +115,7 @@ module Aljam3
         update_export_feedback
         job.fetch(:worker).submit(job.fetch(:work)) do |_result, error|
           job.merge!(status: error ? :failed : :done, message: error ? error_message(error) : "تم حفظ الملف")
+          job.delete(:work) unless error # Completed exports need not retain their page's pixels.
           update_export_feedback
           notify_file_save(job, error:)
           completed = @file_operations.select { |_key, item| item[:status] == :done }.keys

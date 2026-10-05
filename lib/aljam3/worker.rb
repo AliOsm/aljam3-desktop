@@ -13,6 +13,8 @@ module Aljam3
             @events << [callback, result, nil]
           rescue StandardError => error
             @events << [callback, nil, error]
+          ensure
+            work = callback = result = job = nil
           end
         end
       end

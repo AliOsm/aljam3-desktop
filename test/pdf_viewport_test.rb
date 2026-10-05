@@ -40,6 +40,16 @@ class PDFViewportTest < Minitest::Test
     assert_equal 10_000, @view.active(@view.top(10_000))
   end
 
+  def test_top_anchor_keeps_the_fraction_of_a_page_for_integer_scroll_events
+    offset = @view.top(5) + 123
+    anchor = @view.anchor(offset, at: 0)
+    assert_in_delta offset, @view.position(anchor), 0.001
+    @view.learn(5, width: 480, height: 640)
+    assert_in_delta offset, @view.position(anchor), 0.001
+    @view.learn(3, width: 1200, height: 300)
+    assert_in_delta @view.top(5) + 123, @view.position(anchor), 0.001
+  end
+
   def test_a_fully_visible_landscape_page_remains_active_above_a_partial_portrait
     @view.learn(3, width: 600, height: 240)
     assert_equal 3, @view.active(@view.top(3))

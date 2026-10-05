@@ -10,8 +10,8 @@ require "json"
 
 root = File.expand_path("..", __dir__)
 probe = ARGV.empty? ? "ui" : ARGV.shift
-abort "Usage: bin/verify-ui [feedback|motion|motion_benchmark|interaction|pdf]" unless %w[ui feedback motion motion_benchmark interaction pdf].include?(probe) && ARGV.empty?
-output = File.join(root, ".cache/preview/#{probe == 'ui' ? 'parity' : probe}")
+abort "Usage: bin/verify-ui [feedback|motion|motion_benchmark|interaction|pdf|scroll]" unless %w[ui feedback motion motion_benchmark interaction pdf scroll].include?(probe) && ARGV.empty?
+output = ENV.fetch("ALJAM3_VERIFY_OUTPUT") { File.join(root, ".cache/preview/#{probe == 'ui' ? 'parity' : probe}") }
 FileUtils.mkdir_p(output)
 %w[passed.json failed.txt].each { |name| FileUtils.rm_f(File.join(output, name)) }
 Dir.mktmpdir("aljam3-ui-") do |scratch|

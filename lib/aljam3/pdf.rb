@@ -38,17 +38,22 @@ module Aljam3
 
       def initialize(source, check:)
         super()
+        activate(check)
         self[:length] = source.size
         @read = proc do |_parameter, offset, buffer, length|
           next 0 if @error
 
-          buffer.put_bytes(0, source.read(offset, length, check:))
+          buffer.put_bytes(0, source.read(offset, length, check: @check))
           1
         rescue StandardError => error
           @error = error
           0
         end
         self[:read] = @read
+      end
+
+      def activate(check)
+        @check, @error = check, nil
       end
 
       # Never let a Ruby exception unwind through PDFium's C stack.
@@ -65,11 +70,35 @@ module Aljam3
 
   class PDF
     Image = Data.define(:path, :width, :height)
+    Bitmap = Data.define(:path, :width, :height, :pixels)
+    Document = Data.define(:pointer, :access)
     class Cancelled < StandardError; end
 
     def initialize(cache:)
       @cache = cache
+      @documents = {}
       FileUtils.mkdir_p(cache)
+    end
+
+    def close
+      PDFium::LOCK.synchronize { discard_documents }
+    end
+
+    # The reader passes pixels directly to the native renderer. PNG encoding is
+    # reserved for exports and the independently bounded on-disk image cache.
+    def render_bitmap(source, page:, width:, check: -> {})
+      check.call
+      width = Integer(width).clamp(240, 2400)
+      PDFium::LOCK.synchronize do
+        identity = source_identity(source)
+        pixels, height = rasterize(source, identity:, page:, width:, check:)
+        key = Digest::SHA256.hexdigest("#{identity}:#{page}:#{width}")
+        Bitmap.new("memory:#{key}", width, height, pixels.freeze)
+      end
+    end
+
+    def save_bitmap(bitmap, path)
+      write_png(path, bitmap.width, bitmap.height, bitmap.pixels)
     end
 
     def clear_cache
@@ -87,26 +116,72 @@ module Aljam3
     def render(source, page:, width:, check: -> {})
       check.call
       width = Integer(width).clamp(240, 2400)
-      identity = source.is_a?(RemotePDF) ? source.cache_key : "#{source}:#{File.size(source)}:#{File.mtime(source).to_f}"
+      identity = source_identity(source)
       key = Digest::SHA256.hexdigest("#{identity}:#{page}:#{width}")
       target = File.join(@cache, "#{key}.png")
       PDFium::LOCK.synchronize do
         cached = cached_image(target)
         return cached if cached
-        access = PDFium::FileAccess.new(source, check:) if source.is_a?(RemotePDF)
-        document = access ? PDFium.load_custom_document(access, nil) : PDFium.load_document(source, nil)
-        access&.check!
-        raise "Unable to open this PDF." if document.null?
+        pixels, height = rasterize(source, identity:, page:, width:, check:)
+        write_png("#{target}.tmp", width, height, pixels)
+        check.call
+        File.rename("#{target}.tmp", target)
+        Dir.glob(File.join(@cache, "*.png")).sort_by { |file| File.mtime(file) }.reverse.drop(24).each { |file| File.delete(file) }
+        Image.new(target, width, height)
+      ensure
+        FileUtils.rm_f("#{target}.tmp")
+        discard_documents
+      end
+    end
 
-        count = PDFium.page_count(document)
+    private
+
+    def source_identity(source)
+      source.is_a?(RemotePDF) ? source.cache_key : "#{source}:#{File.size(source)}:#{File.mtime(source).to_f}"
+    end
+
+    def document_for(source, identity, check)
+      if (document = @documents.delete(identity))
+        document.access&.activate(check)
+      else
+        discard_documents if @documents.size >= 2
+        access = PDFium::FileAccess.new(source, check:) if source.is_a?(RemotePDF)
+        pointer = access ? PDFium.load_custom_document(access, nil) : PDFium.load_document(source, nil)
+        begin
+          access&.check!
+          raise "Unable to open this PDF." if pointer.null?
+
+          document = Document.new(pointer, access)
+        rescue StandardError
+          PDFium.close_document(pointer) unless pointer.null?
+          raise
+        end
+      end
+      @documents[identity] = document
+    end
+
+    def discard_documents
+      @documents.each_value { |document| PDFium.close_document(document.pointer) }
+      @documents.clear
+    end
+
+    # PDFium documents and their Ruby callbacks stay alive between pages, but all
+    # native work remains serialized. A failed/cancelled read invalidates the
+    # document: its parser must never retain partially read objects for a retry.
+    def rasterize(source, identity:, page:, width:, check:)
+      check.call
+      document = document_for(source, identity, check)
+      access = document.access
+      begin
+        count = PDFium.page_count(document.pointer)
         raise ArgumentError, "Page #{page} is outside this PDF (#{count} pages)." unless (1..count).cover?(page)
 
-        pdf_page = PDFium.load_page(document, page - 1)
+        pdf_page = PDFium.load_page(document.pointer, page - 1)
         access&.check!
         raise "Unable to read this PDF page." if pdf_page.null?
 
         height = (width * PDFium.page_height(pdf_page) / PDFium.page_width(pdf_page)).ceil
-        raise "This PDF page is too large to display." unless height.positive? && width * height <= 16_000_000
+        raise "This PDF page is too large to display." unless height.positive? && height <= 16_384 && width * height <= 16_000_000
 
         bitmap = PDFium.create_bitmap(width, height, 1)
         raise "Unable to allocate the PDF page image." if bitmap.null?
@@ -116,21 +191,15 @@ module Aljam3
         access&.check!
         check.call
         pixels = PDFium.buffer(bitmap).read_string_length(width * height * 4)
-        write_png("#{target}.tmp", width, height, pixels)
-        check.call
-        File.rename("#{target}.tmp", target)
-        # Keep a small render cache, independently of the downloaded source PDFs.
-        Dir.glob(File.join(@cache, "*.png")).sort_by { |file| File.mtime(file) }.reverse.drop(24).each { |file| File.delete(file) }
-        Image.new(target, width, height)
+        [pixels, height]
       ensure
-        FileUtils.rm_f("#{target}.tmp")
         PDFium.destroy_bitmap(bitmap) if bitmap && !bitmap.null?
         PDFium.close_page(pdf_page) if pdf_page && !pdf_page.null?
-        PDFium.close_document(document) if document && !document.null?
       end
+    rescue StandardError
+      discard_documents
+      raise
     end
-
-    private
 
     # PDFium already supplies RGBA bytes. Compress scanlines directly in zlib,
     # avoiding a Ruby integer and encoding work for every individual pixel.

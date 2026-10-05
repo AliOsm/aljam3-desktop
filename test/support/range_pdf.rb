@@ -61,7 +61,7 @@ module RangePDF
     pdf << "trailer\n<< /Size #{objects.size + 1} /Root 1 0 R >>\nstartxref\n#{xref}\n%%EOF\n"
   end
 
-  def self.serve(pdf)
+  def self.serve(pdf, delay: 0)
     requests = []
     server = TCPServer.new("127.0.0.1", 0)
     thread = Thread.new do
@@ -79,9 +79,15 @@ module RangePDF
         last = [last, pdf.bytesize - 1].min
         bytes = pdf.byteslice(first..last)
         requests << [first, bytes.bytesize]
-        socket.write("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes #{first}-#{last}/#{pdf.bytesize}\r\nContent-Length: #{bytes.bytesize}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n")
-        socket.write(bytes)
-        socket.close
+        sleep delay if delay.positive?
+        begin
+          socket.write("HTTP/1.1 206 Partial Content\r\nContent-Range: bytes #{first}-#{last}/#{pdf.bytesize}\r\nContent-Length: #{bytes.bytesize}\r\nETag: \"v1\"\r\nConnection: close\r\n\r\n")
+          socket.write(bytes)
+        rescue Errno::EPIPE, Errno::ECONNRESET
+          # A superseded page may cancel an in-flight response.
+        ensure
+          socket.close
+        end
       end
     ensure
       socket&.close

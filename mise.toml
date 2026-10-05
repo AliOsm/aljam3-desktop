@@ -23,7 +23,7 @@ run = "bundle exec rake test"
 
 [tasks.test-native]
 description = "Check native input, button styles, keyboard controls, and accessibility"
-run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test text_input --test protocol --test a11y --test golden --test clipboard --test damage"
+run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test text_input --test protocol --test a11y --test golden --test clipboard --test damage --test images"
 
 [tasks.package]
 description = "Build a standalone app on macOS arm64 or Windows x64"
@@ -76,3 +76,7 @@ run = "bundle exec ruby bench/library.rb"
 [tasks.benchmark-pdf]
 description = "Measure cold PDF page seeks without downloading the whole book"
 run = "bundle exec ruby bench/pdf_seeking.rb"
+
+[tasks.verify-scroll]
+description = "Measure displayed PDF pixels during continuous scrolling, long seeks, and cached returns"
+run = "bundle exec ruby bin/verify-ui scroll"

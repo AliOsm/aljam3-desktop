@@ -17,6 +17,7 @@ module PackageVerification
       "HOME" => home, "USERPROFILE" => home, "LOCALAPPDATA" => home,
       "ALJAM3_DATA_DIR" => File.join(home, "data"), "ALJAM3_API_URL" => "http://127.0.0.1:1",
       "ALJAM3_VERIFY_OUTPUT" => output, "SCARPE_RUN_FILE" => probe,
+      "ALJAM3_BENCHMARK_PDF" => File.join(root, ".cache/smoke/books/1/1.pdf"),
       "SCARPE_NATIVE_HEADLESS" => "1", "SCARPE_NATIVE_GHOST" => nil,
       "PATH" => [File.join(root, "vendor/scarpe/spec/support/fakebin"), *system_path].join(File::PATH_SEPARATOR),
       "SPEC_CLIPBOARD_FILE" => File.join(home, "clipboard.txt"), "SPEC_TRAP_FILE" => File.join(home, "trapped.txt")

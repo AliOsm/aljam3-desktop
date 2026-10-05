@@ -14,6 +14,7 @@ end
 require "json"
 require_relative "../test/support/motion_benchmark"
 require_relative "../test/support/continuous_reader_verification"
+require_relative "../test/support/pdf_scroll_verification"
 load File.join(ENV.fetch("ALJAM3_BUNDLE_ROOT"), "app/app.rb")
 # The renderer has started. Keep the helper out of workers and system tools.
 ENV.delete("DYLD_INSERT_LIBRARIES") if activity
@@ -23,8 +24,10 @@ app.timer(0.5) do
   begin
     automation = Scarpe::Native::Automation.new(Shoes::DisplayService.display_service)
     continuous = ContinuousReaderVerification.new(app, automation, output:).call
+    scrolling = PDFScrollVerification.new(app, automation, output:).call(sample: File.join(Aljam3.data_directory, "books/1/1.pdf"))
     report = MotionBenchmark.new(app, automation, output:).call(pdf: File.join(Aljam3.data_directory, "books/1/1.pdf"))
     report[:continuous] = continuous
+    report[:scrolling] = scrolling
     File.write(File.join(output, "passed.json"), JSON.pretty_generate(report))
   rescue StandardError => error
     File.write(File.join(output, "failed.txt"), error.full_message)

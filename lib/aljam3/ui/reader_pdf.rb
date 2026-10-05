@@ -5,16 +5,22 @@ require_relative "../pdf_viewport"
 module Aljam3
   module UI
     module ReaderPDF
+      PDF_MEMORY_BYTES = 32 * 1024 * 1024
+      PDF_MEMORY_PAGES = 32
+
       def reader_volume = [@reader.object_id, @reader.fetch(:file).fetch("id")]
 
       def prepare_pdf_volume
         return if @pdf_volume == reader_volume
 
+        release_pdf_images
         @pdf_volume = reader_volume
         @pdf_viewport = PDFViewport.new(count: @reader.fetch(:file).fetch("pages_count"))
         @pdf_images, @pdf_failures, @pdf_nodes = {}, {}, {}
         @reader[:image] = @reader[:pdf_error] = nil
         @pdf_scroll_pending = @pdf_render_due = @pdf_pan = nil
+        @pdf_direction, @pdf_scroll_speed = 1, 0
+        @pdf_last_scroll = @pdf_loading_due = nil
       end
 
       def reader_pdf_pane(width:, height:, top:)
@@ -108,34 +114,99 @@ module Aljam3
 
         invalidate_pdf_render
         @pdf_failures.clear
-        @pdf_refresh_page = @reader.fetch(:number)
         @pdf_render_due = nil
         draw_pdf_image
         request_pdf_page
       end
 
-      def pdf_render_width = ((@pdf_width - 32) * @reader.fetch(:zoom) * 1.5).to_i.clamp(240, 2400)
+      # Size pixels for the fitted page rather than for the entire pane. Bucket
+      # widths to avoid re-rendering for tiny geometry or window-size changes.
+      def pdf_render_width(number = @reader.fetch(:number))
+        ((@pdf_viewport.dimensions(number).first * 1.5 / 64).ceil * 64).clamp(240, 2400)
+      end
+
+      def pdf_wanted_pages
+        visible = @pdf_viewport.visible(@pdf_surface.scroll_top)
+        ahead = (@pdf_scroll_speed.to_f.abs * 0.35 / @pdf_viewport.page_height(visible.first)).ceil.clamp(3, 6)
+        first, last = visible.first, visible.last
+        forward = @pdf_direction.to_i >= 0 ? (last + 1..last + ahead).to_a : (first - ahead...first).to_a.reverse
+        behind = @pdf_direction.to_i >= 0 ? [first - 1] : [last + 1]
+        ([@reader.fetch(:number)] + visible + forward + behind).uniq.select { |page| (1..@pdf_viewport.count).cover?(page) }
+      end
+
+      def pdf_image_bytes = (@pdf_images || {}).values.sum { |item| item.width * item.height * 4 }
+
+      def release_pdf_image(rendered)
+        return unless rendered&.path&.start_with?("memory:")
+
+        Shoes::DisplayService.display_service.release_bitmap(rendered.path)
+      end
+
+      def release_pdf_images
+        @pdf_images&.each_value { |rendered| release_pdf_image(rendered) }
+        @pdf_images = {}
+      end
+
+      def cache_pdf_image(number, rendered)
+        previous = @pdf_images.delete(number)
+        release_pdf_image(previous) if previous && previous.path != rendered.path
+        @pdf_images[number] = rendered
+        Shoes::DisplayService.display_service.cache_bitmap(rendered.path, width: rendered.width, height: rendered.height, pixels: rendered.pixels)
+        trim_pdf_images
+      end
+
+      def trim_pdf_images
+        visible = @pdf_viewport.visible(@pdf_surface.scroll_top)
+        # Hash insertion order is the LRU. Touch visible pages even on cache hits.
+        visible.each { |page| @pdf_images[page] = @pdf_images.delete(page) if @pdf_images.key?(page) }
+        while @pdf_images.size > PDF_MEMORY_PAGES || pdf_image_bytes > PDF_MEMORY_BYTES
+          page = @pdf_images.keys.find { |key| !visible.include?(key) }
+          break unless page # A visible high-zoom page may alone exceed the budget.
+
+          release_pdf_image(@pdf_images.delete(page))
+        end
+      end
 
       def request_pdf_page
         return unless reader_pdf? && @pdf_surface && !@pdf_pending && !@pdf_render_due
 
-        wanted = @pdf_viewport.nearby(@pdf_surface.scroll_top)
-        active = @reader.fetch(:number)
-        number = ([active] + wanted.sort_by { |page| (page - active).abs }).uniq.find do |page|
-          !@pdf_failures[page] && (@pdf_images[page]&.width != pdf_render_width || @pdf_refresh_page == page)
+        visible = @pdf_viewport.visible(@pdf_surface.scroll_top)
+        visible_bytes = visible.sum { |page| (item = @pdf_images[page]) ? item.width * item.height * 4 : 0 }
+        remaining_bytes = PDF_MEMORY_BYTES - visible_bytes
+        wanted = pdf_wanted_pages.reject do |page|
+          next true if @pdf_failures[page]
+          next false if visible.include?(page)
+
+          # Reserve the whole prefetch set, not just one page's headroom. Otherwise
+          # near-budget pages evict one another and are rendered repeatedly.
+          item = @pdf_images[page]
+          width = [pdf_render_width(page), 480].min
+          bytes = item ? item.width * item.height * 4 : width * (width * @pdf_viewport.ratio(page)).ceil * 4
+          next true if bytes > remaining_bytes
+
+          remaining_bytes -= bytes
+          false
         end
+        # Supply visible pixels first. During motion favor previews ahead; once
+        # stationary sharpen the visible page before doing more network reads.
+        missing = wanted.select { |page| !@pdf_images[page] }
+        sharp = wanted.select { |page| visible.include?(page) && @pdf_images[page] && @pdf_images[page].width < pdf_render_width(page) }
+        moving = @pdf_last_scroll && Process.clock_gettime(Process::CLOCK_MONOTONIC) - @pdf_last_scroll.last < 0.08
+        choices = missing.select { |page| visible.include?(page) }.map { |page| [page, true] }
+        ahead = missing.reject { |page| visible.include?(page) }.map { |page| [page, true] }
+        detail = sharp.map { |page| [page, false] }
+        number, preview = (choices + (moving ? ahead + detail : detail + ahead)).first
         return unless number
 
-        @pdf_refresh_page = nil if @pdf_refresh_page == number
         generation = @render_number
         token = @pdf_pending = [generation, number]
         book, file = @reader.values_at(:book, :file)
-        width = pdf_render_width
+        width = preview ? [pdf_render_width(number), 480].min : pdf_render_width(number)
         check = -> { raise PDF::Cancelled unless @render_number == generation && reader_pdf? }
         @render_worker.submit(-> {
           check.call
           source = @reading.pdf_source(book.fetch("id"), file)
-          @pdf.render(source, page: number, width:, check:)
+          @pdf.render_bitmap(source, page: number, width:, check:)
         }) do |rendered, error|
           next unless reader_pdf? && @pdf_pending == token && @render_number == generation
 
@@ -144,9 +215,14 @@ module Aljam3
             @pdf_failures[number] = error_message(error)
           else
             @reader[:pdf_anchor] = @pdf_viewport.anchor(@pdf_surface.scroll_top, at: 0)
-            @pdf_images[number] = rendered
+            cache_pdf_image(number, rendered)
             changed = @pdf_viewport.learn(number, width: rendered.width, height: rendered.height)
-            @pdf_surface.scroll_top = @pdf_viewport.position(@reader[:pdf_anchor]) if changed
+            if changed
+              offset = @pdf_viewport.position(@reader[:pdf_anchor])
+              # Learning a page's ratio often changes its width only. Sending an
+              # unnecessary absolute scroll would overwrite newer wheel input.
+              @pdf_surface.scroll_top = offset if (offset - @pdf_surface.scroll_top).abs >= 1
+            end
           end
           draw_pdf_image
           request_pdf_page
@@ -167,20 +243,33 @@ module Aljam3
         end
         if @pdf_scroll_pending && reader_pdf?
           offset, @pdf_scroll_pending = @pdf_scroll_pending, nil
+          now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          if @pdf_last_scroll
+            delta = offset - @pdf_last_scroll.first
+            @pdf_direction = delta <=> 0 unless delta.zero?
+            @pdf_scroll_speed = delta / [now - @pdf_last_scroll.last, 0.001].max
+          end
+          @pdf_last_scroll = [offset, now]
           number = @pdf_viewport.active(offset)
           activate_reader_page(number, delay: true) if number != @reader[:number]
-          if @pdf_pending && !@pdf_viewport.nearby(offset).include?(@pdf_pending.last)
+          visible = @pdf_viewport.visible(offset)
+          missing = visible.any? { |page| !@pdf_images[page] && !@pdf_failures[page] }
+          if @pdf_pending && (!pdf_wanted_pages.include?(@pdf_pending.last) || (missing && !visible.include?(@pdf_pending.last)))
             invalidate_pdf_render
           end
           remember_pdf_anchor
           draw_pdf_image
-          @pdf_render_due = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 0.06
+          request_pdf_page
         end
         now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
         load_reader_text if @text_load_due && now >= @text_load_due
         if @pdf_render_due && now >= @pdf_render_due
           @pdf_render_due = nil
           request_pdf_page
+        end
+        if @pdf_loading_due && now >= @pdf_loading_due
+          @pdf_loading_due = nil
+          draw_pdf_image
         end
         @render_worker.drain
         @page_worker.drain
@@ -199,8 +288,9 @@ module Aljam3
         @pdf_canvas.height = @pdf_viewport.total_height if @pdf_canvas.height != @pdf_viewport.total_height
         pages = @pdf_viewport.nearby(@pdf_surface.scroll_top)
         (@pdf_nodes.keys - pages).each { |page| @pdf_nodes.delete(page).fetch(:slot).remove }
-        @pdf_images.keep_if { |page, _| pages.include?(page) }
-        @pdf_failures.keep_if { |page, _| pages.include?(page) }
+        trim_pdf_images
+        wanted = pdf_wanted_pages
+        @pdf_failures.keep_if { |page, _| wanted.include?(page) }
         pages.each { |page| update_pdf_node(page) }
         number = @reader.fetch(:number)
         @reader.merge!(image: @pdf_images[number], pdf_error: @pdf_failures[number])
@@ -223,14 +313,17 @@ module Aljam3
             draw_pdf_image
           end
           slot.release { @drag = nil }
-          { slot: }
+          { slot:, loading_since: Process.clock_gettime(Process::CLOCK_MONOTONIC) }
         end
         geometry = [@pdf_viewport.top(number), @pdf_viewport.page_height(number)]
         if node[:geometry] != geometry
           node[:geometry] = geometry
           node[:slot].style(top: geometry.first, height: geometry.last)
         end
-        signature = [rendered&.path, error]
+        waiting = !rendered && !error
+        show_loading = waiting && Process.clock_gettime(Process::CLOCK_MONOTONIC) - node[:loading_since] >= 0.6
+        @pdf_loading_due ||= node[:loading_since] + 0.6 if waiting && !show_loading
+        signature = [rendered&.path, error, show_loading]
         if node[:signature] != signature
           node[:signature] = signature
           node[:image] = nil
@@ -238,7 +331,10 @@ module Aljam3
             if rendered && !error
               node[:image] = image(rendered.path, alt: "صفحة #{number} من الكتاب")
             else
-              para(error || "جارٍ تحميل الصفحة #{number}…", top: 24, left: 24, width: @pdf_width - 48, size: 15, stroke: muted)
+              stack(left: (@pdf_width - display_width) / 2, top: PDFViewport::GAP / 2, width: display_width, height: display_height) do
+                background(pdf_night? ? "#1e1b1a" : "#fffdf8")
+              end
+              para(error || "جارٍ تحميل الصفحة #{number}…", top: 24, left: 24, width: @pdf_width - 48, size: 15, stroke: muted) if error || show_loading
               action("إعادة تحميل الصفحة", top: 60, left: 24) { @pdf_failures.delete(number); request_pdf_page } if error
             end
           end

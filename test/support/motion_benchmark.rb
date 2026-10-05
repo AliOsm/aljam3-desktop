@@ -34,7 +34,7 @@ class MotionBenchmark
     store = get(:store)
     AlignmentVerification.seed(store)
     book = AlignmentVerification::BOOKS.first
-    rendered = get(:pdf).render(pdf, page: 72, width: 1_200)
+    rendered = get(:pdf).render_bitmap(pdf, page: 72, width: 1_200)
     reader_scene = { book:, files: book.fetch("files"), file: book.fetch("files").first,
       number: 72, zoom: 1.0, mode: :split, text_size: 21, tashkeel: true, split_ratio: 0.5,
       query: "", image: rendered, page: { "content" => "آدابُ الْعِلْمِ وأَهْلِهِ\n" * 100 } }
@@ -42,6 +42,7 @@ class MotionBenchmark
     @app.instance_variable_set(:@screen, :reader)
     @app.instance_variable_set(:@bookmarks, [])
     @app.prepare_pdf_volume
+    @service.cache_bitmap(rendered.path, width: rendered.width, height: rendered.height, pixels: rendered.pixels)
     get(:pdf_images)[72] = rendered
     @app.draw_window
     get(:pdf_viewport).learn(72, width: rendered.width, height: rendered.height)

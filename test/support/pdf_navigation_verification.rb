@@ -74,6 +74,7 @@ class PDFNavigationVerification
         scenarios.each_with_index do |scenario, index|
           @app.navigate(:home)
           cache = File.join(directory, "renders-#{index}")
+          get(:pdf).close
           @app.instance_variable_set(:@pdf, Aljam3::PDF.new(cache:))
           @gate = ReadGate.new
           first, second = [920_000 + index * 2, 920_001 + index * 2].map { |id| book(id, url) }
@@ -114,20 +115,22 @@ class PDFNavigationVerification
           raise "An obsolete book or page replaced the requested one" unless reader.dig(:book, "id") == expected_book.fetch("id") && reader[:number] == 6 && reader[:page].fetch("number") == 6
           raise "Obsolete error reached the reader" if reader[:pdf_error] || reader[:text_error]
           image = reader.fetch(:image)
-          width = ((get(:pdf_width) - 32) * 1.25 * 1.5).to_i.clamp(240, 2400)
-          raise "An obsolete zoom replaced the requested one" unless image.width == width
+          wait_until { get(:reader).fetch(:image).width >= @app.pdf_render_width }
+          image = get(:reader).fetch(:image)
+          width = image.width
+          raise "An obsolete zoom replaced the requested one" unless width >= @app.pdf_render_width
           local = reference.render(path, page: 6, width:)
-          raise "Latest page pixels differ from the local PDF" unless File.binread(image.path) == File.binread(local.path)
+          raise "Latest page pixels differ from the local PDF" unless image.pixels == ChunkyPNG::Image.from_file(local.path).to_rgba_stream
           raise "The UI is displaying an obsolete image" unless get(:page_image).url == image.path
         end
         image = get(:reader).fetch(:image)
-        original = File.binread(image.path)
-        File.binwrite(image.path, "damaged temporary image")
+        original = image.pixels
+        @app.release_pdf_images
         @app.render_pdf
-        drain(:render_worker)
+        wait_until { get(:reader)[:image]&.width == image.width }
         raise "Damaged cache left a PDF error" if get(:reader)[:pdf_error]
-        raise "Damaged cache was not regenerated" unless File.binread(image.path) == original
-        raise "Repaired page was not displayed" unless get(:page_image)&.url == image.path
+        raise "Cleared cache was not regenerated" unless get(:reader).fetch(:image).pixels == original
+        raise "Rebuilt page was not displayed" unless get(:page_image)&.url == image.path
         wait_until { !get(:pdf_pending) }
         @app.navigate(:home)
         drain(:render_worker)

@@ -29,8 +29,10 @@ module Aljam3
       true
     end
 
+    def ratio(page) = @ratios.fetch(page, Math.sqrt(2))
+
     def dimensions(page)
-      ratio = @ratios.fetch(page, Math.sqrt(2))
+      ratio = self.ratio(page)
       width = [@width - 32, (@height - 32) / ratio].min * @zoom
       [width.round, (width * ratio).round]
     end
@@ -66,7 +68,7 @@ module Aljam3
     def anchor(top, at: 0.5)
       point = top + @height * at
       page = page_at(point)
-      [page, (point - self.top(page)) / page_height(page), at]
+      [page, (point - self.top(page)).fdiv(page_height(page)), at]
     end
 
     def position(anchor)

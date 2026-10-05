@@ -1,0 +1,232 @@
+--- a/lib/scarpe/native/display_service.rb
++++ b/lib/scarpe/native/display_service.rb
+@@ -143,6 +143,15 @@
+     def register_font(font)
+       path = Normalize.font_path(font)
+       child.post(t: "font", path: path) if path
++    end
++
++    def cache_bitmap(key, width:, height:, pixels:)
++      require "base64"
++      child.post(t: "bitmap", key:, width:, height:, rgba: Base64.strict_encode64(pixels))
++    end
++
++    def release_bitmap(key)
++      child.post(t: "release_bitmap", key:)
+     end
+ 
+     # Shoes.run_program: the program runs in a process of its own (Programs, DESIGN 5.5).
+--- a/lib/scarpe/native/normalize.rb
++++ b/lib/scarpe/native/normalize.rb
+@@ -202,6 +202,7 @@
+     return url if url.nil? || url == ""
+ 
+     url = url.to_s
++    return url if url.start_with?("memory:")
+     url.match?(%r{\Ahttps?://}i) ? download(url) : File.expand_path(url)
+   end
+ 
+--- a/native/Cargo.lock
++++ b/native/Cargo.lock
+@@ -389,6 +389,12 @@
+ version = "1.5.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "f2032f911046de80f0a198e0901378627c33f59ea0ac00e363d481118bd70a53"
++
++[[package]]
++name = "base64"
++version = "0.22.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
+ 
+ [[package]]
+ name = "bitflags"
+@@ -2046,6 +2052,7 @@
+  "accesskit_consumer 0.38.0",
+  "accesskit_winit",
+  "arboard",
++ "base64",
+  "cosmic-text",
+  "image",
+  "objc2 0.6.4",
+--- a/native/Cargo.toml
++++ b/native/Cargo.toml
+@@ -24,6 +24,7 @@
+ image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "bmp"] }
+ serde = { version = "1", features = ["derive"] }
+ serde_json = "1"
++base64 = "0.22"
+ rfd = "0.17"
+ arboard = { version = "3", default-features = false }
+ # Screen readers (src/a11y.rs): the tree, the winit 0.30 adapter, and the consumer that reads a
+--- a/native/src/elements/image.rs
++++ b/native/src/elements/image.rs
+@@ -5,6 +5,7 @@
+ use crate::layout::{LBox, Rect};
+ use crate::paint::Canvas;
+ use crate::style::{Color, Paint};
++use base64::Engine;
+ use std::collections::HashMap;
+ use std::path::{Path, PathBuf};
+ use std::rc::Rc;
+@@ -58,7 +59,27 @@
+ }
+ 
+ impl ImageCache {
++    /// Pixels supplied by a worker, without image compression, filesystem I/O,
++    /// or decoding. The caller owns their lifetime through release_bitmap.
++    pub fn insert_rgba(&mut self, key: &str, width: u32, height: u32, encoded: &str) -> bool {
++        let length = (width as u64 * height as u64).saturating_mul(4);
++        if !key.starts_with("memory:") || key.len() > 200 || width == 0 || height == 0
++            || width > crate::limits::MAX_IMAGE_SIDE || height > crate::limits::MAX_IMAGE_SIDE
++            || length > 64 * 1024 * 1024 || encoded.len() as u64 != length.div_ceil(3) * 4 {
++            return false;
++        }
++        let Ok(mut data) = base64::engine::general_purpose::STANDARD.decode(encoded) else { return false; };
++        if data.len() as u64 != length { return false; }
++        premultiply(&mut data);
++        let Some(image) = Pixmap::from_vec(data, IntSize::from_wh(width, height).unwrap()) else { return false; };
++        self.entries.insert(PathBuf::from(key), Entry {
++            file: None, image: Some(Rc::new(image)), looked: self.batch, sized: Vec::new(), night: None,
++        });
++        true
++    }
++
+     pub fn get(&mut self, path: &Path) -> Option<Rc<Pixmap>> {
++        if is_memory(path) { return self.entries.get(path).and_then(|entry| entry.image.clone()); }
+         let batch = self.batch;
+         if let Some(entry) = self.entries.get_mut(path).filter(|entry| entry.looked == batch) {
+             return entry.image.clone();
+@@ -138,7 +159,7 @@
+ 
+     /// Keeps only the pictures whose paths `shown` still wants.
+     pub fn retain(&mut self, shown: impl Fn(&Path) -> bool) {
+-        self.entries.retain(|path, _| shown(path));
++        self.entries.retain(|path, _| is_memory(path) || shown(path));
+     }
+ 
+     pub fn len(&self) -> usize {
+@@ -166,6 +187,15 @@
+     let rgba = reader.decode().ok()?.to_rgba8();
+     let (w, h) = rgba.dimensions();
+     let mut data = rgba.into_raw();
++    premultiply(&mut data);
++    Pixmap::from_vec(data, IntSize::from_wh(w, h)?)
++}
++
++fn is_memory(path: &Path) -> bool {
++    path.to_str().is_some_and(|key| key.starts_with("memory:"))
++}
++
++fn premultiply(data: &mut [u8]) {
+     for px in data.chunks_exact_mut(4) {
+         let a = px[3] as u32;
+         if a < 255 {
+@@ -174,7 +204,6 @@
+             }
+         }
+     }
+-    Pixmap::from_vec(data, IntSize::from_wh(w, h)?)
+ }
+ 
+ /// Every picture file `node` shows: an image's own, a button's icon, and a picture it is
+--- a/native/src/protocol.rs
++++ b/native/src/protocol.rs
+@@ -22,6 +22,8 @@
+     Focus { id: Id },
+     ScrollTo { id: Id, top: f32 },
+     Font { path: String },
++    Bitmap { key: String, width: u32, height: u32, rgba: String },
++    ReleaseBitmap { key: String },
+     /// How text is sized and set from now on (Lacci's `Shoes.text_mode`): "scarpe" or "shoes3".
+     TextMode { mode: String },
+     Flush,
+@@ -181,6 +183,13 @@
+     let t = obj.get("t").and_then(Value::as_str).unwrap_or("");
+     Ok(match t {
+         "hello" => Incoming::Hello { v: obj.get("v").and_then(Value::as_u64).unwrap_or(1) },
++        "bitmap" => Incoming::Bitmap {
++            key: required(s(&obj, "key"), "key")?,
++            width: required(obj.get("width").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()), "width")?,
++            height: required(obj.get("height").and_then(Value::as_u64).and_then(|n| u32::try_from(n).ok()), "height")?,
++            rgba: required(s(&obj, "rgba"), "rgba")?,
++        },
++        "release_bitmap" => Incoming::ReleaseBitmap { key: required(s(&obj, "key"), "key")? },
+         "create" => Incoming::Create(Create {
+             id: required(id(&obj, "id"), "id")?,
+             kind: required(s(&obj, "kind"), "kind")?,
+--- a/native/src/runtime.rs
++++ b/native/src/runtime.rs
+@@ -215,6 +215,25 @@
+             }
+             Incoming::Create(c) => self.create(c),
+             Incoming::Props { id, props } => self.set_props(id, props),
++            Incoming::Bitmap { key, width, height, rgba } => {
++                if self.images.insert_rgba(&key, width, height, &rgba) {
++                    if self.doc.iter().any(|node| crate::elements::image::shown_by(node).any(|path| path == std::path::Path::new(&key))) {
++                        self.revisions.touch_everything();
++                        self.invalidate();
++                    }
++                } else {
++                    self.out.send(Outgoing::Log { level: "warn".into(), msg: "invalid bitmap payload".into() });
++                }
++            }
++            Incoming::ReleaseBitmap { key } => {
++                if key.starts_with("memory:") {
++                    self.images.forget(std::path::Path::new(&key));
++                    if self.doc.iter().any(|node| crate::elements::image::shown_by(node).any(|path| path == std::path::Path::new(&key))) {
++                        self.revisions.touch_everything();
++                        self.invalidate();
++                    }
++                }
++            }
+             Incoming::Transition { id, token, duration, props } => self.start_transition(id, token, duration, props),
+             Incoming::CancelTransition { token } => self.motion.cancel(token),
+             Incoming::MotionClock { at } => self.set_motion_clock(at),
+--- a/native/tests/images.rs
++++ b/native/tests/images.rs
+@@ -5,6 +5,44 @@
+ use common::{app, create, Harness};
+ use serde_json::{json, Value};
+ use tiny_skia::{Color, Pixmap};
++use base64::Engine;
++
++fn bitmap(h: &mut Harness, key: &str, width: u32, height: u32, bytes: &[u8]) {
++    h.feed(&format!("{}\n{{\"t\":\"flush\"}}\n", json!({
++        "t": "bitmap", "key": key, "width": width, "height": height,
++        "rgba": base64::engine::general_purpose::STANDARD.encode(bytes),
++    })));
++}
++
++#[test]
++fn worker_pixels_survive_virtualization_and_are_explicitly_released() {
++    let mut h = Harness::new();
++    h.feed(&app(200, 100, &[]));
++    bitmap(&mut h, "memory:page", 2, 2, &[255, 255, 255, 255].repeat(4));
++    h.feed(&format!("{}\n{{\"t\":\"flush\"}}\n", create(3, "Image", 2, json!({"url": "memory:page", "width": 40, "height": 40, "night_mode": true}))));
++    assert_eq!(pixel(&mut h, 20.0, 20.0), json!([30, 27, 26, 255]));
++    h.feed("{\"t\":\"destroy\",\"id\":3}\n{\"t\":\"flush\"}\n");
++    assert_eq!(h.rt.images.len(), 1, "recent pixels remain ready offscreen");
++    h.feed(&format!("{}\n{{\"t\":\"flush\"}}\n", create(4, "Image", 2, json!({"url": "memory:page", "width": 40, "height": 40}))));
++    assert_eq!(pixel(&mut h, 20.0, 20.0), json!([255, 255, 255, 255]), "night mode preserved the original pixels");
++    h.feed("{\"t\":\"destroy\",\"id\":4}\n{\"t\":\"release_bitmap\",\"key\":\"memory:page\"}\n{\"t\":\"flush\"}\n");
++    assert_eq!(h.rt.images.len(), 0);
++}
++
++#[test]
++fn worker_pixels_validate_dimensions_length_and_premultiply_alpha() {
++    let mut h = Harness::new();
++    h.feed(&app(200, 100, &[]));
++    bitmap(&mut h, "memory:page", 1, 1, &[200, 100, 50, 128]);
++    let pm = h.rt.images.get(std::path::Path::new("memory:page")).unwrap();
++    assert_eq!(pm.data(), &[100, 50, 25, 128]);
++    bitmap(&mut h, "memory:page", 2, 2, &[0, 0, 0, 255]);
++    bitmap(&mut h, "memory:huge", u32::MAX, u32::MAX, &[]);
++    bitmap(&mut h, "file.png", 1, 1, &[0, 0, 0, 255]);
++    bitmap(&mut h, "memory:empty", 0, 0, &[]);
++    assert_eq!(h.rt.images.len(), 1, "invalid uploads cannot replace valid pixels or allocate unbounded images");
++    assert_eq!(h.rt.images.get(std::path::Path::new("memory:page")).unwrap().data(), pm.data());
++}
+ 
+ /// A scratch directory of this test's own.
+ fn scratch(name: &str) -> std::path::PathBuf {

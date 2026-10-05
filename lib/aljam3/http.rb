@@ -28,12 +28,13 @@ module Aljam3
       request(url, headers: { "Accept" => "application/json" }) { |response| response.body }
     end
 
-    def read_range(url, offset:, length:, validator: nil)
+    def read_range(url, offset:, length:, validator: nil, check: -> {})
       raise ArgumentError, "Invalid byte range." unless offset >= 0 && length.positive?
 
       headers = { "Range" => "bytes=#{offset}-#{offset + length - 1}", "Accept-Encoding" => "identity" }
       headers["If-Range"] = validator if validator
       request(url, headers:, persistent: true) do |response|
+        check.call
         if response.code == "200"
           raise RemoteFileChangedError, "The PDF changed. Please retry." if validator
 
@@ -52,6 +53,7 @@ module Aljam3
         expected = range[2].to_i - offset + 1
         bytes = +"".b
         response.read_body do |chunk|
+          check.call
           raise ResponseError.new(502), "PDF range exceeded its requested size." if bytes.bytesize + chunk.bytesize > expected
 
           bytes << chunk

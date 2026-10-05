@@ -95,6 +95,7 @@ module Aljam3
         @motion.cancel
         @download_queue.close
         @workers.each(&:close)
+        @pdf.close
         @reading.close
         @store.close
       ensure

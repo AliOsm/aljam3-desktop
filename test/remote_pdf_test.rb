@@ -15,14 +15,16 @@ class RemotePDFTest < Minitest::Test
       @calls, @edition = [], 1
     end
 
-    def read_range(url, offset:, length:, validator: nil)
+    def read_range(url, offset:, length:, validator: nil, check: -> {})
+      check.call
       @calls << [url, offset, length, validator]
       raise @error if @error
 
       if validator && validator != @edition.to_s
         raise Aljam3::RemoteFileChangedError
       end
-      bytes = (offset / Aljam3::RemotePDF::BLOCK_SIZE % 256).chr.b * length
+      size = Aljam3::RemotePDF::BLOCK_SIZE
+      bytes = (length / size).times.map { |part| ((offset / size + part) % 256).chr.b * size }.join
       Aljam3::HTTP::Range.new(bytes, 100_000_000, @edition.to_s, @redirect || url)
     end
   end
@@ -50,6 +52,17 @@ class RemotePDFTest < Minitest::Test
     assert_equal count + 1, http.calls.size
     source.read(size, 1)
     assert_equal count + 2, http.calls.size
+  end
+
+  def test_contiguous_image_ranges_are_coalesced_without_fetching_unrequested_blocks
+    http = HTTP.new
+    source = Aljam3::RemotePDF.new("book.pdf", http:)
+    size = Aljam3::RemotePDF::BLOCK_SIZE
+    expected = (5..16).map { |index| index.chr.b * size }.join
+    assert_equal expected, source.read(5 * size, 12 * size)
+    assert_equal [[0, size], [5 * size, 8 * size], [13 * size, 4 * size]], http.calls.map { |call| call[1, 2] }
+    assert_equal expected, source.read(5 * size, 12 * size)
+    assert_equal 3, http.calls.size
   end
 
   def test_expired_cdn_url_is_resolved_again_without_discarding_valid_cached_chunks

@@ -133,7 +133,7 @@ module Aljam3
           dialog = @dialog
           dialog[:busy] = true
           draw_window
-          @export_worker.submit(-> { @download_queue.remove(book.fetch("id")) }) do |_result, error|
+          @export_worker.submit(-> { @pdf.close; @download_queue.remove(book.fetch("id")) }) do |_result, error|
             if error
               message = error_message(error)
               if @dialog.equal?(dialog)
@@ -166,6 +166,10 @@ module Aljam3
         @clear_cache_button.style(text: "جارٍ مسح الصور…", state: "disabled")
         @render_worker.submit(-> { @pdf.clear_cache }) do |bytes, error|
           @clearing_cache = false
+          unless error
+            bytes += pdf_image_bytes
+            release_pdf_images
+          end
           @storage_feedback = error ? error_message(error) : (bytes.zero? ? "لا توجد صور مؤقتة لحذفها." : "تم تحرير #{format_bytes(bytes)} من الصور المؤقتة.")
           if @screen == :downloads
             @storage_feedback_view.text = @storage_feedback

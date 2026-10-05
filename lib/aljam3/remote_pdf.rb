@@ -7,6 +7,7 @@ module Aljam3
   class RemotePDF
     BLOCK_SIZE = 64 * 1024
     CACHE_BLOCKS = 128 # At most 8 MiB per open volume, held only for this session.
+    FETCH_BLOCKS = 8 # Coalesce only adjacent ranges the parser actually requested.
 
     def initialize(url, http: HTTP.new)
       @url = @resolved_url = url
@@ -28,26 +29,40 @@ module Aljam3
       while bytes.bytesize < length
         check.call
         index, start = (offset + bytes.bytesize).divmod(BLOCK_SIZE)
-        bytes << block(index).byteslice(start, [length - bytes.bytesize, BLOCK_SIZE - start].min)
+        last = (offset + length - 1) / BLOCK_SIZE
+        bytes << block(index, last:, check:).byteslice(start, [length - bytes.bytesize, BLOCK_SIZE - start].min)
       end
       bytes
     end
 
     private
 
-    def block(index)
-      value = @blocks.delete(index) || fetch(index)
+    def block(index, last: index, check: -> {})
+      unless @blocks.key?(index)
+        count = 1
+        count += 1 while count < FETCH_BLOCKS && index + count <= last && !@blocks.key?(index + count)
+        fetch(index, count:, check:)
+      end
+      value = @blocks.delete(index)
       @blocks[index] = value
       @blocks.shift if @blocks.size > CACHE_BLOCKS
       value
     end
 
-    def fetch(index)
-      response = @http.read_range(@resolved_url, offset: index * BLOCK_SIZE, length: BLOCK_SIZE, validator: @validator)
+    def fetch(index, count:, check:)
+      check.call
+      response = @http.read_range(@resolved_url, offset: index * BLOCK_SIZE, length: count * BLOCK_SIZE, validator: @validator, check:)
       raise RemoteFileChangedError, "The PDF changed. Please retry." if @size && @size != response.size
 
       @size, @validator, @resolved_url = response.size, response.validator, response.url
-      response.bytes
+      check.call
+      count.times do |part|
+        bytes = response.bytes.byteslice(part * BLOCK_SIZE, BLOCK_SIZE)
+        break if !bytes || bytes.empty?
+
+        @blocks[index + part] = bytes
+        @blocks.shift if @blocks.size > CACHE_BLOCKS
+      end
     rescue RemoteFileChangedError
       @blocks.clear
       @size = @validator = nil
