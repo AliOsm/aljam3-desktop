@@ -2,12 +2,8 @@
 ruby = "3.4.7"
 rust = "1.98.1"
 
-[tools."github:yshalsager/sqlite-tokenizer-ar"]
-version = "0.1.13"
-asset_pattern = "sqlite-tokenizer-ar-{{ os() }}-{{ arch() }}.tar.gz"
-
 [env]
-SQLITE_TOKENIZER_AR_EXTENSION = { value = "{{ tools['github:yshalsager/sqlite-tokenizer-ar'].path }}/sqlite_tokenizer_ar.{% if os() == 'windows' %}dll{% else %}so{% endif %}", tools = true }
+SQLITE_TOKENIZER_AR_EXTENSION = "{{ config_root }}/vendor/tokenizer/sqlite_tokenizer_ar.{% if os() == 'windows' %}dll{% else %}so{% endif %}"
 
 [tasks.setup]
 description = "Install the pinned desktop runtime and Ruby dependencies"
