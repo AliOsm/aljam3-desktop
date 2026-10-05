@@ -162,7 +162,7 @@ module Aljam3
             action("إعادة تحميل النص", margin_top: 16) { load_reader_text }
           else
             content = @reader[:loading_text] ? "جارٍ تحميل النص…" : (page_text.strip.empty? ? "لا يتوفر نص لهذه الصفحة." : page_text)
-            @page_text = para(*reader_text_parts(content), selectable: true, font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
+            @page_text = para(*reader_text_parts(content), selectable: true, cursor: "text", font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
             @page_text.click { |button, x, y| open_reader_copy_menu(x, y) if button == 3 }
           end
         end
