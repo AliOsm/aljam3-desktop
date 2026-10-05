@@ -3,6 +3,24 @@
 module Aljam3
   module UI
     module ReaderTools
+      def open_reader_copy_menu(x, y)
+        return if dialog_active? || @reader[:loading_text] || @reader[:text_error] || page_text.strip.empty?
+
+        text = @page_text.selected_text
+        return if text.empty?
+
+        open_dialog(:reader_copy, anchor: [x, y, 0, 0], selected_text: text.freeze,
+          return_control: @page_text, return_focus: nil)
+      end
+
+      def draw_reader_copy_menu
+        @dialog_first = action("نسخ النص", icon: "copy", key: :copy_selection,
+          width: 1.0, height: 40, variant: :ghost, align: "right") do
+          text = @dialog.fetch(:selected_text)
+          close_dialog { copy_with_feedback(text, control: @copy_button) }
+        end
+      end
+
       def reader_pane_widths
         available = width - PAGE_MARGIN * 2
         return [available, available] unless @reader[:mode] == :split
@@ -61,7 +79,7 @@ module Aljam3
             row(height: 59) do
               file = @reader.fetch(:files).find { |candidate| candidate.fetch("id") == entry.fetch("file_id") }
               stack(width: -120) do
-                label = [@reader.fetch(:files).length > 1 && file&.fetch("name"), "صفحة #{entry.fetch('number')}"].select { |part| part }.join(" · ")
+                label = [@reader.fetch(:files).length > 1 && file&.fetch("name"), "صفحة #{format_number(entry.fetch('number'))}"].select { |part| part }.join(" · ")
                 para label, size: 16, wrap: "trim"
                 para entry.fetch("excerpt"), size: 14, stroke: muted, margin_top: 6, wrap: "trim"
               end
@@ -88,14 +106,14 @@ module Aljam3
       def draw_reader_options
         update_size = lambda do |change|
           change_text_size(change)
-          @text_size_label.text = @reader.fetch(:text_size).to_s
+          @text_size_label.text = format_number(@reader.fetch(:text_size))
           @text_larger.state = @reader[:text_size] >= 35 ? "disabled" : nil
           @text_smaller.state = @reader[:text_size] <= 17 ? "disabled" : nil
         end
         row do
           para "حجم النص", width: -140, size: 16
           @dialog_first = @text_larger = icon_button("plus", "تكبير النص", width: 44, variant: :outline, state: @reader[:text_size] >= 35 ? "disabled" : nil) { update_size.call(2) }
-          @text_size_label = para @reader.fetch(:text_size).to_s, width: 52, align: "center"
+          @text_size_label = para format_number(@reader.fetch(:text_size)), width: 52, align: "center"
           @text_smaller = icon_button("minus", "تصغير النص", width: 44, variant: :outline, state: @reader[:text_size] <= 17 ? "disabled" : nil) { update_size.call(-2) }
         end
         row(top: 48) do
@@ -179,7 +197,7 @@ module Aljam3
         position = count.zero? ? 0 : @reader.fetch(:match_index, 0) + 1
         row(left: PAGE_MARGIN, top:, width: @main_width) do
           para "البحث: #{@reader.fetch(:query)[0, 64]}", width: -272, size: 15, stroke: primary, wrap: "trim"
-          @match_label = para "#{position} / #{count} في الصفحة", width: 164, size: 14, stroke: muted, align: "center"
+          @match_label = para "#{format_number(position)} / #{format_number(count)} في الصفحة", width: 164, size: 14, stroke: muted, align: "center"
           @previous_match_button = icon_button("arrow-right", "التطابق السابق · Shift F3", state: count.zero? ? "disabled" : nil) { move_reader_match(-1) }
           @next_match_button = icon_button("arrow-left", "التطابق التالي · F3", state: count.zero? ? "disabled" : nil) { move_reader_match(1) }
           icon_button("x", "إزالة تمييز البحث") { clear_reader_matches }
@@ -195,7 +213,7 @@ module Aljam3
 
         @reader[:match_index] = (@reader.fetch(:match_index, 0) + change) % count
         @page_text.replace(*reader_text_parts(page_text))
-        @match_label.text = "#{@reader[:match_index] + 1} / #{count} في الصفحة" if @match_label
+        @match_label.text = "#{format_number(@reader[:match_index] + 1)} / #{format_number(count)} في الصفحة" if @match_label
         focus_reader_match
       end
 

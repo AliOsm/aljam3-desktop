@@ -147,7 +147,7 @@ module Aljam3
           return notify_file_failure(jobs.uniq { |item| item.fetch(:key) })
         end
         @notifications.push(:export_done) do |count|
-          { message: count == 1 ? "تم حفظ الملف" : "تم حفظ #{count} ملفات",
+          { message: count == 1 ? "تم حفظ الملف" : "تم حفظ #{format_number(count)} ملفات",
             detail: "#{count > 1 ? 'آخر ملف: ' : ''}#{File.basename(job.fetch(:path))}",
             action_label: count == 1 ? "فتح المجلد" : "مجلد آخر ملف",
             action: -> { reveal_saved_file(job.fetch(:path)) } }
@@ -158,7 +158,7 @@ module Aljam3
         return @notifications.dismiss(:export_failed) if jobs.empty?
 
         @notifications.push(:export_failed, persistent: true) do
-          { error: true, count: jobs.length, jobs:, message: jobs.length == 1 ? "تعذّر حفظ الملف" : "تعذّر حفظ #{jobs.length} ملفات",
+          { error: true, count: jobs.length, jobs:, message: jobs.length == 1 ? "تعذّر حفظ الملف" : "تعذّر حفظ #{format_number(jobs.length)} ملفات",
             detail: jobs.last.fetch(:message), action_label: "إعادة المحاولة",
             action: -> { jobs.select { |item| item[:status] == :failed }.each { |item| run_file_save(item) } } }
         end

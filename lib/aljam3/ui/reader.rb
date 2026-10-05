@@ -163,12 +163,13 @@ module Aljam3
           else
             content = @reader[:loading_text] ? "جارٍ تحميل النص…" : (page_text.strip.empty? ? "لا يتوفر نص لهذه الصفحة." : page_text)
             @page_text = para(*reader_text_parts(content), selectable: true, font: READING_FONT, size: @reader.fetch(:text_size), leading: 8)
+            @page_text.click { |button, x, y| open_reader_copy_menu(x, y) if button == 3 }
           end
         end
         @copy_button&.style(state: @reader[:loading_text] || page_text.strip.empty? ? "disabled" : nil)
         if @match_label
           count = Text.match_ranges(page_text, @reader.fetch(:query)).length
-          @match_label.text = "#{count.zero? ? 0 : @reader.fetch(:match_index, 0) + 1} / #{count} في الصفحة"
+          @match_label.text = "#{format_number(count.zero? ? 0 : @reader.fetch(:match_index, 0) + 1)} / #{format_number(count)} في الصفحة"
           [@previous_match_button, @next_match_button].compact.each { |button| button.state = count.zero? ? "disabled" : nil }
         end
         if !@reader[:loading_text] && @reader.delete(:focus_match)
@@ -211,40 +212,45 @@ module Aljam3
       def reader_pagination
         number, file = @reader.values_at(:number, :file)
         count = file.fetch("pages_count")
+        count_text = format_number(count)
+        field_width = [76, count_text.length * 10 + 24].max
+        count_width = [68, count_text.length * 8 + 28].max
+        controls_width = 196 + field_width + count_width
         bottom = height - STATUS_HEIGHT
         stack(left: PAGE_MARGIN, top: bottom - 68, width: @main_width, height: 52) do
           background card_color, curve: CARD_RADIUS
           border line_color, curve: CARD_RADIUS
         end
-        row(left: (width - 340) / 2, top: bottom - 60, width: 340) do
+        row(left: (width - controls_width) / 2, top: bottom - 60, width: controls_width) do
           @first_page_button = icon_button("chevrons-right", "أول صفحة", state: number <= 1 ? "disabled" : nil) { turn_page(1) }
           @previous_page_button = icon_button("arrow-right", "الصفحة السابقة", state: number <= 1 ? "disabled" : nil) { turn_page(@reader.fetch(:number) - 1) }
           para "الصفحة", width: 52, size: 14, align: "center", stroke: muted
-          @page_field = input(number.to_s, width: 76, height: 36, align: "center", tooltip: "رقم الصفحة · Enter للانتقال") do
+          @page_field = input(format_number(number), width: field_width, height: 36, align: "center", tooltip: "رقم الصفحة · Enter للانتقال") do
             @page_feedback.text = "" if @page_feedback
           end
           @page_field.finish = proc { go_to_page }
-          para "من #{count}", width: 68, size: 14, align: "center", stroke: muted
+          para "من #{count_text}", width: count_width, size: 14, align: "center", stroke: muted
           @next_page_button = icon_button("arrow-left", "الصفحة التالية", state: number >= count ? "disabled" : nil) { turn_page(@reader.fetch(:number) + 1) }
           @last_page_button = icon_button("chevrons-left", "آخر صفحة", state: number >= count ? "disabled" : nil) { turn_page(count) }
         end
-        @page_feedback = para "", left: (width - 340) / 2, top: bottom - 86, width: 340, size: 13, stroke: primary, align: "center"
+        @page_feedback = para "", left: (width - controls_width) / 2, top: bottom - 86, width: controls_width, size: 13, stroke: primary, align: "center"
         files = @reader.fetch(:files)
         if files.size > 1
           action("ملفات الكتاب", icon: "chevron-down", right: PAGE_MARGIN + 12, top: bottom - 60, width: 144, variant: :ghost) do
-            choices = files.map { |item| ["#{item.fetch('name')} · #{item.fetch('pages_count')} صفحة", item] }
+            choices = files.map { |item| ["#{item.fetch('name')} · #{format_number(item.fetch('pages_count'))} صفحة", item] }
             open_dialog(:volumes, query: "", choices:, selection: ->(selected) { @reader[:file] = selected; turn_page(1) })
           end
         end
       end
 
       def go_to_page
-        number = Integer(@page_field.text.tr("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789"), 10, exception: false)
+        text = @page_field.text.strip.tr("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+        number = Integer(text.delete(","), 10, exception: false) if text.match?(/\A(?:\d+|\d{1,3}(?:,\d{3})+)\z/)
         count = @reader.fetch(:file).fetch("pages_count")
         if number && number.between?(1, count)
           turn_page(number)
         else
-          @page_feedback.text = "أدخل رقم صفحة من 1 إلى #{count}."
+          @page_feedback.text = "أدخل رقم صفحة من 1 إلى #{format_number(count)}."
           @page_field.focus
         end
       end
@@ -317,7 +323,7 @@ module Aljam3
       def update_reader_page_controls
         number = @reader.fetch(:number)
         last = number >= @reader.fetch(:file).fetch("pages_count")
-        @page_field.text = number.to_s if @page_field && @editing_field != @page_field
+        @page_field.text = format_number(number) if @page_field && @editing_field != @page_field
         [@first_page_button, @previous_page_button].compact.each { |button| button.state = number <= 1 ? "disabled" : nil }
         [@last_page_button, @next_page_button].compact.each { |button| button.state = last ? "disabled" : nil }
         @bookmark_button&.style(icon: asset_path("icons", bookmarked? ? "bookmark-check" : "bookmark"),

@@ -12,7 +12,7 @@ module Aljam3
         resolve_download_failure(book.fetch("id"))
         @notifications.push(:download_done) do |count|
           {
-            message: count == 1 ? "جاهز للقراءة والبحث دون اتصال" : "#{count} كتب جاهزة دون اتصال",
+            message: count == 1 ? "جاهز للقراءة والبحث دون اتصال" : "#{format_number(count)} كتب جاهزة دون اتصال",
             detail: count == 1 ? Text.plain(book.fetch("title")) : "اكتمل حفظ الكتب ونصوصها للبحث.",
             action_label: count > 1 ? "عرض التنزيلات" : "فتح الكتاب",
             action: -> { count > 1 ? navigate(:downloads) : open_book(book) }
@@ -26,7 +26,7 @@ module Aljam3
         count, last = downloads.length, downloads.last
         cancelling = last[:failure] == "cancel"
         @notifications.push(:download_failed, persistent: true) do
-          { error: true, count:, downloads:, message: count > 1 ? "#{count} تنزيلات تحتاج إلى المحاولة" : (cancelling ? "تعذّر إلغاء التنزيل" : "تعذّر تنزيل الكتاب"),
+          { error: true, count:, downloads:, message: count > 1 ? "#{format_number(count)} تنزيلات تحتاج إلى المحاولة" : (cancelling ? "تعذّر إلغاء التنزيل" : "تعذّر تنزيل الكتاب"),
             detail: last.fetch(:message), action_label: count == 1 ? "إعادة المحاولة" : "عرض التنزيلات",
             action: -> {
               if count > 1
@@ -203,15 +203,15 @@ module Aljam3
           current[:status] == :pausing ? "جارٍ إيقاف التنزيل…" : "جارٍ إلغاء التنزيل…"
         elsif current
           phase = current.fetch(:message).start_with?("حفظ النص") ? "تجهيز البحث" : "جارٍ التنزيل"
-          "#{phase} · #{(current.fetch(:fraction) * 100).floor}%"
+          "#{phase} · #{format_number((current.fetch(:fraction) * 100).floor)}%"
         elsif states.fetch(:queued, 0).positive?
-          "#{states[:queued]} في قائمة التنزيل"
+          "#{format_number(states[:queued])} في قائمة التنزيل"
         elsif states.fetch(:failed, 0).positive?
-          states[:failed] == 1 ? "تنزيل يحتاج إلى المحاولة" : "#{states[:failed]} تنزيلات تحتاج إلى المحاولة"
+          states[:failed] == 1 ? "تنزيل يحتاج إلى المحاولة" : "#{format_number(states[:failed])} تنزيلات تحتاج إلى المحاولة"
         elsif states.fetch(:paused, 0).positive?
-          states[:paused] == 1 ? "تنزيل متوقف مؤقتًا" : "#{states[:paused]} تنزيلات متوقفة مؤقتًا"
+          states[:paused] == 1 ? "تنزيل متوقف مؤقتًا" : "#{format_number(states[:paused])} تنزيلات متوقفة مؤقتًا"
         end
-        file_message = saving == 1 ? "جارٍ حفظ ملف…" : "جارٍ حفظ #{saving} ملفات…" if saving.positive?
+        file_message = saving == 1 ? "جارٍ حفظ ملف…" : "جارٍ حفظ #{format_number(saving)} ملفات…" if saving.positive?
         message = [message, file_message].compact.join(" · ")
         @activity_progress.style(hidden: !current)
         smooth_progress(@activity_progress, current&.fetch(:fraction) || 0, group: :chrome)

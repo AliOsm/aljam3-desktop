@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require_relative "../lib/aljam3/ui/components"
 require_relative "../lib/aljam3/ui/reader"
 require_relative "../lib/aljam3/ui/reader_pdf"
 require_relative "../lib/aljam3/ui/navigation"
@@ -10,6 +11,7 @@ require "timeout"
 
 class ReaderTest < StoreTestCase
   class Reader
+    include Aljam3::UI::Components
     include Aljam3::UI::Reader
     include Aljam3::UI::ReaderPDF
     include Aljam3::UI::Navigation
@@ -170,23 +172,23 @@ class ReaderTest < StoreTestCase
     install_book
     reader = Reader.new(@store)
     reader.open_book(book)
-    reader.reader.fetch(:file)["pages_count"] = 150
+    reader.reader.fetch(:file)["pages_count"] = 12_345
     field = Struct.new(:text, :focused) { def focus = self.focused = true }.new
     feedback = Struct.new(:text).new
     reader.instance_variable_set(:@page_field, field)
     reader.instance_variable_set(:@page_feedback, feedback)
 
-    { "010" => 10, "٠١٠٤" => 104, "۰۰۸" => 8, " 008 " => 8 }.each do |text, expected|
+    { "010" => 10, "٠١٠٤" => 104, "1,234" => 1234, "١٢,٣٤٥" => 12_345, "۱۲,۳۴۵" => 12_345, "۰۰۸" => 8, " 008 " => 8 }.each do |text, expected|
       field.text = text
       reader.go_to_page
       assert_equal expected, reader.reader.fetch(:number), text
     end
-    %w[0x10 0b10 -1 0 151 1.5 abc].each do |text|
+    %w[0x10 0b10 -1 0 12346 12,346 12,34 1234,5 ,123 1,,234 1,234, 1.5 abc].each do |text|
       field.text, field.focused = text, false
       reader.go_to_page
       assert_equal 8, reader.reader.fetch(:number), text
       assert field.focused, text
-      assert_includes feedback.text, "150"
+      assert_includes feedback.text, "12,345"
     end
   end
 

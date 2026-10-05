@@ -130,8 +130,8 @@ module Aljam3
       def dialog_layout
         type = @dialog.fetch(:type)
         shell_type = @dialog_stack.first&.fetch(:type) || type
-        popup = %i[select filters volumes reader_options reader_menu].include?(shell_type)
-        menu = %i[select reader_menu].include?(type) && @dialog_stack.empty?
+        popup = %i[select filters volumes reader_options reader_menu reader_copy].include?(shell_type)
+        menu = %i[select reader_menu reader_copy].include?(type) && @dialog_stack.empty?
         requested_width, requested_height = case type
           when :filters then [408, 308]
           when :select then [220, (menu ? 12 : 80) + @dialog.fetch(:choices).length * 44]
@@ -143,6 +143,7 @@ module Aljam3
           when :book_search then [720, book_search_dialog_height]
           when :reader_options then [384, @reader[:mode] == :split ? 384 : 284]
           when :reader_menu then [304, 216]
+          when :reader_copy then [184, 56]
           when :bookmarks then [600, @bookmarks.empty? ? 128 : [99 + @bookmarks.length * 76, 496].min]
           when :shortcuts then [540, 384]
           when :remove_download then [560, 296]
@@ -170,9 +171,9 @@ module Aljam3
         @dialog_duration = popup ? 0.14 : 0.20
         title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
           authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
-          reader_options: "خيارات القراءة", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
+          reader_options: "خيارات القراءة", reader_copy: "نسخ النص", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
           remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل" }.fetch(type, "اختر"))
-        backdrop_alpha = shell_type == :select ? 0 : popup ? 0.10 : 0.28
+        backdrop_alpha = %i[select reader_copy].include?(shell_type) ? 0 : popup ? 0.10 : 0.28
         { type:, menu:, left:, top:, width: panel_width, height: panel_height, title:, backdrop_alpha: }
       end
 
@@ -227,6 +228,7 @@ module Aljam3
           when :export then draw_export
           when :reader_options then draw_reader_options
           when :reader_menu then draw_reader_menu
+          when :reader_copy then draw_reader_copy_menu
           when :bookmarks then draw_bookmarks
           when :shortcuts then draw_shortcuts
           when :remove_download then draw_remove_download

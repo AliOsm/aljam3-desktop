@@ -65,7 +65,7 @@ module Aljam3
           if dialog_active?
             close_dialog
           elsif @screen == :reader
-            @page_field.text = @reader.fetch(:number).to_s if @page_field
+            @page_field.text = format_number(@reader.fetch(:number)) if @page_field
             clear_reader_matches
           end
         elsif %i[control_f alt_f].include?(key)

@@ -17,7 +17,7 @@ module Aljam3
           end
           stack(padding_left: 16, padding_right: 16, padding_bottom: 16) do
             row do
-              para "#{author.fetch('books_count', 0)} كتاب", width: -132, size: 14, stroke: muted
+              para "#{format_number(author.fetch('books_count', 0))} كتاب", width: -132, size: 14, stroke: muted
               action("كتب المؤلف", icon: "arrow-left", width: 132) { browse_scope(:author, author) }
             end
           end
@@ -59,7 +59,7 @@ module Aljam3
                 flow(direction: "rtl", valign: "center") do
                   stack(width: -32) do
                     para text_link(library_name(library)) { browse_scope(:library, library) }, size: 18
-                    para "#{library.fetch('books_count')} كتاب", size: 14, stroke: muted, margin_top: 4
+                    para "#{format_number(library.fetch('books_count'))} كتاب", size: 14, stroke: muted, margin_top: 4
                   end
                   image asset_path("icons", "arrow-left"), width: 32, height: 16, margin_left: 16
                 end
@@ -78,7 +78,7 @@ module Aljam3
         files = book.fetch("files", []) if files.empty?
         file = files.find { |candidate| candidate.fetch("id") == entry.fetch("file_id") }
         total = file&.fetch("pages_count")
-        location = [files.length > 1 && file&.fetch("name"), "صفحة #{entry.fetch('number')}#{total ? " من #{total}" : ''}"].select { |part| part }.join(" · ")
+        location = [files.length > 1 && file&.fetch("name"), "صفحة #{format_number(entry.fetch('number'))}#{total ? " من #{format_number(total)}" : ''}"].select { |part| part }.join(" · ")
         card(height_group: "reading", margin_bottom: 0) do
           stack(padding_left: 16, padding_right: 16, padding_top: 16, padding_bottom: 64) do
             book_heading(book)
@@ -100,7 +100,7 @@ module Aljam3
         row(height: 52) do
           stack(width: -44) do
             para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 16, wrap: "trim"
-            para "صفحة #{entry.fetch('number')} · #{availability_label(book)}", size: 13, stroke: muted, margin_top: 6
+            para "صفحة #{format_number(entry.fetch('number'))} · #{availability_label(book)}", size: 13, stroke: muted, margin_top: 6
           end
           icon_button("arrow-left", "متابعة #{Text.plain(book.fetch('title'))}", width: 44,
             state: offline_unavailable?(book) ? "disabled" : nil) { open_book(book) }
@@ -135,7 +135,7 @@ module Aljam3
           stack(**styles) do
             flow(width: 1.0, direction: "rtl", valign: "center", padding_top: 16, padding_bottom: 16, height_group: "category_label") do
               para text_link(category.fetch("name")) { browse_scope(:category, category) }, width: -100, size: 16
-              para "#{category.fetch('books_count', 0)} كتاب", width: 100, size: 13, stroke: muted, align: "left"
+              para "#{format_number(category.fetch('books_count', 0))} كتاب", width: 100, size: 13, stroke: muted, align: "left"
             end
             separator
           end

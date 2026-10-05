@@ -1,0 +1,132 @@
+--- a/lacci/lib/shoes/drawables/para.rb
++++ b/lacci/lib/shoes/drawables/para.rb
+@@ -2,6 +2,7 @@
+ require_relative 'font_helper.rb'
+ class Shoes
+   class Para < Shoes::Drawable 
++    include Shoes::Focusable
+     include OwnedText
+   include FontHelper
+     shoes_styles :owns_text
+@@ -241,6 +242,12 @@
+       return display.para_hit(linkable_id, x, y) if display.respond_to?(:para_hit)
+ 
+       Shoes::DisplayService.para_hit_cache[linkable_id]
++    end
++
++    # Read the native selection without touching the user's clipboard.
++    def selected_text
++      display = Shoes::DisplayService.display_service
++      display.respond_to?(:para_selection) ? display.para_selection(linkable_id) : ""
+     end
+ 
+     # The top of the caret's line, measured in the slot that scrolls the para, so it compares
+--- a/lib/scarpe/native/display_service.rb
++++ b/lib/scarpe/native/display_service.rb
+@@ -138,6 +138,10 @@
+     # The caret's {"left", "top", "height"}, or nil when the para has none.
+     def para_caret(id)
+       answer(:para_caret, id: id).last
++    end
++
++    def para_selection(id)
++      answer(:para_selection, id: id).last.to_s
+     end
+ 
+     def register_font(font)
+--- a/native/src/automation.rs
++++ b/native/src/automation.rs
+@@ -163,6 +163,17 @@
+                 let app = self.owner_app(id).ok_or_else(no_app)?;
+                 self.ensure_layout(app);
+                 Ok(Some(self.para_caret(app, id).unwrap_or(Value::Null)))
++            }
++            Op::ParaSelection { id } => {
++                let app = self.owner_app(id).ok_or_else(no_app)?;
++                self.ensure_layout(app);
++                let view = self.views.get_mut(&app).expect("view");
++                let text = view.ui.selection.as_mut().filter(|selection| selection.id == id).and_then(|selection| {
++                    let tb = view.layout.as_ref()?.texts.get(&id)?;
++                    selection.sync(tb);
++                    selection.text()
++                });
++                Ok(Some(text.map_or(Value::Null, Value::from)))
+             }
+             Op::A11y { app, platform } => {
+                 let app = self.app_for(app).ok_or_else(no_app)?;
+--- a/native/src/protocol.rs
++++ b/native/src/protocol.rs
+@@ -101,6 +101,8 @@
+     /// Para#cursor_top and #cursor_left: where para `id`'s caret sits, in the frame of the slot
+     /// that scrolls it, or null when it has no caret (ledger F14).
+     ParaCaret { id: Id },
++    /// The user's selected paragraph text, without changing selection or clipboard.
++    ParaSelection { id: Id },
+     /// The accessibility tree, as a screen reader meets it (a11y.rs). `platform`: as AppKit hands
+     /// it to VoiceOver, read from the window itself (macOS windows only).
+     A11y { app: Option<Id>, platform: bool },
+@@ -279,6 +281,7 @@
+         "focused" => Op::Focused { app },
+         "para_hit" => Op::ParaHit { id: required(id(obj, "id"), "id")?, x: required(f(obj, "x"), "x")?, y: required(f(obj, "y"), "y")? },
+         "para_caret" => Op::ParaCaret { id: required(id(obj, "id"), "id")? },
++        "para_selection" => Op::ParaSelection { id: required(id(obj, "id"), "id")? },
+         "a11y" => Op::A11y { app, platform: platform(obj) },
+         "a11y_action" => Op::A11yAction {
+             target: if platform(obj) {
+--- a/native/src/selection.rs
++++ b/native/src/selection.rs
+@@ -29,6 +29,13 @@
+         self.editor.selection_bounds().filter(|(a, b)| a != b)
+     }
+ 
++    pub fn text(&self) -> Option<String> {
++        self.bounds().map(|(a, b)| {
++            let (start, end) = (self.shaped.char_index(a), self.shaped.char_index(b));
++            self.shaped.text().chars().skip(start).take(end - start).collect()
++        })
++    }
++
+     pub fn press(&mut self, fs: &mut cosmic_text::FontSystem, tb: &TextBox, x: f32, y: f32, clicks: u32, extend: bool) {
+         self.sync(tb);
+         let (x, y) = ((x - tb.x) as i32, (y - tb.y) as i32);
+@@ -56,10 +63,7 @@
+             if let Key::Char(c) = &key.key {
+                 match c.to_ascii_lowercase().as_str() {
+                     "c" => {
+-                        if let Some((a, b)) = self.bounds() {
+-                            let (start, end) = (self.shaped.char_index(a), self.shaped.char_index(b));
+-                            clipboard.set(self.shaped.text().chars().skip(start).take(end - start).collect());
+-                        }
++                        if let Some(text) = self.text() { clipboard.set(text); }
+                         return true;
+                     }
+                     "a" => { self.editor.set_selection(Selection::Normal(self.shaped.cursor_at(0))); self.editor.set_cursor(self.shaped.cursor_at(self.shaped.text().chars().count())); return true; }
+--- a/native/tests/clipboard.rs
++++ b/native/tests/clipboard.rs
+@@ -64,3 +64,26 @@
+     h.value(json!({"op":"key","key":"control_c"}));
+     assert_eq!(h.value(json!({"op":"clipboard"})), json!("hello world\nsecond line"));
+ }
++
++#[test]
++fn selected_text_queries_preserve_arabic_selection_and_leave_the_clipboard_alone() {
++    let mut h = Harness::new();
++    h.feed(&app(500, 240, &[
++        create(3, "Para", 2, json!({"text_items":["العِلْم نور\nكتاب جديد"], "selectable":true, "size":24, "direction":"rtl"})),
++        create(4, "Para", 2, json!({"text_items":["Another paragraph"], "selectable":true})),
++    ]));
++    h.value(json!({"op":"clipboard", "text":"sentinel"}));
++    assert_eq!(h.value(json!({"op":"para_selection", "id":3})), json!(null));
++    let (x, y) = text_point(&mut h, 3, 0);
++    let (ex, ey) = text_point(&mut h, 3, 7);
++    h.value(json!({"op":"mouse", "action":"down", "x":x, "y":y}));
++    h.value(json!({"op":"mouse", "action":"move", "x":ex, "y":ey}));
++    h.value(json!({"op":"mouse", "action":"up", "x":ex, "y":ey}));
++    h.value(json!({"op":"click", "target":{"x":ex,"y":ey}, "button":3}));
++    assert_eq!(h.value(json!({"op":"para_selection", "id":3})), json!("العِلْم"));
++    assert_eq!(h.value(json!({"op":"para_selection", "id":4})), json!(null));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!("sentinel"));
++    h.feed("{\"t\":\"props\",\"id\":3,\"props\":{\"text_items\":[\"Changed page\"]}}\n");
++    assert_eq!(h.value(json!({"op":"para_selection", "id":3})), json!(null));
++    assert_eq!(h.value(json!({"op":"clipboard"})), json!("sentinel"));
++}

@@ -20,11 +20,11 @@ module Aljam3
 
       def format_bytes(bytes)
         return "الحجم غير معروف" unless bytes
-        return "#{bytes} بايت" if bytes < 1024
-        return "\u2066#{(bytes / 1024.0).round(1)} KB\u2069" if bytes < 1_048_576
-        return "\u2066#{(bytes / 1_073_741_824.0).round(2)} GB\u2069" if bytes >= 1_073_741_824
+        return "#{format_number(bytes)} بايت" if bytes < 1024
+        return "\u2066#{format_number((bytes / 1024.0).round(1))} KB\u2069" if bytes < 1_048_576
+        return "\u2066#{format_number((bytes / 1_073_741_824.0).round(2))} GB\u2069" if bytes >= 1_073_741_824
 
-        "\u2066#{(bytes / 1_048_576.0).round(1)} MB\u2069"
+        "\u2066#{format_number((bytes / 1_048_576.0).round(1))} MB\u2069"
       end
 
       def download_message(download)
@@ -35,7 +35,7 @@ module Aljam3
       def draw_downloads
         para "التنزيلات والمساحة", font: HEADING_FONT, size: 24
         pdf_bytes = @store.download_bytes
-        storage = ["#{@downloaded_ids.length} كتاب متاح دون اتصال", pdf_bytes && "PDF: #{format_bytes(pdf_bytes)}", "النص والفهرس: #{format_bytes(@store.database_bytes)}"]
+        storage = ["#{format_number(@downloaded_ids.length)} كتاب متاح دون اتصال", pdf_bytes && "PDF: #{format_bytes(pdf_bytes)}", "النص والفهرس: #{format_bytes(@store.database_bytes)}"]
         para storage.compact.join(" · "),
           size: 15, stroke: muted, margin_top: 8
         row(top: 72) do
@@ -150,7 +150,7 @@ module Aljam3
               @notifications.dismiss([:remove_failed, book.fetch("id")])
               refresh_download_state
               @notifications.push(:removed) do |count|
-                { message: count == 1 ? "تمت إزالة النسخة المحمّلة" : "تمت إزالة #{count} نسخ محمّلة",
+                { message: count == 1 ? "تمت إزالة النسخة المحمّلة" : "تمت إزالة #{format_number(count)} نسخ محمّلة",
                   detail: "مواضع القراءة والفواصل محفوظة." }
               end
             end

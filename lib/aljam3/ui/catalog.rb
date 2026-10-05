@@ -8,7 +8,7 @@ module Aljam3
         heading = { saved: "كتبي المحمّلة", authors: "المؤلفون", browse: "الكتب", home: "نتائج البحث" }.fetch(@screen)
         para @scope_label || heading, font: HEADING_FONT, size: 24
         description = if saved
-          "#{@downloaded_ids.length} كتاب للقراءة والبحث دون اتصال."
+          "#{format_number(@downloaded_ids.length)} كتاب للقراءة والبحث دون اتصال."
         elsif authors
           "ابحث عن مؤلف لاستكشاف كتبه."
         else
@@ -97,7 +97,7 @@ module Aljam3
             @screen = :browse if @screen == :saved && scope == :all
             refresh_search
           end
-          action("تصفية#{@filters.empty? ? '' : " · #{@filters.length}"}", icon: "sliders-horizontal", key: :filters,
+          action("تصفية#{@filters.empty? ? '' : " · #{format_number(@filters.length)}"}", icon: "sliders-horizontal", key: :filters,
             width: 104) { open_filters }
         end
       end
@@ -143,7 +143,7 @@ module Aljam3
       def catalog_count
         return @busy ? "جارٍ البحث…" : "" if @error || !@result
 
-        return "#{@result.data.fetch('pagination').fetch('count')} مؤلف" if result_key == "authors"
+        return "#{format_number(@result.data.fetch('pagination').fetch('count'))} مؤلف" if result_key == "authors"
 
         "#{result_count(@result.data)} · #{@source == :online ? 'كل المكتبة' : 'المحفوظ على جهازك'}"
       end
@@ -168,7 +168,7 @@ module Aljam3
       def book_row(book, **styles)
         card(**styles) do
           stack(padding: 16) { book_heading(book, aligned: true) }
-          book_footer(book, "#{book.fetch('pages_count')} صفحة · #{book.fetch('files_count')} ملف")
+          book_footer(book, "#{format_number(book.fetch('pages_count'))} صفحة · #{format_number(book.fetch('files_count'))} ملف")
         end
       end
 
@@ -179,7 +179,7 @@ module Aljam3
           stack(padding: 16) do
             if in_book
               row do
-                para "صفحة #{hit.fetch('number')}", width: -124, size: 16
+                para "صفحة #{format_number(hit.fetch('number'))}", width: -124, size: 16
                 action("عرض الصفحة", icon: "book-open", width: 124) { open_book(book, hit:, query:) }
               end
             else
@@ -196,7 +196,7 @@ module Aljam3
               }, size: 14, margin_top: 8
             end
           end
-          book_footer(book, "صفحة #{hit.fetch('number')}", hit:, query:) unless in_book
+          book_footer(book, "صفحة #{format_number(hit.fetch('number'))}", hit:, query:) unless in_book
         end
       end
 

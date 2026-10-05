@@ -323,18 +323,25 @@ module Aljam3
         waiting = !rendered && !error
         show_loading = waiting && Process.clock_gettime(Process::CLOCK_MONOTONIC) - node[:loading_since] >= 0.6
         @pdf_loading_due ||= node[:loading_since] + 0.6 if waiting && !show_loading
-        signature = [rendered&.path, error, show_loading]
+        signature = [rendered&.path, error, show_loading, (!rendered || error) && [display_width, display_height, pdf_night?]]
         if node[:signature] != signature
           node[:signature] = signature
           node[:image] = nil
+          node[:loading] = node[:placeholder] = nil
           node[:slot].clear do
             if rendered && !error
-              node[:image] = image(rendered.path, alt: "صفحة #{number} من الكتاب")
+              node[:image] = image(rendered.path, alt: "صفحة #{format_number(number)} من الكتاب")
             else
-              stack(left: (@pdf_width - display_width) / 2, top: PDFViewport::GAP / 2, width: display_width, height: display_height) do
+              node[:placeholder] = stack(left: (@pdf_width - display_width) / 2, top: PDFViewport::GAP / 2, width: display_width, height: display_height) do
                 background(pdf_night? ? "#1e1b1a" : "#fffdf8")
+                if show_loading
+                  row(width: 1.0, height: display_height) do
+                    node[:loading] = para "جارٍ تحميل الصفحة #{format_number(number)}…", width: 1.0,
+                      margin: 0, align: "center", size: 15, stroke: muted
+                  end
+                end
               end
-              para(error || "جارٍ تحميل الصفحة #{number}…", top: 24, left: 24, width: @pdf_width - 48, size: 15, stroke: muted) if error || show_loading
+              para(error, top: 24, left: 24, width: @pdf_width - 48, size: 15, stroke: muted) if error
               action("إعادة تحميل الصفحة", top: 60, left: 24) { @pdf_failures.delete(number); request_pdf_page } if error
             end
           end

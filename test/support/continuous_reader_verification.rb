@@ -84,6 +84,7 @@ class ContinuousReaderVerification
       @app.turn_page(1)
       settle
       check("first-page navigation clamps correctly", get(:previous_page_button).state == "disabled")
+      loading_placeholder
       failures_and_retry
       get(:reader)[:query] = "الصفحة"
       @app.draw_window
@@ -252,6 +253,50 @@ class ContinuousReaderVerification
     @app.fit_pdf_page
     settle
     check("fitting a page resets horizontal panning", get(:pdf_pan).zero?)
+  end
+
+  def loading_placeholder
+    # Hold rendering long enough to exercise the real delayed loader, including
+    # the geometry rebuilt by a window resize and a theme change.
+    gate, entered = Queue.new, Queue.new
+    get(:render_worker).submit(-> { entered << true; gate.pop }) { |*| }
+    Timeout.timeout(5) { entered.pop }
+    @app.release_pdf_images
+    @app.turn_page(20)
+    [[:light, 1160, 820], [:dark, 900, 700]].each do |theme, width, height|
+      @app.toggle_theme unless get(:theme) == theme
+      @automation.resize(width, height)
+      Timeout.timeout(5) do
+        until get(:pdf_nodes).dig(20, :loading)
+          @app.tick
+          @automation.wait_frames
+          sleep 0.005
+        end
+      end
+      node = get(:pdf_nodes).fetch(20)
+      page = @automation.rect_of!(node.fetch(:placeholder).linkable_id)
+      label = @automation.rect_of!(node.fetch(:loading).linkable_id)
+      check("#{theme}: delayed PDF loading text is vertically centered after resize",
+        (page.center.last - label.center.last).abs < 1)
+      shot("continuous-loading-#{theme}")
+      require "chunky_png"
+      picture = ChunkyPNG::Image.from_file(File.join(@output, "continuous-loading-#{theme}.png"))
+      ink = ChunkyPNG::Color.from_hex(@app.muted)
+      columns = []
+      label.y.ceil.upto((label.y + label.h).floor - 1) do |y|
+        label.x.ceil.upto((label.x + label.w).floor - 1) { |x| columns << x if picture[x, y] == ink }
+      end
+      check("#{theme}: delayed PDF loading text is horizontally centered on the paper",
+        !columns.empty? && ((columns.min + columns.max) / 2.0 - page.center.first).abs < 4)
+    end
+    gate << true
+    @app.toggle_theme
+    @automation.resize(1160, 820)
+    settle
+    check_page(20)
+    check("completed PDF pixels replace the centered loading label", !get(:pdf_nodes).fetch(20)[:loading])
+  ensure
+    gate << true if gate
   end
 
   def failures_and_retry

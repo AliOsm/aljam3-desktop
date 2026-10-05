@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../formatting"
+
 module Aljam3
   module UI
     PAGE_MARGIN = 24
@@ -10,6 +12,8 @@ module Aljam3
     READER_GAP = 16
 
     module Components
+      def format_number(value) = Formatting.number(value)
+
       def schedule_once(seconds, &block)
         task = timer(seconds) do
           task.remove
@@ -69,7 +73,7 @@ module Aljam3
         stack(height: 52, margin_top: 8) do
           row(left: (@main_width - 324) / 2, top: 8, width: 324) do
             action("السابق", icon: "arrow-right", width: 100, state: previous ? nil : "disabled") { change.call(page - 1) }
-            para "صفحة #{page}", width: 124, size: 14, stroke: muted, align: "center"
+            para "صفحة #{format_number(page)}", width: 124, size: 14, stroke: muted, align: "center"
             action("التالي", icon: "arrow-left", width: 100, state: following ? nil : "disabled") { change.call(page + 1) }
           end
         end
@@ -78,7 +82,7 @@ module Aljam3
       def result_count(data)
         pagination = data.fetch("pagination")
         count = pagination.fetch("count")
-        pagination["count_is_exact"] == false ? "أكثر من #{count} نتيجة" : "#{count} نتيجة"
+        pagination["count_is_exact"] == false ? "أكثر من #{format_number(count)} نتيجة" : "#{format_number(count)} نتيجة"
       end
 
       def following_page(data)
@@ -96,7 +100,7 @@ module Aljam3
         stack(padding: 16, margin_bottom: 16) do
           background surface, curve: CARD_RADIUS
           row do
-            para "مرتبة من أول #{ranking.fetch('candidates')} صفحة مطابقة", width: -140, size: 14
+            para "مرتبة من أول #{format_number(ranking.fetch('candidates'))} صفحة مطابقة", width: -140, size: 14
             action("البحث في المزيد", width: 140, &expand)
           end
           para "توسيع البحث يضيف صفحات مطابقة وقد يغيّر ترتيب النتائج.", size: 13, stroke: muted, margin_top: 8

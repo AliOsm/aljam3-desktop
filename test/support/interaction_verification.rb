@@ -109,20 +109,26 @@ class InteractionVerification
   end
 
   def feedback_timer_lifecycle
+    wait_for_copy_feedback
     service = Shoes::DisplayService.display_service
     registry = service.instance_variable_get(:@display_drawable_for)
     timers = -> { registry.values.count { |item| item.kind == "SubscriptionItem" && item.props["shoes_api_name"] == "timer" } }
     baseline = timers.call
     control = @app.action("نسخ") { }
     20.times { @app.copy_with_feedback("نص", control:, label: "نسخ") }
+    wait_for_copy_feedback
+    check("Repeated copy feedback releases completed one-shot timers", timers.call == baseline)
+    control.remove
+  end
+
+  def wait_for_copy_feedback
+    service = Shoes::DisplayService.display_service
     Timeout.timeout(5) do
-      until get(:copy_receipts).empty?
+      while get(:copy_receipts)&.any?
         @automation.wait_frames
         service.pump.step(0.02)
       end
     end
-    check("Repeated copy feedback releases completed one-shot timers", timers.call == baseline)
-    control.remove
   end
 
   def selection_and_scroll
@@ -131,6 +137,8 @@ class InteractionVerification
     @automation.wait_frames
     para = @automation.rect_of!(get(:page_text).linkable_id)
     @app.clipboard = "sentinel"
+    @automation.click({ x: para.x + para.w - 3, y: para.y + 12 }, button: 3)
+    check("Right-click without a selection leaves the reader and clipboard unchanged", !get(:dialog) && @app.clipboard == "sentinel")
     @automation.mouse(:down, para.x + para.w - 3, para.y + 12)
     @automation.mouse(:move, para.x + para.w / 2, para.y + 60)
     @automation.mouse(:up, para.x + para.w / 2, para.y + 60)
@@ -138,6 +146,20 @@ class InteractionVerification
     copied = @app.clipboard
     check("Arabic paragraph drag copies only a selected passage", !copied.empty? && copied != @text && @text.include?(copied))
     shot("arabic-selection")
+    @app.clipboard = "sentinel"
+    @automation.click({ x: para.x + para.w / 2, y: para.y + 60 }, button: 3)
+    check("Right-click opens a copy menu without changing the selection or clipboard", get(:dialog)&.dig(:type) == :reader_copy && get(:page_text).selected_text == copied && @app.clipboard == "sentinel")
+    shot("reader-copy-menu")
+    click(action(:copy_selection))
+    @automation.wait_frames
+    check("The reader context menu copies exactly the selected Arabic text", @app.clipboard == copied && !get(:dialog))
+    check("Closing the copy menu restores paragraph focus and selection", @automation.focused == get(:page_text).linkable_id && get(:page_text).selected_text == copied)
+    @automation.click({ x: para.x + para.w / 2, y: para.y + 60 }, button: 3)
+    @automation.key("escape")
+    check("Escape dismisses the copy menu without clearing the selected text", !get(:dialog) && get(:page_text).selected_text == copied)
+    @automation.click({ x: para.x + para.w / 2, y: para.y + 60 }, button: 3)
+    @automation.click({ x: 10, y: 100 })
+    check("Clicking outside dismisses the copy menu", !get(:dialog))
     @automation.key("command_a")
     @automation.key("command_c")
     check("Select All and Copy retain Arabic diacritics and line breaks", @app.clipboard == @text)
@@ -174,6 +196,29 @@ class InteractionVerification
     @automation.key("enter")
     check("Non-decimal page input leaves the reader on its current page with feedback", get(:reader)[:number] == 8 && !get(:page_feedback).text.empty?)
     @app.turn_page(2)
+    file = get(:reader).fetch(:file)
+    get(:reader)[:file] = file.merge("pages_count" => 12_345)
+    set(pdf_volume: nil)
+    @app.turn_page(2)
+    click(get(:page_field))
+    @automation.key("control_a")
+    @automation.type("1,234")
+    @automation.key("enter")
+    @automation.wait_frames
+    check("Grouped page numbers navigate and keep English comma formatting", get(:reader)[:number] == 1234 && get(:page_field).text == "1,234")
+    total = @automation.layout.find { |node| node[:kind] == "Para" && node[:text] == "من 12,345" }
+    check("Grouped page totals fit on one line", total && total[:h] < get(:page_field).height)
+    shot("reader-grouped-page-number")
+    click(get(:page_field))
+    @automation.key("control_a")
+    @automation.type("12,34")
+    @automation.key("enter")
+    check("Malformed number grouping does not navigate", get(:reader)[:number] == 1234 && !get(:page_feedback).text.empty?)
+    get(:reader)[:file] = file
+    set(pdf_volume: nil)
+    @app.turn_page(2)
+  ensure
+    get(:reader)[:file] = file if file
   end
 
   def scopes
@@ -271,10 +316,34 @@ class InteractionVerification
     @automation.wait_frames
     check("Resizing below the minimum keeps a usable reader", @app.width == 800 && @app.height == 600 && @app.reader_pane_widths.min >= 240)
     shot("reader-minimum-size")
+    reader_copy_menu_at_edge
     @automation.resize(1160, 820)
     @app.tick
   ensure
     @app.singleton_class.remove_method(:request_pdf_page) if @app.singleton_methods.include?(:request_pdf_page)
+  end
+
+  def reader_copy_menu_at_edge
+    @app.toggle_theme
+    @automation.wait_frames
+    pane = @automation.rect_of!(get(:text_surface).linkable_id)
+    @automation.click({ x: pane.x + pane.w - 24, y: pane.y + 24 })
+    @automation.key("command_a")
+    @automation.click({ x: pane.x + pane.w - 24, y: pane.y + pane.h - 24 }, button: 3)
+    panel = @automation.rect_of!(get(:dialog_panel).linkable_id)
+    check("The dark reader copy menu stays inside the minimum-size window",
+      get(:dialog)[:type] == :reader_copy && panel.x >= 16 && panel.y >= 16 &&
+      panel.x + panel.w <= @app.width - 16 && panel.y + panel.h <= @app.height - 16)
+    shot("reader-copy-menu-dark")
+    @automation.key("enter")
+    @automation.wait_frames
+    check("Copy text works by keyboard in the right-hand split pane", !get(:dialog) && @app.clipboard == @text)
+    @app.turn_page(1)
+    @automation.wait_frames
+    @automation.click({ x: pane.x + pane.w - 24, y: pane.y + 24 }, button: 3)
+    check("Navigating pages cannot reopen a stale text selection", !get(:dialog) && get(:page_text).selected_text.empty?)
+    @app.turn_page(2)
+    @app.toggle_theme
   end
 
   def exports

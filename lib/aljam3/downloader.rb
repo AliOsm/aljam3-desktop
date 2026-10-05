@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "http"
+require_relative "formatting"
 
 module Aljam3
   class DownloadStopped < StandardError; end
@@ -36,7 +37,7 @@ module Aljam3
         unless File.file?(path)
           @http.download(file.fetch("urls").fetch("pdf"), path, resume: true, check:) do |bytes, total|
             fraction = total && total.positive? ? bytes.fdiv(total) * 0.7 : 0
-            yield (index + fraction).fdiv(files.length), "تنزيل PDF · #{index + 1} / #{files.length}", bytes, total if block_given?
+            yield (index + fraction).fdiv(files.length), "تنزيل PDF · #{Formatting.number(index + 1)} / #{Formatting.number(files.length)}", bytes, total if block_given?
           end
         end
         count = @store.page_count(file.fetch("id"))
@@ -46,7 +47,7 @@ module Aljam3
             @store.add_pages(file.fetch("id"), pages)
             count = @store.page_count(file.fetch("id"))
             fraction = 0.7 + 0.3 * count.fdiv(file.fetch("pages_count"))
-            yield (index + fraction).fdiv(files.length), "حفظ النص · #{count} / #{file.fetch('pages_count')} صفحة", File.size(path), File.size(path) if block_given?
+            yield (index + fraction).fdiv(files.length), "حفظ النص · #{Formatting.number(count)} / #{Formatting.number(file.fetch('pages_count'))} صفحة", File.size(path), File.size(path) if block_given?
           end
         end
         raise ConnectionError, "The book's page count changed. Please retry the download." unless count == file.fetch("pages_count")

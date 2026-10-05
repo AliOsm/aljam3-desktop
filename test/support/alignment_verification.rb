@@ -122,9 +122,9 @@ class AlignmentVerification
     gaps = first_row.each_cons(2).map { |a, b| b[:x] - right(a) }
     check("library gutters are even", gaps.all? { |gap| gap.between?(16, 32) && near(gap, gaps.first) })
     check("library tiles have compact content", first_row.all? { |tile| tile[:h].between?(64, 96) })
-    LIBRARIES.first(first_row.length).each do |library|
+    LIBRARIES.first(first_row.length).each_with_index do |library, index|
       title = node("Para", library.fetch("name"))
-      count = node("Para", "#{library.fetch('books_count')} كتاب")
+      count = node("Para", ["4,321 كتاب", "8,642 كتاب", "12,963 كتاب"].fetch(index))
       tile = first_row.find { |entry| title[:x] >= entry[:x] && right(title) <= right(entry) + 1 }
       check("library title and count have balanced padding", title[:y] - tile[:y] >= 15 && bottom(tile) - bottom(count) >= 15)
     end
