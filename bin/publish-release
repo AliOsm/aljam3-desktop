@@ -3,6 +3,7 @@
 
 require "fileutils"
 require "tempfile"
+require "digest"
 require_relative "../lib/aljam3/version"
 directory = File.expand_path(ARGV.shift || "dist")
 versions = ARGV.empty? ? [Aljam3::VERSION] : ARGV
@@ -10,6 +11,10 @@ versions.each do |version|
   names = ["Aljam3-#{version}-macos-arm64.zip", "Aljam3-#{version}-windows-x64-setup.exe"]
   files = names.flat_map { |name| [File.join(directory, name), File.join(directory, "#{name}.sha256")] }
   abort "Both platform packages and checksums are required" unless files.all? { |file| File.file?(file) }
+  names.each do |name|
+    path = File.join(directory, name)
+    abort "Package checksum mismatch: #{name}" unless Digest::SHA256.file(path).hexdigest == File.read("#{path}.sha256").split.first
+  end
   abort "Release already exists: v#{version}" if system("gh", "release", "view", "v#{version}", out: File::NULL, err: File::NULL)
   abort "Signing failed" unless system("ruby", File.join(__dir__, "sign-release"), directory, version)
   feed = File.join(directory, "update.json")

@@ -86,7 +86,10 @@ fn install(args: &[String]) -> io::Result<()> {
     let backup = Path::new(&args[7]).parent().unwrap().join("previous-app");
     // Never overwrite an existing recovery copy after a previous interrupted update.
     if backup.exists() { return Err(io::Error::other("A recovery copy already exists")); }
-    if let Err(error) = copy_tree(root, &backup) { let _ = fs::remove_dir_all(&backup); return Err(error); }
+    let partial_backup = backup.with_extension("partial");
+    if partial_backup.exists() { fs::remove_dir_all(&partial_backup)?; }
+    if let Err(error) = copy_tree(root, &partial_backup) { let _ = fs::remove_dir_all(&partial_backup); return Err(error); }
+    fs::rename(&partial_backup, &backup)?;
     let log = Path::new(&args[7]).parent().unwrap().join("installer.log");
     let status = Command::new(installer)
         .args(["/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/NOCLOSEAPPLICATIONS"])
