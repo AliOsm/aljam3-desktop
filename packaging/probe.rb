@@ -42,6 +42,10 @@ app.every(0.1) do
     # Pixel assertions need the completed view, not a blended navigation frame.
     automation.wait_frames
     next if app.instance_variable_get(:@motion).active?
+    if [1, 2, 4].include?(step)
+      next if app.instance_variable_get(:@reader)[:loading_text] ||
+        app.instance_variable_get(:@pdf_pending) || app.instance_variable_get(:@pdf_render_due)
+    end
 
     case step
     when 0
@@ -68,7 +72,9 @@ app.every(0.1) do
       raise "Arabic clipboard failed" unless app.clipboard == app.page_text
       app.change_pdf_appearance("original")
       image = app.instance_variable_get(:@page_image)
-      raise "PDF rendering failed" unless File.file?(image.url)
+      pixels = app.instance_variable_get(:@reader).fetch(:image)
+      raise "PDF rendering failed" unless pixels.is_a?(Aljam3::PDF::Bitmap) && image.url == pixels.path &&
+        pixels.pixels.bytesize == pixels.width * pixels.height * 4
       pdf = automation.rect_of!(app.instance_variable_get(:@pdf_surface).linkable_id)
       text = automation.rect_of!(app.instance_variable_get(:@text_surface).linkable_id)
       raise "Reader pane order is not RTL" unless text.x > pdf.x
@@ -82,6 +88,7 @@ app.every(0.1) do
       right, bottom = [bounds.x + bounds.w, bounds.y + bounds.h].map { |value| (value * 2).floor }
       pdf_bounds = [left, top, right - left, bottom - top]
       pdf_pixels = ChunkyPNG::Image.from_file(File.join(output, "reader.png")).crop(*pdf_bounds).pixels
+      raise "PDF pixels were not painted" unless pdf_pixels.uniq.length > 2
       app.toggle_theme
       step = 2
     when 2
