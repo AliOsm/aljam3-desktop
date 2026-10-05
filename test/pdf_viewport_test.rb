@@ -114,4 +114,23 @@ class PDFViewportTest < Minitest::Test
     refute_equal 0, pan
     assert_in_delta 240, @view.page_left(5, pan:) + anchor[1] * @view.dimensions(5).first, 0.51
   end
+
+  def test_zoom_does_not_recenter_as_paper_crosses_the_pane_width
+    @view.resize(width: 548, height: 492, zoom: 1.0)
+    @view.learn(48, width: 240, height: 320)
+    [0.2, 0.46, 0.8].each do |horizontal|
+      @view.resize(width: 548, height: 492, zoom: 1.0)
+      x, y = 548 * horizontal, 492 * 0.42
+      anchor = @view.point_anchor(@view.top(48), x:, y:)
+      [1.1, 1.3, 1.45, 1.5, 1.52, 1.58, 1.6, 1.7, 2.0, 1.58, 1.5, 1.0].each do |zoom|
+        @view.resize(width: 548, height: 492, zoom:)
+        _, pan = @view.point_position(anchor)
+        left = @view.page_left(48, pan:)
+        w = @view.dimensions(48).first
+        assert_in_delta x, left + anchor[1] * w, 0.51, "zoom #{zoom} at #{horizontal} of the pane"
+        visible = [left + w, 548].min - [left, 0].max
+        assert_operator visible, :>=, [w, 548].min / 2.0
+      end
+    end
+  end
 end

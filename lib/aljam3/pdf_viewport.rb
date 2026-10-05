@@ -76,9 +76,10 @@ module Aljam3
       clamp(top(page) + page_height(page) * fraction - @height * at)
     end
 
-    # A small page may move within its surrounding whitespace; an oversized page
-    # may pan until either edge is visible. Keep 12 points of breathing room.
-    def pan_limit(page) = (dimensions(page).first - @width + 24).abs / 2.0
+    # Keep at least half of the smaller of the page and viewport visible. A bound
+    # that shrinks to zero as the paper approaches the pane's width would force
+    # it back to the centre partway through an otherwise anchored gesture.
+    def pan_limit(page) = [dimensions(page).first, @width].max / 2.0
 
     def page_left(page, pan: 0)
       limit = pan_limit(page)
