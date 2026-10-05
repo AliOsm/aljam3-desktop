@@ -24,7 +24,8 @@ versions.each do |version|
     notes.write("Windows: run the installer. Mac: extract the ZIP and move Aljam3.app to Applications.\n\nApps are unsigned/not notarized; Windows or macOS may show a security prompt. Updates are verified with Ed25519 signatures. Books and reading positions are preserved.\n")
     notes.flush
     revision = ENV.fetch("GITHUB_SHA") { IO.popen(["git", "rev-parse", "HEAD"], &:read).strip }
-    abort "Draft release creation failed" unless system("gh", "release", "create", "v#{version}", *files, feed,
+    license = File.expand_path("../packaging/Sparkle-LICENSE.txt", __dir__)
+    abort "Draft release creation failed" unless system("gh", "release", "create", "v#{version}", *files, feed, license,
       "--draft", "--target", revision, "--title", "#{version}", "--notes-file", notes.path)
     abort "Release publication failed" unless system("gh", "release", "edit", "v#{version}", "--draft=false", "--latest")
   end

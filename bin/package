@@ -99,6 +99,7 @@ Dir.chdir(ROOT) do
     end
     abort "Sparkle checksum mismatch" unless Digest::SHA256.file(sparkle_archive).hexdigest == checksum
     framework_dir = File.join(bundle, "Contents/Frameworks")
+    copy("packaging/Sparkle-LICENSE.txt", File.join(resources, "licenses/Sparkle-LICENSE.txt"))
     FileUtils.mkdir_p(framework_dir)
     run("tar", "-xf", sparkle_archive, "-C", framework_dir, "./Sparkle.framework")
     run("clang", "-fobjc-arc", "-mmacosx-version-min=13.0", "-F#{framework_dir}", "-framework", "Sparkle",
