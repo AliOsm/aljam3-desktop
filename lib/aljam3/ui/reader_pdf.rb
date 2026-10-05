@@ -85,6 +85,7 @@ module Aljam3
       def fit_pdf_page
         return if @reader.fetch(:zoom) == 1.0
 
+        @pdf_pan = 0
         change_zoom(1.0 - @reader.fetch(:zoom))
         jump_pdf_page(@reader.fetch(:number)) if @pdf_surface
       end
@@ -213,8 +214,9 @@ module Aljam3
         display_width, display_height = @pdf_viewport.dimensions(number)
         node = @pdf_nodes[number] ||= begin
           slot = @pdf_canvas.stack(left: 0, top: @pdf_viewport.top(number), width: 1.0, height: @pdf_viewport.page_height(number))
-          slot.click { |_button, x, _y| @drag = [x, @pdf_pan || 0] unless @dialog }
+          slot.click { |button, x, _y| @drag = [x, @pdf_pan || 0] if button == 1 && !@dialog }
           slot.motion do |x, _y|
+            @drag = nil unless mouse.first == 1
             next unless @drag && !@dialog
 
             @pdf_pan = @drag[1] + x - @drag[0]

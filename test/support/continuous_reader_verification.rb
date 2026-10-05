@@ -74,6 +74,7 @@ class ContinuousReaderVerification
 
       appearance
       modes_and_resize
+      pan_release
       scrollbar
       @app.turn_page(36)
       settle
@@ -228,6 +229,28 @@ class ContinuousReaderVerification
     @automation.mouse(:up, rect.x + 5, rect.y + rect.h * 0.65)
     settle
     check("dragging the RTL scrollbar seeks through the volume", get(:reader)[:number] > 10)
+  end
+
+  def pan_release
+    @app.change_zoom(2)
+    settle
+    rect = @automation.rect_of!(surface.linkable_id)
+    x, y = rect.center
+    initial = get(:page_image).left
+    @automation.mouse(:down, x, y)
+    @automation.mouse(:move, x + 40, y)
+    before = get(:page_image).left
+    check("a held primary-button drag pans the zoomed PDF", before == initial + 40)
+    @automation.mouse(:up, x + 40, rect.y - 30)
+    @automation.mouse(:move, x + 100, y)
+    check("PDF panning stops when released outside the pane", get(:page_image).left == before)
+    @automation.mouse(:down, x, y)
+    @automation.mouse(:up, -10, -10)
+    @automation.mouse(:move, x + 100, y)
+    check("PDF panning stops when released outside the window", get(:page_image).left == before)
+    @app.fit_pdf_page
+    settle
+    check("fitting a page resets horizontal panning", get(:pdf_pan).zero?)
   end
 
   def failures_and_retry

@@ -80,6 +80,7 @@ module Aljam3
       end
       motion { |x, _y| resize_reader_split(x) if @split_drag && !dialog_active? }
       release do
+        @drag = nil
         if @split_drag
           @split_drag = false
           save_reader_options
