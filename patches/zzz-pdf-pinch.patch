@@ -1,0 +1,600 @@
+--- a/lacci/lib/shoes/drawables/slot.rb
++++ b/lacci/lib/shoes/drawables/slot.rb
+@@ -4,7 +4,7 @@
+   # @incompatibility Shoes uses #content, not #children, for this. Scarpe does both.
+   attr_reader :children
+ 
+-  shoes_events :full_redraw_request
++  shoes_events :full_redraw_request, :pinch
+ 
+   # :attach controls positioning anchor. Values:
+   # - Window — position relative to window (absolute positioning)
+@@ -13,6 +13,7 @@
+   shoes_styles :attach
+   shoes_styles :direction, :valign, :scrollbar_color
+   shoes_styles :align_heights, :height_group
++  shoes_styles :has_pinch
+ 
+   # fill, stroke, rotate, translate... for the shapes drawn in this slot
+   include Shoes::DrawContext
+@@ -97,6 +98,15 @@
+   # Observe native wheel and scrollbar changes without polling layout.
+   def on_scroll(&block)
+     @scroll_handler = block
++    self
++  end
++
++  # Incremental scale, gesture phase, and pointer position within the visible slot.
++  # The native display routes gestures to the nearest interested ancestor only.
++  def on_pinch(&block)
++    @pinch_handler = block
++    listen_for("pinch") { |scale, phase, x, y| @pinch_handler&.call(scale, phase, x, y) }
++    self.has_pinch = !!block
+     self
+   end
+ 
+--- a/lib/scarpe/native/automation.rb
++++ b/lib/scarpe/native/automation.rb
+@@ -65,8 +65,17 @@
+     end
+ 
+     # dy in logical pixels, positive scrolls down; at (x, y), or where the pointer is.
+-    def wheel(dy, x: nil, y: nil)
+-      request(:wheel, dy: dy, x: x, y: y, app: @app)
++    def wheel(dy, x: nil, y: nil, ctrl: false)
++      request(:wheel, dy: dy, x: x, y: y, ctrl: ctrl, app: @app)
++    end
++
++    def pinch(factor, phase: :moved, x: nil, y: nil)
++      request(:pinch, factor: factor, phase: phase.to_s, x: x, y: y, app: @app)
++    end
++
++    # Through the real HWND, including MK_CONTROL, client coordinates and winit.
++    def windows_zoom_wheel(delta, x:, y:)
++      request(:windows_zoom_wheel, delta: delta, x: x, y: y, app: @app)
+     end
+ 
+     def layout(app: app_id)
+--- a/native/Cargo.lock
++++ b/native/Cargo.lock
+@@ -2062,6 +2062,7 @@
+  "softbuffer",
+  "swash",
+  "tiny-skia 0.12.0",
++ "windows-sys 0.61.2",
+  "winit",
+ ]
+ 
+--- a/native/Cargo.toml
++++ b/native/Cargo.toml
+@@ -46,3 +46,6 @@
+ # Colour-space matching on the window (window.rs). Already in the tree through softbuffer and rfd.
+ [target.'cfg(target_os = "macos")'.dependencies]
+ objc2 = "0.6"
++
++[target.'cfg(target_os = "windows")'.dependencies]
++windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_UI_Shell", "Win32_UI_WindowsAndMessaging", "Win32_Graphics_Gdi"] }
+--- a/native/src/automation.rs
++++ b/native/src/automation.rs
+@@ -101,7 +101,7 @@
+                 self.key_input(app, input);
+                 Ok(Some(Value::Null))
+             }
+-            Op::Wheel { dy, x, y, app } => {
++            Op::Wheel { dy, x, y, ctrl, app } => {
+                 let app = self.app_for(app).ok_or_else(no_app)?;
+                 let at = match (x, y) {
+                     (Some(x), Some(y)) => {
+@@ -110,8 +110,21 @@
+                     }
+                     _ => None,
+                 };
+-                self.wheel(app, dy, at);
+-                Ok(Some(Value::Null))
++                if ctrl { self.zoom_wheel(app, dy, at); } else { self.wheel(app, dy, at); }
++                Ok(Some(Value::Null))
++            }
++            Op::Pinch { factor, phase, x, y, app } => {
++                let app = self.app_for(app).ok_or_else(no_app)?;
++                self.pinch(app, factor, phase, x.zip(y));
++                Ok(Some(Value::Null))
++            }
++            Op::WindowsZoomWheel { delta, x, y, app } => {
++                let app = self.app_for(app).ok_or_else(no_app)?;
++                if self.opts.headless || !cfg!(target_os = "windows") || !x.is_finite() || !y.is_finite() {
++                    return Err(("requires a Windows window and finite coordinates".into(), Value::Null));
++                }
++                self.effects.push(Effect::WindowsZoomWheel { req, app, delta, x, y });
++                Ok(None)
+             }
+             Op::Resize { app, w, h } => {
+                 let app = self.app_for(app).ok_or_else(no_app)?;
+--- a/native/src/input.rs
++++ b/native/src/input.rs
+@@ -16,6 +16,16 @@
+ use serde_json::{json, Value};
+ use std::collections::{HashMap, HashSet};
+ use std::time::{Duration, Instant};
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
++#[serde(rename_all = "snake_case")]
++pub enum PinchPhase { Started, Moved, Ended, Cancelled, Wheel }
++
++/// Windows Precision Touchpads can synthesize MK_CONTROL in WM_MOUSEWHEEL without
++/// changing GetKeyState(VK_CONTROL). Read the message, not the keyboard state.
++pub fn windows_zoom_delta(wparam: usize) -> Option<f32> {
++    (wparam & 0x0008 != 0).then(|| -((wparam >> 16) as u16 as i16 as f32) / 120.0 * 40.0)
++}
+ 
+ #[derive(Clone, Debug, PartialEq, Eq)]
+ pub enum Key {
+@@ -339,6 +349,7 @@
+     pub modal: Option<crate::dialogs::Modal>,
+     pub scroll: HashMap<Id, f32>,
+     pub scroll_drag: Option<crate::scrollbar::Drag>,
++    pinch_target: Option<Id>,
+     pub cursor: CursorShape,
+     last_click: Option<(Instant, f32, f32, u32)>,
+ }
+@@ -371,6 +382,7 @@
+         self.fields.retain(|id, _| !gone(id));
+         self.scroll.retain(|id, _| !gone(id));
+         if self.scroll_drag.is_some_and(|d| gone(&d.id)) { self.scroll_drag = None; }
++        if self.pinch_target.is_some_and(|id| gone(&id)) { self.pinch_target = None; }
+     }
+ 
+     fn click_count(&mut self, x: f32, y: f32) -> u32 {
+@@ -751,6 +763,7 @@
+     }
+ 
+     pub fn pointer_down(&mut self, app: Id, button: u8) {
++        self.cancel_pinch(app);
+         if button == 4 || button == 5 {
+             self.key_input(app, KeyInput::named(if button == 4 { Named::BrowserBack } else { Named::BrowserForward }));
+             return;
+@@ -1009,7 +1022,58 @@
+         self.scroll_slot(app, id, top);
+     }
+ 
++    pub fn cancel_pinch(&mut self, app: Id) {
++        if let Some(target) = self.views.get_mut(&app).and_then(|v| v.ui.pinch_target.take()) {
++            self.out.event("pinch", Some(target), vec![json!(1.0), json!("cancelled"), json!(0.0), json!(0.0)]);
++        }
++    }
++
++    /// A gesture belongs to the slot where it began. Moving into another pane,
++    /// scrolling, opening an overlay or removing that slot ends the capture.
++    pub fn pinch(&mut self, app: Id, factor: f64, phase: PinchPhase, at: Option<(f32, f32)>) {
++        self.ensure_layout(app);
++        let Some(view) = self.views.get(&app) else { return };
++        let Some((x, y)) = at.or(view.ui.pointer) else { return };
++        if !x.is_finite() || !y.is_finite() { return; }
++        if phase == PinchPhase::Cancelled {
++            self.cancel_pinch(app);
++            return;
++        }
++        let blocked = view.ui.modal.is_some() || view.ui.popup.is_some() || view.ui.buttons != 0;
++        let target = if blocked { None } else {
++            self.hit(app, x, y).and_then(|hit| chain(&self.doc, &hit).into_iter().find(|id| {
++                self.doc.get(*id).is_some_and(|n| n.props.truthy("has_pinch") && !crate::elements::disabled(n)) && !self.doc.is_inert(*id)
++            }))
++        };
++        if matches!(phase, PinchPhase::Started | PinchPhase::Wheel) {
++            self.cancel_pinch(app);
++            if phase == PinchPhase::Started {
++                self.views.get_mut(&app).expect("view").ui.pinch_target = target;
++            }
++        } else if target != self.views[&app].ui.pinch_target {
++            self.cancel_pinch(app);
++            return;
++        }
++        if phase == PinchPhase::Ended {
++            self.views.get_mut(&app).expect("view").ui.pinch_target = None;
++        }
++        let Some(target) = target else { return };
++        if !factor.is_finite() || factor <= 0.0 {
++            // Still deliver termination, even when the OS's final delta is invalid.
++            if !matches!(phase, PinchPhase::Started | PinchPhase::Ended) { return; }
++        }
++        let Some(rect) = self.views[&app].layout.as_ref().and_then(|l| l.rect(target)) else { return };
++        let factor = if factor.is_finite() && factor > 0.0 { factor } else { 1.0 };
++        self.out.event("pinch", Some(target), vec![json!(factor), json!(phase), json!(x - rect.x), json!(y - rect.y)]);
++    }
++
++    pub fn zoom_wheel(&mut self, app: Id, dy: f32, at: Option<(f32, f32)>) {
++        if !dy.is_finite() || dy == 0.0 { return; }
++        self.pinch(app, (-f64::from(dy) * 0.003).clamp(-4.0, 4.0).exp(), PinchPhase::Wheel, at);
++    }
++
+     pub fn wheel(&mut self, app: Id, dy: f32, at: Option<(f32, f32)>) {
++        self.cancel_pinch(app);
+         self.ensure_layout(app);
+         let Some(view) = self.views.get_mut(&app) else { return };
+         let (x, y) = at.or(view.ui.pointer).unwrap_or((0.0, 0.0));
+--- a/native/src/protocol.rs
++++ b/native/src/protocol.rs
+@@ -90,7 +90,9 @@
+     Mouse { action: MouseAction, x: f32, y: f32, button: u8, app: Option<Id> },
+     Type { text: String, app: Option<Id> },
+     Key { key: String, app: Option<Id> },
+-    Wheel { dy: f32, x: Option<f32>, y: Option<f32>, app: Option<Id> },
++    Wheel { dy: f32, x: Option<f32>, y: Option<f32>, ctrl: bool, app: Option<Id> },
++    Pinch { factor: f64, phase: crate::input::PinchPhase, x: Option<f32>, y: Option<f32>, app: Option<Id> },
++    WindowsZoomWheel { delta: i16, x: f32, y: f32, app: Option<Id> },
+     Resize { app: Option<Id>, w: f32, h: f32 },
+     Pixel { x: f32, y: f32, app: Option<Id> },
+     Frames { n: u32, app: Option<Id> },
+@@ -274,7 +276,16 @@
+         },
+         "type" => Op::Type { text: required(s(obj, "text"), "text")?, app },
+         "key" => Op::Key { key: required(s(obj, "key"), "key")?, app },
+-        "wheel" => Op::Wheel { dy: required(f(obj, "dy"), "dy")?, x: f(obj, "x"), y: f(obj, "y"), app },
++        "wheel" => Op::Wheel { dy: required(f(obj, "dy"), "dy")?, x: f(obj, "x"), y: f(obj, "y"), ctrl: obj.get("ctrl").and_then(Value::as_bool).unwrap_or(false), app },
++        "pinch" => Op::Pinch {
++            factor: required(obj.get("factor").and_then(Value::as_f64), "factor")?,
++            phase: serde_json::from_value(obj.get("phase").cloned().unwrap_or(Value::Null)).map_err(|_| ParseError::Message("invalid pinch phase".into()))?,
++            x: f(obj, "x"), y: f(obj, "y"), app,
++        },
++        "windows_zoom_wheel" => Op::WindowsZoomWheel {
++            delta: required(obj.get("delta").and_then(Value::as_i64).and_then(|v| i16::try_from(v).ok()), "signed wheel delta")?,
++            x: required(f(obj, "x"), "x")?, y: required(f(obj, "y"), "y")?, app,
++        },
+         "resize" => Op::Resize { app, w: required(f(obj, "w"), "w")?, h: required(f(obj, "h"), "h")? },
+         "pixel" => Op::Pixel { x: required(f(obj, "x"), "x")?, y: required(f(obj, "y"), "y")?, app },
+         "frames" => Op::Frames { n: obj.get("n").and_then(Value::as_u64).unwrap_or(1).min(u32::MAX as u64) as u32, app },
+@@ -585,7 +596,7 @@
+         );
+         assert_eq!(op(r#"{"t":"req","req":1,"op":"type","text":"hi"}"#), Op::Type { text: "hi".into(), app: None });
+         assert_eq!(op(r#"{"t":"req","req":1,"op":"key","key":"left"}"#), Op::Key { key: "left".into(), app: None });
+-        assert_eq!(op(r#"{"t":"req","req":1,"op":"wheel","dy":30}"#), Op::Wheel { dy: 30.0, x: None, y: None, app: None });
++        assert_eq!(op(r#"{"t":"req","req":1,"op":"wheel","dy":30}"#), Op::Wheel { dy: 30.0, x: None, y: None, ctrl: false, app: None });
+         assert_eq!(op(r#"{"t":"req","req":1,"op":"resize","w":300,"h":200}"#), Op::Resize { app: None, w: 300.0, h: 200.0 });
+         assert_eq!(op(r#"{"t":"req","req":1,"op":"pixel","x":1,"y":2}"#), Op::Pixel { x: 1.0, y: 2.0, app: None });
+         assert_eq!(op(r#"{"t":"req","req":1,"op":"frames","n":3}"#), Op::Frames { n: 3, app: None });
+--- a/native/src/runtime.rs
++++ b/native/src/runtime.rs
+@@ -62,6 +62,8 @@
+     /// Read the window's accessibility as AppKit hands it to VoiceOver, after acting on the
+     /// element with a title, and answer `req` (a11y ops with `platform`).
+     PlatformA11y { req: u64, app: Id, act: Option<crate::a11y::PlatformAct> },
++    /// Inject a per-message Control wheel through the live HWND, for gesture checks.
++    WindowsZoomWheel { req: u64, app: Id, delta: i16, x: f32, y: f32 },
+ }
+ 
+ pub struct AppView {
+@@ -659,6 +661,7 @@
+         view.layout = None;
+         view.dirty = true;
+         view.ui.popup = None;
++        self.cancel_pinch(app);
+         if notify {
+             self.out.send(Outgoing::Resize { app, w: w.round() as i64, h: h.round() as i64 });
+         }
+--- a/native/src/window.rs
++++ b/native/src/window.rs
+@@ -6,9 +6,11 @@
+ mod ghost;
+ mod pacing;
+ mod voiceover;
++#[cfg(target_os = "windows")]
++mod zoom_wheel;
+ 
+ use crate::a11y::Mirror;
+-use crate::input::{us_shifted, CursorShape, Key, KeyInput, Modifiers, Named};
++use crate::input::{us_shifted, CursorShape, Key, KeyInput, Modifiers, Named, PinchPhase};
+ use crate::paint::damage::FrameMemory;
+ use crate::props::Id;
+ use crate::protocol::{Outbox, Outgoing};
+@@ -25,7 +27,7 @@
+ use tiny_skia::Pixmap;
+ use winit::application::ApplicationHandler;
+ use winit::dpi::{LogicalPosition, LogicalSize};
+-use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
++use winit::event::{ElementState, Ime, KeyEvent, MouseButton, MouseScrollDelta, TouchPhase, WindowEvent};
+ use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop, EventLoopProxy};
+ use winit::keyboard::{Key as WKey, ModifiersState, NamedKey};
+ use winit::platform::modifier_supplement::KeyEventExtModifierSupplement;
+@@ -37,6 +39,8 @@
+     Eof,
+     /// A screen reader wants a window's whole tree, or asks something of a node.
+     A11y(accesskit_winit::Event),
++    #[cfg(target_os = "windows")]
++    ZoomWheel { window: WindowId, dy: f32, x: f64, y: f64, req: Option<u64> },
+ }
+ 
+ /// A window's screen reader handlers, which AccessKit calls on whatever thread its platform uses.
+@@ -91,6 +95,9 @@
+     a11y: accesskit_winit::Adapter,
+     /// What the screen reader was last sent, so a frame sends only what changed.
+     mirror: Mirror,
++    // Drop the subclass while its HWND and callback context are still alive.
++    #[cfg(target_os = "windows")]
++    _zoom_wheel: Option<zoom_wheel::Hook>,
+     window: Rc<Window>,
+     // Declared before the context so it is dropped first.
+     surface: softbuffer::Surface<Rc<Window>, Rc<Window>>,
+@@ -261,6 +268,8 @@
+                 app,
+                 a11y,
+                 mirror,
++                #[cfg(target_os = "windows")]
++                _zoom_wheel: zoom_wheel::Hook::install(&window, self.proxy.clone()),
+                 window,
+                 surface,
+                 _context: context,
+@@ -278,6 +287,16 @@
+     fn apply_effects(&mut self, el: &ActiveEventLoop) {
+         for effect in std::mem::take(&mut self.rt.effects) {
+             match effect {
++                Effect::WindowsZoomWheel { req, app, delta, x, y } => {
++                    #[cfg(target_os = "windows")]
++                    let sent = self.window_for(app).is_some_and(|win| win._zoom_wheel.as_ref()
++                        .is_some_and(|hook| hook.inject(req, delta, x as f64 * win.window.scale_factor(), y as f64 * win.window.scale_factor())));
++                    #[cfg(not(target_os = "windows"))]
++                    let sent = { let _ = (app, delta, x, y); false };
++                    if !sent {
++                        self.rt.out.send(Outgoing::error(req, "unable to inject Windows zoom message", serde_json::Value::Null));
++                    }
++                }
+                 Effect::OpenWindow(app) => {
+                     self.open_window(el, app);
+                 }
+@@ -506,6 +525,15 @@
+                 return;
+             }
+             UserEvent::A11y(event) => self.a11y_event(event),
++            #[cfg(target_os = "windows")]
++            UserEvent::ZoomWheel { window, dy, x, y, req } => {
++                if let Some(win) = self.windows.get(&window) {
++                    let scale = win.window.scale_factor();
++                    self.rt.mid_batch = false;
++                    self.rt.zoom_wheel(win.app, dy, Some(((x / scale) as f32, (y / scale) as f32)));
++                }
++                if let Some(req) = req { self.rt.out.send(Outgoing::reply(req, serde_json::Value::Null)); }
++            }
+         }
+         self.settle(el);
+     }
+@@ -533,11 +561,15 @@
+             }
+             WindowEvent::ScaleFactorChanged { .. } => self.rt.request_redraw(app),
+             WindowEvent::Focused(true) => self.rt.active_app = Some(app),
++            WindowEvent::Focused(false) => self.rt.cancel_pinch(app),
+             WindowEvent::CursorMoved { position, .. } => {
+                 let p = position.to_logical::<f64>(scale);
+                 self.rt.pointer_move(app, p.x as f32, p.y as f32);
+             }
+-            WindowEvent::CursorLeft { .. } => self.rt.pointer_left(app),
++            WindowEvent::CursorLeft { .. } => {
++                self.rt.cancel_pinch(app);
++                self.rt.pointer_left(app);
++            }
+             WindowEvent::MouseInput { state, button, .. } => {
+                 self.rt.stats.input();
+                 let b = match button {
+@@ -559,7 +591,16 @@
+                     MouseScrollDelta::LineDelta(_, y) => -y * 40.0,
+                     MouseScrollDelta::PixelDelta(p) => -(p.to_logical::<f64>(scale).y as f32),
+                 };
+-                self.rt.wheel(app, dy, None);
++                if win.modifiers.control_key() { self.rt.zoom_wheel(app, dy, None); } else { self.rt.wheel(app, dy, None); }
++            }
++            WindowEvent::PinchGesture { delta, phase, .. } => {
++                let phase = match phase {
++                    TouchPhase::Started => PinchPhase::Started,
++                    TouchPhase::Moved => PinchPhase::Moved,
++                    TouchPhase::Ended => PinchPhase::Ended,
++                    TouchPhase::Cancelled => PinchPhase::Cancelled,
++                };
++                self.rt.pinch(app, 1.0 + delta, phase, None);
+             }
+             WindowEvent::ModifiersChanged(m) => {
+                 let state = m.state();
+--- /dev/null
++++ b/native/src/window/zoom_wheel.rs
+@@ -0,0 +1,72 @@
++//! Preserve Windows touchpad zoom's per-message Control flag. winit checks the
++//! keyboard state instead, which can lose MK_CONTROL synthesized by a touchpad.
++//! A subclass sees both sent and posted messages, before winit can scroll them.
++use super::UserEvent;
++use crate::input::windows_zoom_delta;
++use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, WPARAM};
++use windows_sys::Win32::Graphics::Gdi::{ClientToScreen, ScreenToClient};
++use windows_sys::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
++use windows_sys::Win32::UI::WindowsAndMessaging::{SendMessageW, WM_MOUSEWHEEL};
++use std::cell::Cell;
++use winit::event_loop::EventLoopProxy;
++use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
++use winit::window::{Window, WindowId};
++
++const SUBCLASS: usize = 0x53435a;
++
++struct Context { proxy: EventLoopProxy<UserEvent>, window: WindowId, request: Cell<Option<u64>> }
++
++pub struct Hook { hwnd: HWND, _context: Box<Context> }
++
++impl Hook {
++    pub fn install(window: &Window, proxy: EventLoopProxy<UserEvent>) -> Option<Self> {
++        let RawWindowHandle::Win32(raw) = window.window_handle().ok()?.as_raw() else { return None };
++        let hwnd = raw.hwnd.get() as HWND;
++        let context = Box::new(Context { proxy, window: window.id(), request: Cell::new(None) });
++        // SAFETY: installed on the window's thread. The box's address stays stable
++        // until Drop removes the subclass, before the window itself is dropped.
++        if unsafe { SetWindowSubclass(hwnd, Some(receive), SUBCLASS, &*context as *const Context as usize) } == 0 {
++            eprintln!("[scarpe-native] could not install touchpad zoom handler");
++            return None;
++        }
++        Some(Self { hwnd, _context: context })
++    }
++
++    pub fn inject(&self, req: u64, delta: i16, x: f64, y: f64) -> bool {
++        let mut point = POINT { x: x.round() as i32, y: y.round() as i32 };
++        // SAFETY: the live HWND belongs to this thread. SendMessage calls the same
++        // subclass as a touchpad, without changing global keys, cursor or focus.
++        unsafe {
++            if ClientToScreen(self.hwnd, &mut point) == 0 || i16::try_from(point.x).is_err() || i16::try_from(point.y).is_err() { return false; }
++            let wp = ((delta as u16 as usize) << 16) | 0x0008;
++            let lp = ((point.y as u16 as usize) << 16) | point.x as u16 as usize;
++            self._context.request.set(Some(req));
++            SendMessageW(self.hwnd, WM_MOUSEWHEEL, wp, lp as isize);
++        }
++        self._context.request.take().is_none()
++    }
++}
++
++impl Drop for Hook {
++    fn drop(&mut self) {
++        // SAFETY: Win drops this registration before its live Window.
++        unsafe { RemoveWindowSubclass(self.hwnd, Some(receive), SUBCLASS); }
++    }
++}
++
++unsafe extern "system" fn receive(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM, _id: usize, data: usize) -> LRESULT {
++    if msg == WM_MOUSEWHEEL {
++        if let Some(dy) = windows_zoom_delta(wp) {
++            // Signed coordinates also work on monitors to the left/above the primary.
++            let mut point = POINT { x: lp as u16 as i16 as i32, y: (lp >> 16) as u16 as i16 as i32 };
++            // SAFETY: callback data belongs to this live registration; hwnd and point
++            // are valid for ScreenToClient. No Runtime borrowing inside a window proc.
++            if unsafe { ScreenToClient(hwnd, &mut point) } != 0 {
++                let context = unsafe { &*(data as *const Context) };
++                let _ = context.proxy.send_event(UserEvent::ZoomWheel { window: context.window, dy, x: point.x as f64, y: point.y as f64, req: context.request.take() });
++                return 0;
++            }
++        }
++    }
++    unsafe { DefSubclassProc(hwnd, msg, wp, lp) }
++}
+--- a/native/tests/protocol.rs
++++ b/native/tests/protocol.rs
+@@ -476,6 +476,130 @@
+     h.feed(&app(300, 100, &[create(4, "SubscriptionItem", 2, json!({"shoes_api_name": "wheel"}))]));
+     let (evs, _) = h.req(json!({"op": "wheel", "dy": -30, "x": 10, "y": 20}));
+     assert_eq!(named(&events(&evs), "wheel")[0].2, json!([30.0, 10, 20]));
++}
++
++fn pinch_scene() -> Harness {
++    let mut h = Harness::new();
++    h.feed(&app(500, 300, &[
++        create(3, "Stack", 2, json!({"left":20,"top":30,"width":180,"height":200,"scroll":true,"has_pinch":true})),
++        create(4, "Stack", 3, json!({"width":180,"height":1000})),
++        create(5, "Para", 4, json!({"text":"Page"})),
++        create(6, "Stack", 2, json!({"left":250,"top":30,"width":180,"height":200,"scroll":true})),
++        create(7, "Stack", 6, json!({"width":180,"height":1000})),
++    ]));
++    h
++}
++
++#[test]
++fn pinch_routes_to_the_nearest_slot_with_fractional_local_coordinates() {
++    let mut h = pinch_scene();
++    h.feed(&create(8, "Stack", 4, json!({"left":10,"top":50,"width":100,"height":100,"has_pinch":true})).to_string());
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.0,"phase":"started","x":45.25,"y":105.5}));
++    assert_eq!(named(&events(&msgs), "pinch").len(), 1);
++    assert_eq!(named(&events(&msgs), "pinch")[0].1, json!(8));
++    assert_eq!(named(&events(&msgs), "pinch")[0].2, json!([1.0,"started",15.25,25.5]));
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.03,"phase":"moved","x":45.25,"y":105.5}));
++    assert_eq!(named(&events(&msgs), "pinch")[0].2, json!([1.03,"moved",15.25,25.5]));
++    assert!(msgs.iter().all(|m| m["t"] != "scroll"));
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.0,"phase":"ended","x":45.25,"y":105.5}));
++    assert_eq!(named(&events(&msgs), "pinch")[0].2[1], "ended");
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":2.0,"phase":"moved","x":45.25,"y":105.5}));
++    assert!(named(&events(&msgs), "pinch").is_empty(), "no late deltas after ending");
++}
++
++#[test]
++fn pinch_cannot_cross_panes_or_resume_after_removal_or_normal_scrolling() {
++    let mut h = pinch_scene();
++    h.req(json!({"op":"pinch","factor":1.0,"phase":"started","x":100,"y":100}));
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.2,"phase":"moved","x":300,"y":100}));
++    assert_eq!(named(&events(&msgs), "pinch")[0].2[1], "cancelled");
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.2,"phase":"moved","x":100,"y":100}));
++    assert!(named(&events(&msgs), "pinch").is_empty());
++    h.req(json!({"op":"pinch","factor":1.0,"phase":"started","x":300,"y":100}));
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.2,"phase":"moved","x":100,"y":100}));
++    assert!(named(&events(&msgs), "pinch").is_empty(), "gestures begun in text cannot become PDF zoom");
++    h.req(json!({"op":"pinch","factor":1.0,"phase":"started","x":100,"y":100}));
++    let (msgs, _) = h.req(json!({"op":"wheel","dy":40,"x":100,"y":100}));
++    assert_eq!(named(&events(&msgs), "pinch")[0].2[1], "cancelled");
++    assert!(msgs.iter().any(|m| m["t"] == "scroll" && m["id"] == 3 && m["top"] == 40));
++    h.req(json!({"op":"pinch","factor":1.0,"phase":"started","x":100,"y":100}));
++    h.feed("{\"t\":\"destroy\",\"id\":3}");
++    h.feed(&create(9, "Stack", 2, json!({"left":20,"top":30,"width":180,"height":200,"has_pinch":true})).to_string());
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.2,"phase":"moved","x":100,"y":100}));
++    assert!(named(&events(&msgs), "pinch").is_empty(), "new views cannot inherit old captures");
++}
++
++#[test]
++fn pinch_respects_overlays_clipping_disabled_and_inert_slots() {
++    for props in [json!({"inert":true}), json!({"state":"disabled"}), json!({"hidden":true})] {
++        let mut h = pinch_scene();
++        h.feed(&json!({"t":"props","id":3,"props":props}).to_string());
++        let (msgs, _) = h.req(json!({"op":"pinch","factor":1.2,"phase":"started","x":100,"y":100}));
++        assert!(named(&events(&msgs), "pinch").is_empty(), "{props}");
++    }
++    let mut h = pinch_scene();
++    h.feed(&create(8, "Stack", 2, json!({"left":20,"top":30,"width":180,"height":200})).to_string());
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.2,"phase":"started","x":100,"y":100}));
++    assert!(named(&events(&msgs), "pinch").is_empty(), "overlay must intercept hit testing");
++    let (msgs, _) = h.req(json!({"op":"pinch","factor":1.2,"phase":"started","x":100,"y":260}));
++    assert!(named(&events(&msgs), "pinch").is_empty(), "offscreen child cannot receive a gesture");
++}
++
++#[test]
++fn windows_touchpad_message_flags_preserve_signed_and_high_resolution_zoom() {
++    use scarpe_native::input::windows_zoom_delta;
++    let mut h = pinch_scene();
++    for raw in [120_i16, -120, 1, -1, 30, -30, i16::MIN, i16::MAX] {
++        let packed = ((raw as u16 as usize) << 16) | 0x0008;
++        let dy = windows_zoom_delta(packed).expect("message Control flag works without a held key");
++        assert_eq!(dy, -(raw as f32) / 120.0 * 40.0);
++        h.rt.zoom_wheel(1, dy, Some((100.0, 100.0)));
++        let msgs = h.rt.out.take_captured();
++        let e = events(&msgs);
++        let pinch = named(&e, "pinch");
++        assert_eq!(pinch.len(), 1);
++        let factor = pinch[0].2[0].as_f64().unwrap();
++        assert!(factor.is_finite() && factor > 0.0);
++        assert_eq!(factor > 1.0, raw > 0);
++        assert!(msgs.iter().all(|m| m["t"] != "scroll"), "zoom must not also scroll");
++        assert_eq!(windows_zoom_delta(packed & !0x0008), None, "ordinary wheels retain scrolling");
++    }
++    let (msgs, _) = h.req(json!({"op":"wheel","dy":-40,"ctrl":true,"x":300,"y":100}));
++    assert!(named(&events(&msgs), "pinch").is_empty(), "text pane is not a zoom target");
++    assert!(msgs.iter().all(|m| m["t"] != "scroll"));
++}
++
++#[test]
++fn invalid_pinch_deltas_never_leak_into_geometry_and_cancel_always_ends_capture() {
++    use scarpe_native::input::PinchPhase;
++    let mut h = pinch_scene();
++    h.rt.pinch(1, f64::NAN, PinchPhase::Started, Some((100.0, 100.0)));
++    let msgs = h.rt.out.take_captured();
++    assert_eq!(named(&events(&msgs), "pinch")[0].2, json!([1.0,"started",80.0,70.0]));
++    for bad in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY, 0.0, -1.0] {
++        h.rt.pinch(1, bad, PinchPhase::Moved, Some((100.0, 100.0)));
++        assert!(h.rt.out.take_captured().is_empty());
++    }
++    h.rt.pinch(1, f64::NAN, PinchPhase::Ended, Some((100.0, 100.0)));
++    let msgs = h.rt.out.take_captured();
++    assert_eq!(named(&events(&msgs), "pinch")[0].2, json!([1.0,"ended",80.0,70.0]));
++    h.rt.pinch(1, 2.0, PinchPhase::Moved, Some((100.0, 100.0)));
++    assert!(h.rt.out.take_captured().is_empty());
++    let (_, reply) = h.req(json!({"op":"pinch","factor":1.1,"phase":"bogus","x":100,"y":100}));
++    assert!(!reply["error"].is_null());
++}
++
++#[test]
++fn clicks_and_resizes_cancel_gestures_before_the_next_delta() {
++    for action in [json!({"op":"mouse","action":"down","x":100,"y":100}), json!({"op":"resize","w":600,"h":400})] {
++        let mut h = pinch_scene();
++        h.req(json!({"op":"pinch","factor":1.0,"phase":"started","x":100,"y":100}));
++        let (msgs, _) = h.req(action);
++        assert_eq!(named(&events(&msgs), "pinch")[0].2[1], "cancelled");
++        h.req(json!({"op":"mouse","action":"up","x":100,"y":100}));
++        let (msgs, _) = h.req(json!({"op":"pinch","factor":1.3,"phase":"moved","x":100,"y":100}));
++        assert!(named(&events(&msgs), "pinch").is_empty());
++    }
+ }
+ 
+ #[test]

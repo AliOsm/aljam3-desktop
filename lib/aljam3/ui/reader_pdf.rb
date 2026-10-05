@@ -7,6 +7,7 @@ module Aljam3
     module ReaderPDF
       PDF_MEMORY_BYTES = 32 * 1024 * 1024
       PDF_MEMORY_PAGES = 32
+      PDF_PINCH_PAUSE = 0.14
 
       def reader_volume = [@reader.object_id, @reader.fetch(:file).fetch("id")]
 
@@ -18,7 +19,7 @@ module Aljam3
         @pdf_viewport = PDFViewport.new(count: @reader.fetch(:file).fetch("pages_count"))
         @pdf_images, @pdf_failures, @pdf_nodes = {}, {}, {}
         @reader[:image] = @reader[:pdf_error] = nil
-        @pdf_scroll_pending = @pdf_render_due = @pdf_pan = nil
+        @pdf_scroll_pending = @pdf_render_due = @pdf_pan = @pdf_pinch = nil
         @pdf_direction, @pdf_scroll_speed = 1, 0
         @pdf_last_scroll = @pdf_loading_due = nil
       end
@@ -36,9 +37,11 @@ module Aljam3
           end
         end
         @pdf_surface.on_scroll do |offset|
+          @pdf_pinch = nil
           @pdf_scroll_pending = offset
           start_reader_pump
         end
+        @pdf_surface.on_pinch { |factor, phase, x, y| pinch_pdf(factor, phase, x, y) }
         offset = @reader[:pdf_anchor] ? @pdf_viewport.position(@reader[:pdf_anchor]) : @pdf_viewport.top(@reader.fetch(:number))
         @pdf_surface.scroll_top = offset
         draw_pdf_image
@@ -51,7 +54,7 @@ module Aljam3
       end
 
       def jump_pdf_page(number)
-        @pdf_scroll_pending = nil
+        @pdf_scroll_pending = @pdf_pinch = nil
         @pdf_surface.scroll_top = @pdf_viewport.top(number)
         remember_pdf_anchor
         draw_pdf_image
@@ -72,6 +75,7 @@ module Aljam3
       end
 
       def change_zoom(change)
+        @pdf_pinch = nil
         zoom = (@reader.fetch(:zoom) + change).clamp(0.5, 3.0)
         return if zoom == @reader[:zoom]
 
@@ -88,8 +92,49 @@ module Aljam3
         start_reader_pump
       end
 
+      def pinch_pdf(factor, phase, x, y)
+        unless reader_pdf? && @pdf_surface && !@dialog
+          @pdf_pinch = nil
+          return
+        end
+        if phase == "cancelled"
+          @pdf_pinch = nil
+          return
+        end
+        return unless [factor, x, y].all? { |value| value.is_a?(Numeric) && value.finite? } && factor.positive?
+
+        now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        if phase == "started" || (phase == "wheel" && (!@pdf_pinch || now - @pdf_pinch[:time] > PDF_PINCH_PAUSE))
+          @pdf_pinch = { anchor: @pdf_viewport.point_anchor(@pdf_surface.scroll_top, x:, y:, pan: @pdf_pan || 0), time: now, phase: }
+        end
+        return unless @pdf_pinch
+
+        @pdf_pinch[:time] = now
+        @pdf_pinch[:anchor][3, 2] = [x, y]
+        zoom = (@reader.fetch(:zoom) * factor).clamp(0.5, 3.0)
+        if zoom != @reader[:zoom]
+          @drag = nil
+          @reader[:zoom] = zoom
+          @pdf_viewport.resize(width: @pdf_width, height: @pdf_height, zoom:)
+          offset, @pdf_pan = @pdf_viewport.point_position(@pdf_pinch[:anchor])
+          # Grow the canvas before assigning scroll, including a pinch on the last page.
+          @pdf_canvas.height = @pdf_viewport.total_height
+          @pdf_scroll_pending = nil
+          @pdf_surface.scroll_top = offset
+          number = @pdf_viewport.active(offset)
+          activate_reader_page(number, delay: true) if number != @reader[:number]
+          remember_pdf_anchor
+          draw_pdf_image
+          invalidate_pdf_render
+          @pdf_render_due = now + PDF_PINCH_PAUSE
+          start_reader_pump
+        end
+        @pdf_pinch = nil if phase == "ended"
+        start_reader_pump if phase == "wheel"
+      end
+
       def fit_pdf_page
-        return if @reader.fetch(:zoom) == 1.0
+        return if @reader.fetch(:zoom) == 1.0 && @pdf_pan.to_f.zero?
 
         @pdf_pan = 0
         change_zoom(1.0 - @reader.fetch(:zoom))
@@ -99,7 +144,7 @@ module Aljam3
       def update_pdf_controls
         ready = @reader[:image] && !@reader[:pdf_error]
         zoom = @reader.fetch(:zoom)
-        @fit_button&.style(state: ready && zoom != 1.0 ? nil : "disabled")
+        @fit_button&.style(state: ready && (zoom != 1.0 || !@pdf_pan.to_f.zero?) ? nil : "disabled")
         @zoom_in_button&.style(state: ready && zoom < 3.0 ? nil : "disabled")
         @zoom_out_button&.style(state: ready && zoom > 0.5 ? nil : "disabled")
       end
@@ -218,7 +263,12 @@ module Aljam3
             cache_pdf_image(number, rendered)
             changed = @pdf_viewport.learn(number, width: rendered.width, height: rendered.height)
             if changed
-              offset = @pdf_viewport.position(@reader[:pdf_anchor])
+              if @pdf_pinch
+                offset, @pdf_pan = @pdf_viewport.point_position(@pdf_pinch[:anchor])
+              else
+                offset = @pdf_viewport.position(@reader[:pdf_anchor])
+              end
+              @pdf_canvas.height = @pdf_viewport.total_height if @pdf_canvas
               # Learning a page's ratio often changes its width only. Sending an
               # unnecessary absolute scroll would overwrite newer wheel input.
               @pdf_surface.scroll_top = offset if (offset - @pdf_surface.scroll_top).abs >= 1
@@ -236,7 +286,7 @@ module Aljam3
 
       def pump_reader
         unless @screen == :reader
-          @pdf_scroll_pending = @pdf_render_due = @text_load_due = nil
+          @pdf_scroll_pending = @pdf_render_due = @text_load_due = @pdf_pinch = nil
           @reader_pump&.remove
           @reader_pump = nil
           return
@@ -262,6 +312,7 @@ module Aljam3
           request_pdf_page
         end
         now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        @pdf_pinch = nil if @pdf_pinch&.dig(:phase) == "wheel" && now - @pdf_pinch[:time] >= PDF_PINCH_PAUSE
         load_reader_text if @text_load_due && now >= @text_load_due
         if @pdf_render_due && now >= @pdf_render_due
           @pdf_render_due = nil
@@ -273,7 +324,7 @@ module Aljam3
         end
         @render_worker.drain
         @page_worker.drain
-        unless @pdf_pending || @pdf_render_due || @pdf_scroll_pending || @text_load_due || @reader[:loading_text]
+        unless @pdf_pending || @pdf_render_due || @pdf_scroll_pending || @text_load_due || @reader[:loading_text] || @pdf_pinch&.dig(:phase) == "wheel"
           @reader_pump&.remove
           @reader_pump = nil
         end
@@ -284,8 +335,8 @@ module Aljam3
 
         anchor = @reader[:pdf_anchor]
         changed = @pdf_viewport.resize(width: @pdf_width, height: @pdf_height, zoom: @reader.fetch(:zoom))
-        @pdf_surface.scroll_top = @pdf_viewport.position(anchor) if changed && anchor
         @pdf_canvas.height = @pdf_viewport.total_height if @pdf_canvas.height != @pdf_viewport.total_height
+        @pdf_surface.scroll_top = @pdf_viewport.position(anchor) if changed && anchor
         pages = @pdf_viewport.nearby(@pdf_surface.scroll_top)
         (@pdf_nodes.keys - pages).each { |page| @pdf_nodes.delete(page).fetch(:slot).remove }
         trim_pdf_images
@@ -304,7 +355,12 @@ module Aljam3
         display_width, display_height = @pdf_viewport.dimensions(number)
         node = @pdf_nodes[number] ||= begin
           slot = @pdf_canvas.stack(left: 0, top: @pdf_viewport.top(number), width: 1.0, height: @pdf_viewport.page_height(number))
-          slot.click { |button, x, _y| @drag = [x, @pdf_pan || 0] if button == 1 && !@dialog }
+          slot.click do |button, x, _y|
+            next unless button == 1 && !@dialog
+
+            @pdf_pinch = nil
+            @drag = [x, @pdf_pan || 0]
+          end
           slot.motion do |x, _y|
             @drag = nil unless mouse.first == 1
             next unless @drag && !@dialog
@@ -332,7 +388,7 @@ module Aljam3
             if rendered && !error
               node[:image] = image(rendered.path, alt: "صفحة #{format_number(number)} من الكتاب")
             else
-              node[:placeholder] = stack(left: (@pdf_width - display_width) / 2, top: PDFViewport::GAP / 2, width: display_width, height: display_height) do
+              node[:placeholder] = stack(left: @pdf_viewport.page_left(number, pan: @pdf_pan || 0), top: PDFViewport::GAP / 2, width: display_width, height: display_height) do
                 background(pdf_night? ? "#1e1b1a" : "#fffdf8")
                 if show_loading
                   row(width: 1.0, height: display_height) do
@@ -348,9 +404,7 @@ module Aljam3
         end
         return unless node[:image]
 
-        overflow = [display_width - @pdf_width + 24, 0].max / 2.0
-        pan = (@pdf_pan || 0).clamp(-overflow, overflow)
-        styles = { width: display_width, height: display_height, left: ((@pdf_width - display_width) / 2.0 + pan).round,
+        styles = { width: display_width, height: display_height, left: @pdf_viewport.page_left(number, pan: @pdf_pan || 0),
           top: PDFViewport::GAP / 2, night_mode: pdf_night? }
         if node[:styles] != styles || node[:styled_image] != node[:image]
           node[:styles], node[:styled_image] = styles, node[:image]

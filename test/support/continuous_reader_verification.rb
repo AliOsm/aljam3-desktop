@@ -4,10 +4,12 @@ require "timeout"
 require "digest"
 require_relative "range_pdf"
 require_relative "motion_preference"
+require_relative "pdf_pinch_verification"
 
 # Real native input, PDFium, HTTP ranges, SQLite and worker completion. Shared by
 # source checks and the relocated Mac/Windows applications with their bundled Ruby.
 class ContinuousReaderVerification
+  include PDFPinchVerification
   def initialize(app, automation, output:)
     @app, @automation, @output = app, automation, output
     @checks = []
@@ -73,6 +75,8 @@ class ContinuousReaderVerification
       check("fit returns to the active page", get(:reader)[:zoom] == 1.0 && (surface.scroll_top - view.top(9)).abs < 2)
       check("fit is disabled at fitted size", get(:fit_button).state == "disabled")
 
+      pinch_gestures
+
       appearance
       modes_and_resize
       pan_release
@@ -113,6 +117,7 @@ class ContinuousReaderVerification
       settle
       check_page(18)
       check("offline scrolling loads text from SQLite", @app.page_text == "نص محلي 18")
+      pinch_gestures(offline: true)
       @app.close_reader
       @app.open_book(book)
       settle

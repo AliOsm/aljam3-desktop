@@ -80,6 +80,7 @@ module Aljam3
       end
 
       def draw_reader
+        @pdf_pinch = nil
         @pdf_surface = @text_surface = @text_content = @page_image = @copy_button = @page_text = @drag = nil
         @fit_button = @zoom_in_button = @zoom_out_button = @match_label = nil
         @previous_match_button = @next_match_button = nil

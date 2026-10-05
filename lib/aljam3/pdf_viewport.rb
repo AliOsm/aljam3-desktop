@@ -76,6 +76,31 @@ module Aljam3
       clamp(top(page) + page_height(page) * fraction - @height * at)
     end
 
+    # A small page may move within its surrounding whitespace; an oversized page
+    # may pan until either edge is visible. Keep 12 points of breathing room.
+    def pan_limit(page) = (dimensions(page).first - @width + 24).abs / 2.0
+
+    def page_left(page, pan: 0)
+      limit = pan_limit(page)
+      ((@width - dimensions(page).first) / 2.0 + pan.clamp(-limit, limit)).round
+    end
+
+    # Fractions of the paper, excluding the fixed inter-page gap. Keep one anchor
+    # throughout a gesture so integer pixel rounding cannot accumulate drift.
+    def point_anchor(scroll, x:, y:, pan: 0)
+      page = page_at(scroll + y)
+      w, h = dimensions(page)
+      [page, (x - page_left(page, pan:)).fdiv(w), (scroll + y - top(page) - GAP / 2.0).fdiv(h), x, y]
+    end
+
+    def point_position(anchor)
+      page, fx, fy, x, y = anchor
+      w, h = dimensions(page)
+      limit = pan_limit(page)
+      pan = (x - w * fx - (@width - w) / 2.0).clamp(-limit, limit)
+      [clamp(top(page) + GAP / 2.0 + h * fy - y).round, pan]
+    end
+
     private
 
     def layout

@@ -184,6 +184,7 @@ class PDFScrollVerification
       check("#{mode}: scrolling writes no PNG files", Dir.glob(File.join(cache, "*.png")).empty?)
     end
     @automation.snapshot(File.join(@output, "scroll-#{mode}.png"))
+    pinch = pinch_performance(mode) if @app.respond_to?(:pinch_pdf)
     { wheel_samples: 120, duration_ms: (duration * 1000).round(2), pages_crossed: active_pages.uniq.size,
       input_interval_p95_ms: intervals.sort[(intervals.size * 0.95).floor].round(2),
       initial_scroll: start_offset, requested_scroll_distance: wheel_distance.round(2), actual_scroll_distance: scroll_distance.round(2),
@@ -192,6 +193,39 @@ class PDFScrollVerification
       incomplete_viewport_samples: partial, incomplete_viewport_percent: (partial / 1.2).round(2),
       longest_blank_ms: (worst_blank * 1000).round(2), long_seeks: jumps,
       cached_return_ms: cached_ms.round(2), cached_return_immediate: !!immediate,
-      retained_pixel_bytes: @app.respond_to?(:pdf_image_bytes) ? @app.pdf_image_bytes : nil }
+      retained_pixel_bytes: @app.respond_to?(:pdf_image_bytes) ? @app.pdf_image_bytes : nil, pinch: }
+  end
+
+  def pinch_performance(mode)
+    @app.turn_page(48)
+    @app.fit_pdf_page
+    settle
+    rect = @automation.rect_of!(surface.linkable_id)
+    x, y = rect.x + rect.w * 0.46, rect.y + rect.h * 0.42
+    before = @automation.rect_of!(get(:page_image).linkable_id)
+    fraction_x, fraction_y = (x - before.x) / before.w, (y - before.y) / before.h
+    @automation.pinch(1.0, phase: :started, x:, y:)
+    started, previous, missing = now, now, 0
+    intervals, errors = [], []
+    90.times do |index|
+      intervals << (now - previous) * 1000 if index.positive?
+      previous = now
+      @automation.pinch(index < 45 ? 1.009 : 1.0 / 1.009, x:, y:)
+      frame
+      missing += 1 unless ready?
+      image = @automation.rect_of!(get(:page_image).linkable_id)
+      errors << [(image.x + image.w * fraction_x - x).abs, (image.y + image.h * fraction_y - y).abs].max
+      remaining = started + (index + 1).fdiv(60) - now
+      sleep remaining if remaining.positive?
+    end
+    duration = now - started
+    @automation.pinch(1.0, phase: :ended, x:, y:)
+    settle
+    check("#{mode}: a continuous pinch has no blank page samples", missing.zero?)
+    check("#{mode}: pinch keeps the pointed document location within one pixel", errors.max <= 1.1)
+    check("#{mode}: pinch in and out restores the original scale", (get(:reader)[:zoom] - 1.0).abs < 1e-9)
+    check("#{mode}: pinch settles to sharp pixels", get(:reader)[:image].width >= @app.pdf_render_width)
+    { samples: 90, duration_ms: (duration * 1000).round(2), missing_image_samples: missing,
+      anchor_error_max_px: errors.max.round(3), input_interval_p95_ms: intervals.sort[(intervals.size * 0.95).floor].round(2) }
   end
 end
