@@ -1,10 +1,16 @@
 name: Verify update helpers
 on:
   workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Optional Mac package run to recheck the update lifecycle
+        default: ''
 permissions:
   contents: read
+  actions: read
 jobs:
   helpers:
+    if: inputs.build_run_id == ''
     strategy:
       fail-fast: false
       matrix:
@@ -39,5 +45,31 @@ jobs:
         if: always()
         with:
           name: update-helper-${{ runner.os }}
+          path: dist/update-verification/
+          retention-days: 1
+
+  lifecycle:
+    if: inputs.build_run_id != ''
+    runs-on: macos-15
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aljam3-macos-arm64
+          path: input
+          run-id: ${{ inputs.build_run_id }}
+          github-token: ${{ github.token }}
+      - name: Recheck update shutdown, replacement, and relaunch
+        env:
+          UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
+        run: ruby bin/retest-mac-update
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: update-lifecycle-mac
           path: dist/update-verification/
           retention-days: 1
