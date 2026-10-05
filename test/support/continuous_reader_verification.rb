@@ -29,6 +29,7 @@ class ContinuousReaderVerification
         { "id" => file + number, "number" => number, "content" => "نص الصفحة #{number}. " * 60 }
       end
       get(:store).save_preference("reader", { "mode" => "split" })
+      @app.tick # Publish the fixture's online connection before opening an online book.
       @app.open_book(book)
       settle
       check("only the active page text is fetched", calls == [1])
@@ -145,7 +146,7 @@ class ContinuousReaderVerification
     raise get(:reader)[:pdf_error] if get(:reader)[:pdf_error]
   rescue Timeout::Error
     shot("continuous-timeout")
-    raise "Reader did not settle: #{get(:reader)&.except(:book, :files, :file, :page).inspect}; pending=#{get(:pdf_pending).inspect}, errors=#{get(:pdf_failures).inspect}, scroll=#{surface&.scroll_top}, due=#{get(:pdf_render_due)}"
+    raise "Reader did not settle (screen=#{get(:screen)}, dialog=#{get(:dialog)&.dig(:type)}): #{get(:reader)&.except(:book, :files, :file, :page).inspect}; pending=#{get(:pdf_pending).inspect}, errors=#{get(:pdf_failures).inspect}, scroll=#{surface&.scroll_top}, due=#{get(:pdf_render_due)}"
   end
 
   def wheel(distance)
