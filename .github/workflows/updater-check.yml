@@ -1,0 +1,43 @@
+name: Verify update helpers
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  helpers:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, windows-2022]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+      - uses: dtolnay/rust-toolchain@stable
+        if: runner.os == 'Windows'
+        with:
+          toolchain: '1.98.1'
+      - name: Mac signatures and replacement
+        if: runner.os == 'macOS'
+        run: ruby bin/verify-sparkle
+      - name: Windows tamper rejection and recovery
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER = "$($env:VCToolsInstallDir)bin\Hostx64\x64\link.exe"
+          New-Item -ItemType Directory -Force dist/Aljam3/resources | Out-Null
+          rustc packaging/windows-updater.rs --edition 2021 -C target-feature=+crt-static -C "linker=$env:CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER" -o dist/Aljam3/resources/update.exe
+          if ($LASTEXITCODE) { throw 'Helper compilation failed' }
+          ruby bin/verify-update-helper
+          if ($LASTEXITCODE) { throw 'Helper verification failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: update-helper-${{ runner.os }}
+          path: dist/update-verification/
+          retention-days: 1

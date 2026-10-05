@@ -1,0 +1,63 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "tmpdir"
+require "openssl"
+require "base64"
+require "digest"
+require "timeout"
+require "json"
+abort "Run on a disposable Mac CI runner" unless RUBY_PLATFORM.include?("darwin") && ENV["GITHUB_ACTIONS"] == "true"
+root = File.expand_path("..", __dir__)
+output = File.join(root, "dist/update-verification")
+FileUtils.mkdir_p(output)
+Dir.mktmpdir("aljam3-sparkle-") do |scratch|
+  def run(*command)
+    raise "Command failed: #{command.first}" unless system(*command)
+  end
+  archive = File.join(scratch, "sparkle.tar.xz")
+  run("curl", "-fsSL", "https://github.com/sparkle-project/Sparkle/releases/download/2.10.0/Sparkle-2.10.0.tar.xz", "-o", archive)
+  raise "Sparkle checksum mismatch" unless Digest::SHA256.file(archive).hexdigest == "c2bf58aa8387266ac179357b1415d6f2635f044da8be41042af32425dae6da0c"
+  frameworks = File.join(scratch, "Frameworks")
+  FileUtils.mkdir_p([frameworks, File.join(scratch, "MacOS")])
+  run("tar", "-xf", archive, "-C", frameworks, "./Sparkle.framework")
+  helper = File.join(scratch, "MacOS/update")
+  run("clang", "-fobjc-arc", "-mmacosx-version-min=13.0", "-F#{frameworks}", "-framework", "Sparkle", "-framework", "AppKit",
+    "-Wl,-rpath,@loader_path/../Frameworks", File.join(root, "packaging/macos-updater.m"), "-o", helper)
+  run("codesign", "--force", "--deep", "--sign", "-", File.join(frameworks, "Sparkle.framework"))
+  run("codesign", "--force", "--sign", "-", helper)
+  key = OpenSSL::PKey.generate_key("ED25519")
+  public_key = Base64.strict_encode64(key.public_to_der.byteslice(-32, 32))
+  apps = %w[old new].map do |name|
+    app = File.join(scratch, name, "Aljam3.app")
+    FileUtils.mkdir_p(File.join(app, "Contents/MacOS"))
+    version = name == "old" ? "0.0.1" : "0.0.2"
+    executable = File.join(app, "Contents/MacOS/aljam3")
+    File.write(executable, "#!/bin/sh\nexit 0\n")
+    FileUtils.chmod(0o755, executable)
+    plist = File.read(File.join(root, "packaging/Info.plist"))
+    plist = plist.sub("<string>com.aljam3.desktop</string>", "<string>com.aljam3.updater-test</string>")
+      .sub("<string>0.0.1</string>", "<string>#{version}</string>").sub("<string>1</string>", "<string>#{version}</string>")
+      .sub("</dict>", "<key>SUPublicEDKey</key><string>#{public_key}</string><key>SUEnableAutomaticChecks</key><false/></dict>")
+    File.write(File.join(app, "Contents/Info.plist"), plist)
+    run("codesign", "--force", "--sign", "-", app)
+    app
+  end
+  package = File.join(scratch, "new.zip")
+  run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", apps.last, package)
+  signature = Base64.strict_encode64(key.sign(nil, File.binread(package)))
+  result = File.join(scratch, "result.txt")
+  [Base64.strict_encode64("x" * 64), signature].each_with_index do |sig, index|
+    status = nil
+    File.open(File.join(output, "sparkle-#{index}.log"), "w") do |log|
+      status = Timeout.timeout(90) { system([helper, helper], apps.first, package, "0.0.2", sig, "0", result, out: log, err: log) }
+    end
+    puts File.read(File.join(output, "sparkle-#{index}.log"))
+    raise "Signature rejection failed" if index.zero? && status
+    raise "Sparkle upgrade failed" if index == 1 && !status
+    actual = IO.popen(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleVersion", File.join(apps.first, "Contents/Info.plist")], &:read).strip
+    raise "Wrong installed version: #{actual}" unless actual == (index.zero? ? "0.0.1" : "0.0.2")
+  end
+  File.write(File.join(output, "sparkle.json"), JSON.pretty_generate(passed: true, checks: %w[ad_hoc_signed_host invalid_archive_signature_rejected signed_archive_installed]))
+end

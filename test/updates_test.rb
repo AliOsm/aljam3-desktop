@@ -85,6 +85,27 @@ class UpdatesTest < Minitest::Test
     assert_equal 3, @calls.size
   end
 
+  def test_cached_update_is_restored_offline_only_after_verification
+    package = @updater.check
+    path = @updater.download(package)
+    assert_equal package, @updater.cached
+    assert_equal 2, @calls.size
+    File.write(path, "damaged")
+    assert_nil @updater.cached
+    File.write(File.join(@updater.directory, "release.json"), "{partial")
+    assert_nil @updater.cached
+  end
+
+  def test_interrupted_download_cannot_be_installed_and_can_be_retried
+    package = @updater.check
+    @updater.instance_variable_set(:@transport, ->(_url, &block) { block.call(@body[0, 5]); raise IOError, "connection interrupted" })
+    assert_raises(IOError) { @updater.download(package) }
+    assert_empty Dir.glob(File.join(@updater.directory, "*.part"))
+    assert_raises(Aljam3::Updates::Error) { @updater.install(package) }
+    @updater.instance_variable_set(:@transport, ->(_url, &block) { block.call(@body) })
+    assert_equal @body, File.read(@updater.download(package))
+  end
+
   def test_refuses_install_if_verified_package_was_changed
     package = @updater.check
     path = @updater.download(package)

@@ -1,0 +1,47 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "tmpdir"
+require "digest"
+require "json"
+require "timeout"
+abort "Run on disposable Windows CI runners" unless Gem.win_platform? && ENV["GITHUB_ACTIONS"] == "true"
+root = File.expand_path("..", __dir__)
+Dir.mktmpdir("aljam3-update-recovery-") do |scratch|
+  stub = File.join(scratch, "failing-installer.rs")
+  File.write(stub, <<~RUST)
+    fn main() {
+      for arg in std::env::args().skip(1) {
+        if let Some(root) = arg.strip_prefix("/DIR=") {
+          std::fs::write(std::path::Path::new(root).join("resources/build.json"), "interrupted replacement").unwrap();
+          std::process::exit(7);
+        }
+      }
+    }
+  RUST
+  installer = File.join(scratch, "failed-setup.exe")
+  linker = ENV.fetch("CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER")
+  raise "Fixture compiler failed" unless system("rustc", stub, "--crate-name", "failed_installer", "-C", "target-feature=+crt-static", "-C", "linker=#{linker}", "-o", installer)
+  app = File.join(scratch, "Installed App - الجامع")
+  FileUtils.mkdir_p(File.join(app, "resources"))
+  FileUtils.cp(installer, File.join(app, "Aljam3.exe"))
+  original = JSON.generate(version: "0.0.1")
+  File.write(File.join(app, "resources/build.json"), original)
+  helper = File.join(scratch, "update.exe")
+  FileUtils.cp(File.join(root, "dist/Aljam3/resources/update.exe"), helper)
+  result = File.join(scratch, "result.txt")
+  digest = Digest::SHA256.file(installer).hexdigest
+  ["0" * 64, digest].each do |checksum|
+    success = Timeout.timeout(30) { system([helper, helper], app, installer, checksum, "0.0.2", "0", "0", result) }
+    raise "Broken update unexpectedly succeeded" if success
+    raise "Missing failure result" unless File.read(result) == "failed"
+    raise "Previous application not restored" unless File.read(File.join(app, "resources/build.json")) == original
+    raise "Previous launcher not restored" unless Digest::SHA256.file(File.join(app, "Aljam3.exe")).hexdigest == digest
+    raise "Recovery copy not cleaned" if File.exist?(File.join(scratch, "previous-app"))
+  end
+  output = File.join(root, "dist/update-verification")
+  FileUtils.mkdir_p(output)
+  File.write(File.join(output, "recovery.json"), JSON.pretty_generate(passed: true, checks: %w[tampered_package_rejected failed_install_restores_previous_application]))
+end
+puts "Windows tamper rejection and failed-install recovery passed"
