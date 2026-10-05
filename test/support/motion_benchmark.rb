@@ -79,7 +79,10 @@ class MotionBenchmark
         @app.open_dialog(:reader_options)
         @service.child.flush
         started = Time.now.to_f
-        sleep 0.09 # the renderer must keep presenting while Ruby is occupied
+        # Invisible Mac windows can present about every 67 ms on shared runners.
+        # Keep Ruby unavailable across several presentation opportunities; the
+        # report still requires at least two native frames during every stall.
+        sleep 0.25
         @busy_interval = [started, Time.now.to_f]
       end
       @app.close_dialog
