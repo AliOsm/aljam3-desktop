@@ -12,6 +12,7 @@ resources = File.dirname(resources)
 seed = File.join(root, ".cache/update-seed.rb")
 FileUtils.mkdir_p(".cache")
 File.write(seed, <<~RUBY)
+  ENV["ALJAM3_BUNDLE_ROOT"] = #{resources.inspect}
   ENV["SSL_CERT_FILE"] = #{File.join(resources, 'ruby/lib/ca-bundle.crt').inspect}
   ENV.delete("SSL_CERT_DIR")
   ENV.delete("SQLITE_TOKENIZER_AR_EXTENSION")
