@@ -168,7 +168,7 @@ class ContinuousReaderVerification
 
   def near_anchor?(a, b) = a.first == b.first && (a[1] - b[1]).abs < 0.005
 
-  def shot(name) = @automation.snapshot(File.join(@output, "#{name}.png"))
+  def shot(name, **options) = @automation.snapshot(File.join(@output, "#{name}.png"), **options)
 
   def appearance
     @app.turn_page(1)
@@ -278,13 +278,19 @@ class ContinuousReaderVerification
       label = @automation.rect_of!(node.fetch(:loading).linkable_id)
       check("#{theme}: delayed PDF loading text is vertically centered after resize",
         (page.center.last - label.center.last).abs < 1)
-      shot("continuous-loading-#{theme}")
+      shot("continuous-loading-#{theme}", scale: 1)
       require "chunky_png"
       picture = ChunkyPNG::Image.from_file(File.join(@output, "continuous-loading-#{theme}.png"))
-      ink = ChunkyPNG::Color.from_hex(@app.muted)
+      paper = picture[page.center.first.round, (page.y + 8).round]
       columns = []
       label.y.ceil.upto((label.y + label.h).floor - 1) do |y|
-        label.x.ceil.upto((label.x + label.w).floor - 1) { |x| columns << x if picture[x, y] == ink }
+        label.x.ceil.upto((label.x + label.w).floor - 1) do |x|
+          # Include antialiased edges: thin glyphs need not contain any fully
+          # opaque stroke pixels, depending on platform font rasterization.
+          pixel = picture[x, y]
+          contrast = %i[r g b].map { |channel| (ChunkyPNG::Color.public_send(channel, pixel) - ChunkyPNG::Color.public_send(channel, paper)).abs }.max
+          columns << x if contrast >= 16
+        end
       end
       check("#{theme}: delayed PDF loading text is horizontally centered on the paper",
         !columns.empty? && ((columns.min + columns.max) / 2.0 - page.center.first).abs < 4)
