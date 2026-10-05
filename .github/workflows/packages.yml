@@ -7,6 +7,10 @@ on:
         description: Build and verify the temporary 0.0.1 to 0.0.2 update
         type: boolean
         default: false
+      publish:
+        description: Publish verified packages to GitHub Releases
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -66,6 +70,7 @@ jobs:
           bundle exec ruby bin/verify-ui motion
           bundle exec ruby bin/verify-ui feedback
           bundle exec ruby bin/verify-ui interaction
+          bundle exec ruby bin/verify-ui updates
       - name: Download and verify a real sample book
         run: bundle exec ruby bin/smoke
       - name: Keep the invisible Mac benchmark from background throttling
@@ -82,6 +87,9 @@ jobs:
         env:
           ALJAM3_VERIFY_TIMEOUT: '600'
         run: ruby bin/verify-installer
+      - name: Verify Windows failed-install recovery
+        if: runner.os == 'Windows'
+        run: ruby bin/verify-update-helper
       - name: Sign test update metadata
         if: inputs.test_pair
         env:
@@ -98,6 +106,7 @@ jobs:
             dist/*.zip
             dist/*-setup.exe
             dist/*.sha256
+            dist/update-*.json
             dist/verification/
             dist/installer-verification/
             dist/update-verification/
@@ -131,10 +140,91 @@ jobs:
         env:
           ALJAM3_VERIFY_TIMEOUT: '240'
         run: ruby bin/verify-package --pdf-only
+      - name: Verify Sparkle signatures and replacement on macOS 26
+        run: ruby bin/verify-sparkle
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: Aljam3-macos-26-pdf-verification
-          path: dist/verification/pdf/
+          path: |
+            dist/verification/pdf/
+            dist/update-verification/
           if-no-files-found: warn
           retention-days: 1
+
+  windows-arm:
+    name: Verify installer and update on Windows 11 ARM
+    needs: package
+    runs-on: windows-11-arm
+    timeout-minutes: 35
+    env:
+      ALJAM3_VERIFY_TIMEOUT: '600'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aljam3-windows-x64
+          path: dist
+      - name: Bootstrap the bundled x64 runtime using the installer
+        shell: pwsh
+        run: |
+          $installer = (Get-ChildItem dist/*-setup.exe | Sort-Object Name | Select-Object -Last 1).FullName
+          $expected = (Get-Content "$installer.sha256").Split(' ')[0]
+          if ((Get-FileHash $installer -Algorithm SHA256).Hash -ne $expected) { throw 'Installer checksum mismatch' }
+          $installation = Join-Path $env:RUNNER_TEMP 'Aljam3'
+          $process = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART', '/SP-', "/DIR=`"$installation`"") -PassThru -Wait
+          if ($process.ExitCode) { throw 'Bootstrap installation failed' }
+          $runtime = Join-Path $installation 'resources/ruby'
+          $libraries = @('site_ruby/3.4.0', 'site_ruby/3.4.0/x64-mingw-ucrt', 'site_ruby', 'vendor_ruby/3.4.0', 'vendor_ruby/3.4.0/x64-mingw-ucrt', 'vendor_ruby', '3.4.0', '3.4.0/x64-mingw-ucrt')
+          "RUBYLIB=$(($libraries | ForEach-Object { Join-Path $runtime "lib/ruby/$_" }) -join ';')" >> $env:GITHUB_ENV
+          "ALJAM3_TEST_RUBY=$runtime/bin.real/ruby.exe" >> $env:GITHUB_ENV
+      - name: Verify installed app and library preservation
+        shell: pwsh
+        run: |
+          & $env:ALJAM3_TEST_RUBY bin/setup --prepare
+          if ($LASTEXITCODE) { throw 'Helper preparation failed' }
+          & $env:ALJAM3_TEST_RUBY bin/verify-installer
+          if ($LASTEXITCODE) { throw 'Installer verification failed' }
+      - name: Verify actual update through x64 emulation
+        if: inputs.test_pair
+        shell: pwsh
+        run: |
+          Copy-Item -Recurse -Force '.cache/Installer Test - مكتبة الجامع/home/data' '.cache/smoke'
+          & $env:ALJAM3_TEST_RUBY bin/verify-update
+          if ($LASTEXITCODE) { throw 'Update verification failed' }
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aljam3-windows-arm64-verification
+          path: |
+            dist/installer-verification/
+            dist/update-verification/
+          retention-days: 1
+
+  publish:
+    if: inputs.publish
+    needs: [package, macos-26, windows-arm]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: Aljam3-*
+          merge-multiple: true
+          path: dist
+      - name: Sign and publish verified releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
+          TEST_PAIR: ${{ inputs.test_pair }}
+        run: |
+          if [ "$TEST_PAIR" = true ]; then
+            ruby bin/publish-release dist 0.0.1 0.0.2
+          else
+            ruby bin/publish-release dist
+          fi

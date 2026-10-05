@@ -59,6 +59,7 @@ Dir.chdir(ROOT) do
     run("git", "apply", "--directory", File.join(resources, "ruby").delete_prefix("#{ROOT}/"), "packaging/openssl-crl.patch")
   end
   %w[app.rb lib assets].each { |path| copy(path, File.join(resources, "app", path)) }
+  File.write(File.join(resources, "app/lib/aljam3/version.rb"), "# frozen_string_literal: true\n\nmodule Aljam3\n  VERSION = #{VERSION.inspect}\nend\n")
   %w[pdfium tokenizer].each { |name| copy("vendor/#{name}", File.join(resources, "app/vendor", name)) }
   %w[lib lacci/lib scarpe-components/lib CHANGELOG.md LICENSE.txt docs/static/manual.md].each do |path|
     copy("vendor/scarpe/#{path}", File.join(resources, "scarpe", path))

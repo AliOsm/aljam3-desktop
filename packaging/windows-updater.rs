@@ -93,9 +93,11 @@ fn install(args: &[String]) -> io::Result<()> {
         .arg(format!("/DIR={}", root.display()))
         .arg(format!("/LOG={}", log.display()))
         .creation_flags(0x08000000).status();
+    let expected = format!("\"version\": \"{}\"", args[4]);
+    let installed = fs::read_to_string(root.join("resources/build.json")).unwrap_or_default();
     match status {
-        Ok(status) if status.success() => {
-            fs::remove_dir_all(backup)?;
+        Ok(status) if status.success() && installed.contains(&expected) => {
+            if let Err(error) = fs::remove_dir_all(backup) { eprintln!("Recovery copy cleanup: {error}"); }
             Ok(())
         }
         result => {

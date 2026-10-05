@@ -27,7 +27,7 @@ module WindowsLauncherVerification
     env["ALJAM3_DATA_DIR"] = File.join(home, "missing-files-data")
     text, status = Timeout.timeout(30) { Open3.capture2e(env, [launcher, launcher]) }
     log = File.read(File.join(env.fetch("ALJAM3_DATA_DIR"), "launcher.log"))
-    raise "Launcher hid missing app files" unless status.exitstatus == 1 && text.include?("ZIP") && log.include?("ZIP")
+    raise "Launcher hid missing app files" unless status.exitstatus == 1 && text.include?("برنامج التثبيت") && log.include?("برنامج التثبيت")
 
     File.write(File.join(output, "launcher-errors.json"), JSON.pretty_generate({ passed: true,
       checks: %w[child_failure_reported missing_files_reported] }))

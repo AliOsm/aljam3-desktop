@@ -76,7 +76,12 @@ static NSString *serve(NSString *archive, NSString *version, NSString *signature
             setsockopt(client, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
             setsockopt(client, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
             char request[4096] = {0};
-            ssize_t received = recv(client, request, sizeof(request) - 1, 0);
+            ssize_t received = 0;
+            while (received < sizeof(request) - 1 && !strstr(request, "\r\n\r\n")) {
+                ssize_t count = recv(client, request + received, sizeof(request) - 1 - received, 0);
+                if (count <= 0) break;
+                received += count;
+            }
             BOOL isFeed = received > 0 && strncmp(request, "GET /feed.xml ", 14) == 0;
             BOOL isArchive = received > 0 && strncmp(request, "GET /update.zip ", 16) == 0;
             FILE *stream = fdopen(client, "w");

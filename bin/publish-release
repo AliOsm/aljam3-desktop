@@ -1,0 +1,26 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "tempfile"
+require_relative "../lib/aljam3/version"
+directory = File.expand_path(ARGV.shift || "dist")
+versions = ARGV.empty? ? [Aljam3::VERSION] : ARGV
+versions.each do |version|
+  names = ["Aljam3-#{version}-macos-arm64.zip", "Aljam3-#{version}-windows-x64-setup.exe"]
+  files = names.flat_map { |name| [File.join(directory, name), File.join(directory, "#{name}.sha256")] }
+  abort "Both platform packages and checksums are required" unless files.all? { |file| File.file?(file) }
+  abort "Release already exists: v#{version}" if system("gh", "release", "view", "v#{version}", out: File::NULL, err: File::NULL)
+  abort "Signing failed" unless system("ruby", File.join(__dir__, "sign-release"), directory, version)
+  feed = File.join(directory, "update.json")
+  FileUtils.cp(File.join(directory, "update-#{version}.json"), feed)
+  Tempfile.create("aljam3-release-notes") do |notes|
+    notes.write(versions.length > 1 ? "Temporary update test build. Install 0.0.1, then use the app’s update button to install 0.0.2.\n\n" : "Aljam3 Desktop #{version}.\n\n")
+    notes.write("Windows: run the installer. Mac: extract the ZIP and move Aljam3.app to Applications.\n\nApps are unsigned/not notarized; Windows or macOS may show a security prompt. Updates are verified with Ed25519 signatures. Books and reading positions are preserved.\n")
+    notes.flush
+    revision = ENV.fetch("GITHUB_SHA") { IO.popen(["git", "rev-parse", "HEAD"], &:read).strip }
+    abort "Draft release creation failed" unless system("gh", "release", "create", "v#{version}", *files, feed,
+      "--draft", "--target", revision, "--title", "#{version}", "--notes-file", notes.path)
+    abort "Release publication failed" unless system("gh", "release", "edit", "v#{version}", "--draft=false", "--latest")
+  end
+end

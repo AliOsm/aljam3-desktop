@@ -2,7 +2,7 @@
 
 An Arabic desktop library for [aljam3.com](https://aljam3.com), built with Ruby and [Scarpe](https://github.com/scarpe-team/scarpe). Browse books, read PDFs and text, and download books for offline reading and search.
 
-Pre-launch version: **0.0.1**. Packages support Apple silicon Macs (macOS 13+) and Windows 10/11 x64, including Windows 11 ARM through emulation.
+Pre-launch. Packages support Apple silicon Macs (macOS 13+) and Windows 10/11 x64, including Windows 11 ARM through emulation.
 
 ## Run from source
 
@@ -30,6 +30,8 @@ mise run clean        # Remove builds, reports, and scratch data
 ```
 
 GitHub builds run manually. Temporary artifacts expire after one day; delete test runs after review and publish approved builds through GitHub Releases. Performance tools live in [bench/](bench/README.md); PDFium patch notes are in [packaging/pdfium/](packaging/pdfium/README.md).
+
+For a release, bump `lib/aljam3/version.rb` and run **Build packages** with **publish** enabled. The workflow signs update metadata using the `UPDATE_PRIVATE_KEY` repository secret and publishes after platform verification. Keep an independent backup of that private key; its public half is `packaging/update-public.pem`.
 
 ## Installation and data
 
