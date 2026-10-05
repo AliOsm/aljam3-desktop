@@ -21,6 +21,10 @@ run = "bundle exec ruby bin/aljam3"
 description = "Run the application tests"
 run = "bundle exec rake test"
 
+[tasks.clean]
+description = "Remove generated builds, reports, and scratch data"
+run = "bundle exec rake clean"
+
 [tasks.test-native]
 description = "Check native input, button styles, keyboard controls, and accessibility"
 run = "cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test text_input --test protocol --test a11y --test golden --test clipboard --test damage --test images"

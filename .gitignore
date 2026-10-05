@@ -3,5 +3,6 @@
 /vendor/
 /coverage/
 /dist/
+/bench/results/
 *.sqlite3*
 *.log

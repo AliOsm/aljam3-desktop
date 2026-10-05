@@ -1,6 +1,9 @@
 # frozen_string_literal: true
 
 require "rake/testtask"
+require "rake/clean"
+
+CLEAN.include(".cache", "dist", "bench/results")
 
 Rake::TestTask.new do |task|
   task.libs << "test"

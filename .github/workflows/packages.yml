@@ -1,14 +1,7 @@
-name: Desktop test packages
+name: Build packages
 
 on:
   workflow_dispatch:
-    inputs:
-      motion_baseline_run_id:
-        description: Optional earlier package run for a motion comparison on the same runner
-        required: false
-        type: string
-  push:
-    branches: [main]
 
 permissions:
   contents: read
@@ -52,7 +45,6 @@ jobs:
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: vendor/scarpe/native
-          cache-on-failure: true
       - uses: actions/cache@v4
         with:
           path: vendor/pdfium
@@ -82,16 +74,6 @@ jobs:
           # The relocated runtime renders the complete light/dark screenshot suite.
           ALJAM3_VERIFY_TIMEOUT: '240'
         run: ruby bin/verify-package
-      - uses: actions/download-artifact@v4
-        if: inputs.motion_baseline_run_id != ''
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          run-id: ${{ inputs.motion_baseline_run_id }}
-          name: Aljam3-${{ matrix.target }}
-          path: .cache/motion-baseline-artifact
-      - name: Compare motion with the previous packaged app
-        if: inputs.motion_baseline_run_id != ''
-        run: ruby bin/compare-motion
       - name: Archive verified app
         run: ruby bin/archive-package
       - uses: actions/upload-artifact@v4
@@ -103,7 +85,7 @@ jobs:
             dist/*.sha256
             dist/verification/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 1
 
   macos-26:
     name: Verify the same Mac package on macOS 26
@@ -138,4 +120,4 @@ jobs:
           name: Aljam3-macos-26-pdf-verification
           path: dist/verification/pdf/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 1

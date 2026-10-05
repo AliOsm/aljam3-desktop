@@ -1,4 +1,4 @@
-name: Windows test installer
+name: Build Windows installer
 
 on:
   workflow_dispatch:
@@ -54,7 +54,7 @@ jobs:
             dist/*-setup.exe.sha256
             dist/installer-verification/
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 1
 
   arm64:
     name: Verify x64 app on Windows 11 ARM
@@ -115,4 +115,4 @@ jobs:
           name: Aljam3-windows-arm64-verification
           path: dist/installer-verification/
           if-no-files-found: warn
-          retention-days: 30
+          retention-days: 1
