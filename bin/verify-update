@@ -39,16 +39,17 @@ env = {
 launcher = File.join(bundle, windows ? "Aljam3.exe" : "Contents/MacOS/aljam3")
 log = File.open(File.join(output, "app.log"), "w")
 pid = Process.spawn(env, [launcher, launcher], out: log, err: log)
+waiter = Process.detach(pid) # Reap promptly: kill(pid, 0) also sees unreaped Unix zombies.
 begin
   Timeout.timeout(360) do
     until File.file?(File.join(output, "passed.json"))
       raise File.read(File.join(output, "failed.txt")) if File.file?(File.join(output, "failed.txt"))
+      raise File.read(File.join(output, "app.log")) if waiter.join(0) && !waiter.value.success?
       sleep 0.25
     end
   end
   puts File.read(File.join(output, "passed.json"))
 ensure
-  Process.detach(pid)
   log.close
   Dir.glob(File.join(home, "data/updates/*.log")).each { |path| FileUtils.cp(path, output) }
   FileUtils.cp(File.join(home, "data/launcher.log"), output) if File.file?(File.join(home, "data/launcher.log"))

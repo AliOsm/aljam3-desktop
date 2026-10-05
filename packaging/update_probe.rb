@@ -5,6 +5,9 @@ require "json"
 require "digest"
 root = ENV.fetch("ALJAM3_BUNDLE_ROOT")
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
+at_exit do
+  File.write(File.join(output, "failed.txt"), $!.full_message) if $!.is_a?(StandardError)
+end
 require File.join(root, "app/lib/aljam3")
 require File.join(root, "app/lib/aljam3/updates")
 directory = Aljam3.data_directory

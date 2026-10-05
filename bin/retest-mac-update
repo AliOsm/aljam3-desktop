@@ -6,6 +6,7 @@ require "fileutils"
 require "json"
 abort "Use a disposable Mac CI runner" unless ENV["GITHUB_ACTIONS"] == "true" && RUBY_PLATFORM.include?("darwin")
 root = File.expand_path("..", __dir__)
+signing_key = ENV.delete("UPDATE_PRIVATE_KEY")
 def run(*command, **options)
   raise "Command failed: #{command.first}" unless system(*command, **options)
 end
@@ -33,5 +34,5 @@ File.write(seed, <<~RUBY)
   store.close
 RUBY
 run({ "SQLITE_TOKENIZER_AR_EXTENSION" => nil }, File.join(resources, "ruby/bin/ruby"), seed)
-run("ruby", "bin/sign-release", "dist", "0.0.2")
+run({ "UPDATE_PRIVATE_KEY" => signing_key }, "ruby", "bin/sign-release", "dist", "0.0.2")
 run("ruby", "bin/verify-update")
