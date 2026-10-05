@@ -1,7 +1,7 @@
 {
   "version": "0.1.26",
   "baseline_revision": "1f1681055167e32b7049bdd1c71c157597487791",
-  "measured_at": "2026-10-05T12:43:15.054837+00:00",
+  "measured_at": "2026-10-05T13:43:33.199065+00:00",
   "host": "Linux-7.0.0-31-generic-x86_64-with-glibc2.43",
   "method": "Separate sequential headless native runs, same public 96-page scanned PDF, 120 wheel inputs scheduled at 60 Hz, then page 96 / 48 seeks and a return to 96. Online mode uses a local HTTP range server adding 40 ms per request. Actual input intervals and run durations are included. This measures displayed page availability and first displayed pixels, not guaranteed frame rate or Internet latency. Baseline performance checks intentionally report failures without aborting the comparison.",
   "baseline": {
@@ -150,15 +150,15 @@
     "measurements": {
       "online": {
         "wheel_samples": 120,
-        "duration_ms": 2000.1,
+        "duration_ms": 2000.09,
         "pages_crossed": 11,
-        "input_interval_p95_ms": 27.51,
+        "input_interval_p95_ms": 28.9,
         "initial_scroll": 0,
         "requested_scroll_distance": 4723.2,
         "actual_scroll_distance": 4723,
         "first_page": 1,
         "last_page": 11,
-        "renders_during_scrolling": 23,
+        "renders_during_scrolling": 25,
         "missing_image_samples": 0,
         "missing_image_percent": 0.0,
         "incomplete_viewport_samples": 0,
@@ -167,34 +167,34 @@
         "long_seeks": [
           {
             "page": 96,
-            "first_pixels_ms": 126.89,
-            "sharp_and_prefetched_ms": 169.89
+            "first_pixels_ms": 169.34,
+            "sharp_and_prefetched_ms": 234.14
           },
           {
             "page": 48,
-            "first_pixels_ms": 94.34,
-            "sharp_and_prefetched_ms": 407.22
+            "first_pixels_ms": 90.22,
+            "sharp_and_prefetched_ms": 416.39
           }
         ],
-        "cached_return_ms": 10.14,
+        "cached_return_ms": 8.0,
         "cached_return_immediate": true,
         "retained_pixel_bytes": 33384832,
-        "range_requests": 13,
-        "range_bytes": 859124,
+        "range_requests": 14,
+        "range_bytes": 924660,
         "file_bytes": 1252340,
         "range_delay_ms": 40
       },
       "offline": {
         "wheel_samples": 120,
-        "duration_ms": 2000.11,
+        "duration_ms": 2000.1,
         "pages_crossed": 11,
-        "input_interval_p95_ms": 28.54,
+        "input_interval_p95_ms": 27.66,
         "initial_scroll": 0,
         "requested_scroll_distance": 4723.2,
         "actual_scroll_distance": 4723,
         "first_page": 1,
         "last_page": 11,
-        "renders_during_scrolling": 26,
+        "renders_during_scrolling": 28,
         "missing_image_samples": 0,
         "missing_image_percent": 0.0,
         "incomplete_viewport_samples": 0,
@@ -203,16 +203,16 @@
         "long_seeks": [
           {
             "page": 96,
-            "first_pixels_ms": 43.35,
-            "sharp_and_prefetched_ms": 125.21
+            "first_pixels_ms": 43.34,
+            "sharp_and_prefetched_ms": 126.3
           },
           {
             "page": 48,
-            "first_pixels_ms": 43.97,
-            "sharp_and_prefetched_ms": 269.3
+            "first_pixels_ms": 55.98,
+            "sharp_and_prefetched_ms": 319.09
           }
         ],
-        "cached_return_ms": 8.88,
+        "cached_return_ms": 9.24,
         "cached_return_immediate": true,
         "retained_pixel_bytes": 33384832
       }
@@ -461,9 +461,9 @@
       "measurements": {
         "online": {
           "wheel_samples": 120,
-          "duration_ms": 2000.14,
+          "duration_ms": 2035.11,
           "pages_crossed": 11,
-          "input_interval_p95_ms": 30.51,
+          "input_interval_p95_ms": 37.85,
           "initial_scroll": 0,
           "requested_scroll_distance": 4723.2,
           "actual_scroll_distance": 4723,
@@ -478,34 +478,34 @@
           "long_seeks": [
             {
               "page": 96,
-              "first_pixels_ms": 1066.55,
-              "sharp_and_prefetched_ms": 1134.04
+              "first_pixels_ms": 585.22,
+              "sharp_and_prefetched_ms": 672.94
             },
             {
               "page": 48,
-              "first_pixels_ms": 120.41,
-              "sharp_and_prefetched_ms": 680.45
+              "first_pixels_ms": 87.74,
+              "sharp_and_prefetched_ms": 639.27
             }
           ],
-          "cached_return_ms": 17.64,
+          "cached_return_ms": 19.82,
           "cached_return_immediate": true,
-          "retained_pixel_bytes": 33275904,
-          "range_requests": 135,
-          "range_bytes": 10921154,
+          "retained_pixel_bytes": 32047104,
+          "range_requests": 132,
+          "range_bytes": 10593474,
           "file_bytes": 18916546,
           "range_delay_ms": 40
         },
         "offline": {
           "wheel_samples": 120,
-          "duration_ms": 2000.14,
+          "duration_ms": 2000.08,
           "pages_crossed": 11,
-          "input_interval_p95_ms": 30.55,
+          "input_interval_p95_ms": 38.39,
           "initial_scroll": 0,
           "requested_scroll_distance": 4723.2,
           "actual_scroll_distance": 4723,
           "first_page": 1,
           "last_page": 11,
-          "renders_during_scrolling": 28,
+          "renders_during_scrolling": 29,
           "missing_image_samples": 0,
           "missing_image_percent": 0.0,
           "incomplete_viewport_samples": 0,
@@ -514,18 +514,18 @@
           "long_seeks": [
             {
               "page": 96,
-              "first_pixels_ms": 68.0,
-              "sharp_and_prefetched_ms": 130.56
+              "first_pixels_ms": 89.33,
+              "sharp_and_prefetched_ms": 227.75
             },
             {
               "page": 48,
-              "first_pixels_ms": 36.82,
-              "sharp_and_prefetched_ms": 231.97
+              "first_pixels_ms": 126.56,
+              "sharp_and_prefetched_ms": 556.47
             }
           ],
-          "cached_return_ms": 9.21,
+          "cached_return_ms": 22.08,
           "cached_return_immediate": true,
-          "retained_pixel_bytes": 33275904
+          "retained_pixel_bytes": 32047104
         }
       },
       "checks": [
@@ -610,6 +610,141 @@
           "passed": true
         }
       ]
+    }
+  },
+  "macos26_index_concurrency": {
+    "base_app_revision": "1acdf6a430053c21a39607d3de1ecd5b5cdf3a9d",
+    "method": "Same macOS 26 packaged app and unmodified HTTP fixture, changing only the bound on concurrent index range requests. The generated PDF has 96 pages and is 18 MiB. Server sleep requests 40 ms per response; the runner overshot it. Timing thresholds and byte-cache limits were unchanged.",
+    "diagnostic_run": "https://github.com/AliOsm/aljam3-desktop/actions/runs/37318370005",
+    "four_connections": {
+      "wheel_samples": 120,
+      "duration_ms": 2001.92,
+      "pages_crossed": 11,
+      "input_interval_p95_ms": 49.63,
+      "initial_scroll": 0,
+      "requested_scroll_distance": 4723.2,
+      "actual_scroll_distance": 4723,
+      "first_page": 1,
+      "last_page": 11,
+      "renders_during_scrolling": 10,
+      "missing_image_samples": 0,
+      "missing_image_percent": 0.0,
+      "incomplete_viewport_samples": 0,
+      "incomplete_viewport_percent": 0.0,
+      "longest_blank_ms": 0,
+      "long_seeks": [
+        {
+          "page": 96,
+          "first_pixels_ms": 1852.0,
+          "sharp_and_prefetched_ms": 1963.98
+        },
+        {
+          "page": 48,
+          "first_pixels_ms": 152.79,
+          "sharp_and_prefetched_ms": 1078.32
+        }
+      ],
+      "cached_return_ms": 6.88,
+      "cached_return_immediate": true,
+      "retained_pixel_bytes": 33423360,
+      "range_requests": 131,
+      "range_bytes": 10724546,
+      "file_bytes": 18916546,
+      "range_delay_ms": 40
+    },
+    "six_connections": {
+      "passed": true,
+      "online": {
+        "wheel_samples": 120,
+        "duration_ms": 2000.12,
+        "pages_crossed": 11,
+        "input_interval_p95_ms": 47.9,
+        "initial_scroll": 0,
+        "requested_scroll_distance": 4723.2,
+        "actual_scroll_distance": 4723,
+        "first_page": 1,
+        "last_page": 11,
+        "renders_during_scrolling": 11,
+        "missing_image_samples": 0,
+        "missing_image_percent": 0.0,
+        "incomplete_viewport_samples": 0,
+        "incomplete_viewport_percent": 0.0,
+        "longest_blank_ms": 0,
+        "long_seeks": [
+          {
+            "page": 96,
+            "first_pixels_ms": 1249.2,
+            "sharp_and_prefetched_ms": 1356.17
+          },
+          {
+            "page": 48,
+            "first_pixels_ms": 110.18,
+            "sharp_and_prefetched_ms": 1018.6
+          }
+        ],
+        "cached_return_ms": 12.17,
+        "cached_return_immediate": true,
+        "retained_pixel_bytes": 33423360,
+        "range_requests": 132,
+        "range_bytes": 10724546,
+        "file_bytes": 18916546,
+        "range_delay_ms": 40
+      },
+      "request_timing": {
+        "milliseconds": 1213.6119999999978,
+        "requests": 80,
+        "request_median_ms": 88.6989999999912,
+        "request_p95_ms": 117.80900000000827,
+        "sleep_median_ms": 87.50000000000568,
+        "sleep_p95_ms": 113.6020000000002
+      }
+    },
+    "eight_connections": {
+      "passed": true,
+      "online": {
+        "wheel_samples": 120,
+        "duration_ms": 2001.52,
+        "pages_crossed": 11,
+        "input_interval_p95_ms": 44.88,
+        "initial_scroll": 0,
+        "requested_scroll_distance": 4723.2,
+        "actual_scroll_distance": 4723,
+        "first_page": 1,
+        "last_page": 11,
+        "renders_during_scrolling": 11,
+        "missing_image_samples": 0,
+        "missing_image_percent": 0.0,
+        "incomplete_viewport_samples": 0,
+        "incomplete_viewport_percent": 0.0,
+        "longest_blank_ms": 0,
+        "long_seeks": [
+          {
+            "page": 96,
+            "first_pixels_ms": 969.44,
+            "sharp_and_prefetched_ms": 1064.67
+          },
+          {
+            "page": 48,
+            "first_pixels_ms": 117.52,
+            "sharp_and_prefetched_ms": 951.27
+          }
+        ],
+        "cached_return_ms": 7.89,
+        "cached_return_immediate": true,
+        "retained_pixel_bytes": 32735232,
+        "range_requests": 131,
+        "range_bytes": 10659010,
+        "file_bytes": 18916546,
+        "range_delay_ms": 40
+      },
+      "request_timing": {
+        "milliseconds": 921.8919999999855,
+        "requests": 80,
+        "request_median_ms": 84.22900000002187,
+        "request_p95_ms": 122.12499999998272,
+        "sleep_median_ms": 81.89000000001556,
+        "sleep_p95_ms": 115.31399999998371
+      }
     }
   }
 }

@@ -77,7 +77,7 @@ module Aljam3
       ranges.each_with_index { |range, index| jobs << [index, range] }
       jobs.close
       batch_check = -> { raise failure if failure; check.call }
-      workers = [ranges.length, 4].min.times.map do
+      workers = [ranges.length, 8].min.times.map do
         Thread.new do
           client = HTTP.new
           while (job = jobs.pop)

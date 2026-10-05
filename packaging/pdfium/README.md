@@ -74,7 +74,7 @@ PDF.js references inspected at commit
 
 `zz-page-index-prefetch.patch` exposes optional byte-offset hints for unresolved
 top-level page dictionaries in flat trees. The reader fetches up to 128 distinct
-64 KiB blocks through four independent, validated HTTP connections before the
+64 KiB blocks through up to eight independent, validated HTTP connections before the
 normal page traversal. Already parsed dictionaries and cached blocks are skipped.
 The hints never select pages or replace PDFium's traversal, so irregular trees
 and missing hints retain the normal parser behavior. Compressed dictionary

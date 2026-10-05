@@ -33,32 +33,32 @@ class HTTPRangesTest < Minitest::Test
     end
   end
 
-  def test_scattered_ranges_use_at_most_four_connections_and_preserve_order
-    batch(count: 8) do |worker, entered, release, closed|
-      assert_equal [0, 1, 2, 3], 4.times.map { entered.pop }.sort
+  def test_scattered_ranges_use_at_most_eight_connections_and_preserve_order
+    batch(count: 16) do |worker, entered, release, closed|
+      assert_equal (0...8).to_a, 8.times.map { entered.pop }.sort
       assert entered.empty?
-      4.times { release << true }
-      assert_equal [4, 5, 6, 7], 4.times.map { entered.pop }.sort
-      4.times { release << true }
-      assert_equal (0...8).to_a, worker.value
-      assert_equal 4, closed.size
+      8.times { release << true }
+      assert_equal (8...16).to_a, 8.times.map { entered.pop }.sort
+      8.times { release << true }
+      assert_equal (0...16).to_a, worker.value
+      assert_equal 8, closed.size
     end
   end
 
   def test_a_failed_batch_joins_its_workers_and_closes_every_connection
-    batch(count: 4, fail_first: true) do |worker, entered, release, closed|
-      4.times { entered.pop }
-      4.times { release << true }
+    batch(count: 8, fail_first: true) do |worker, entered, release, closed|
+      8.times { entered.pop }
+      8.times { release << true }
       assert_raises(Interrupted) { worker.value }
-      assert_equal 4, closed.size
+      assert_equal 8, closed.size
     end
   end
 
   def test_stopping_the_caller_closes_connections_without_starting_queued_requests
     batch(count: 16) do |worker, entered, _release, closed|
-      4.times { entered.pop }
+      8.times { entered.pop }
       worker.kill.join
-      assert_equal 4, closed.size
+      assert_equal 8, closed.size
       assert entered.empty?
     end
   end
