@@ -68,7 +68,7 @@ Dir.chdir(ROOT) do
   copy("packaging/boot.rb", File.join(resources, "boot.rb"))
   copy("packaging/update-public.pem", File.join(resources, "update-public.pem"))
   copy("README.md", File.join(WINDOWS ? bundle : resources, "README.md"))
-  gems = %w[base64 logger ffi sqlite3 chunky_png].map { |name| Gem::Specification.find_by_name(name) }
+  gems = %w[base64 logger ffi sqlite3 chunky_png rubyzip].map { |name| Gem::Specification.find_by_name(name) }
   gems.each do |spec|
     abort "Use precompiled native gems when packaging: #{spec.full_name}" unless spec.extensions.empty?
     copy(spec.full_gem_path, File.join(resources, "gems/gems", spec.full_name))

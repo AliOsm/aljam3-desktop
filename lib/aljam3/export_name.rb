@@ -14,7 +14,7 @@ module Aljam3
 
     def self.clean(text)
       text.to_s.gsub(/[<>:"\\\/|?*\x00-\x1f]/, " ").gsub(/\s+/, " ").strip
-        .sub(/\.(pdf|txt|docx|png)\z/i, "").gsub(/[. ]+\z/, "")
+        .sub(/\.(pdf|txt|docx|png|zip)\z/i, "").gsub(/[. ]+\z/, "")
     end
 
     def self.shorten(text, bytes)

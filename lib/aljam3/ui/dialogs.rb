@@ -137,7 +137,7 @@ module Aljam3
           when :select then [220, (menu ? 12 : 80) + @dialog.fetch(:choices).length * 44]
           when :volumes then [360, choice_dialog_height]
           when :share then [480, 200]
-          when :export then [520, [@reader.fetch(:files).length * 44 + 148, 544].min]
+          when :export then [520, [@reader.fetch(:files).length * 44 + (@reader.fetch(:files).length > 1 ? 220 : 148), 544].min]
           when :choices then [@dialog_stack.any? ? 408 : 520, choice_dialog_height]
           when :authors then [480, author_dialog_height]
           when :book_search then [720, book_search_dialog_height]

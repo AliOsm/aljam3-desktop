@@ -31,7 +31,7 @@ class ExportsTest < StoreTestCase
 
   def test_every_format_has_an_arabic_suggestion_and_native_type_constraint
     view = View.new(@store, book)
-    %w[pdf txt docx png].each do |format|
+    %w[pdf txt docx png zip].each do |format|
       view.answer = File.join(@directory, "كتاب.#{format.upcase}")
       assert_equal view.answer, view.export_destination(format)
       assert_equal "آداب العلم 1.#{format}", view.options.fetch(:filename)

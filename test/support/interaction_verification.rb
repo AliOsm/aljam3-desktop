@@ -5,6 +5,8 @@ require_relative "motion_preference"
 require "timeout"
 require "socket"
 require_relative "alignment_verification"
+require_relative "export_server"
+require "zip"
 
 class InteractionVerification
   def initialize(app, automation, output:)
@@ -38,6 +40,7 @@ class InteractionVerification
     history
     pdf_controls
     exports
+    bulk_exports
     text_lifecycle
     feedback_timer_lifecycle
     { passed: true, checks: @checks }
@@ -530,6 +533,137 @@ class InteractionVerification
         break unless get(:file_operations).values.any? { |job| job[:status] == :saving }
 
         sleep 0.01
+      end
+    end
+  end
+
+  def bulk_exports
+    saved_reader = get(:reader).dup
+    set(file_operations: {})
+    folder = File.join(Aljam3.data_directory, "أرشيف الكتب")
+    FileUtils.mkdir_p(folder)
+    bodies = {}
+    files = %w[الأول الثاني الثالث].each_with_index.map do |name, index|
+      id = @book.fetch("id") + index
+      urls = %w[pdf txt docx].to_h do |format|
+        path = "/#{index + 1}/#{format}"
+        bodies[path] = "%PDF-1.7\n#{format} volume #{index + 1}\n" + "نص الكتاب\n" * 16_384
+        [format, path]
+      end
+      { "id" => id, "name" => "المجلد #{name}", "urls" => urls }
+    end
+    server = ExportServer.new(bodies)
+    files.each { |file| file["urls"].transform_values! { |path| server.url(path) } }
+    get(:reader).merge!(book: @book.merge("files" => files, "files_count" => files.length), files:, mode: :text)
+    get(:notifications).dismiss while get(:notifications).current
+    @automation.resize(1160, 820)
+    @app.draw_window
+    @app.open_dialog(:export)
+    @automation.wait_frames
+    controls = get(:export_controls)
+    keys = %w[pdf txt docx].map { |format| [:archive, @book.fetch("id"), format] }
+    check("Multi-volume books offer a ZIP action for each format", keys.all? { |key| controls[key] && controls[key].style[:state] != "disabled" })
+    shot("bulk-export-light")
+    @app.close_dialog
+    @app.toggle_theme
+    @app.open_dialog(:export)
+    @automation.wait_frames
+    shot("bulk-export-dark")
+    @app.close_dialog
+    @app.toggle_theme
+    @app.open_dialog(:export)
+    @automation.wait_frames
+
+    @app.define_singleton_method(:ask_save_file) { |**_options| nil }
+    click(get(:export_controls).fetch(keys.first))
+    check("Cancelling the ZIP save chooser starts no export", get(:file_operations).empty? && Dir.empty?(folder))
+    captured = []
+    @app.define_singleton_method(:ask_save_file) do |**options|
+      captured << options
+      File.join(folder, options.fetch(:filename))
+    end
+    %w[pdf txt docx].each_with_index do |format, index|
+      click(get(:export_controls).fetch(keys[index]))
+      wait_for_exports
+      path = File.join(folder, captured.last.fetch(:filename))
+      entries = Zip::File.open(path) { |zip| zip.entries.map { |entry| [entry.name.dup.force_encoding("UTF-8"), entry.get_input_stream.read] } }
+      check("#{format.upcase} ZIP contains all volumes in reading order", entries.map(&:first) == %w[الأول الثاني الثالث].each_with_index.map { |name, part| "0#{part + 1} - المجلد #{name}.#{format}" })
+      expected = (1..3).map { |part| bodies.fetch("/#{part}/#{format}").b }
+      expected[0] = File.binread(get(:downloader).pdf_path(@book.fetch("id"), files.first.fetch("id"))) if format == "pdf"
+      check("#{format.upcase} ZIP preserves every file's exact contents", entries.map(&:last) == expected)
+      check("#{format.upcase} ZIP honors the chosen location and format-specific filename", captured.last[:extensions] == ["zip"] && captured.last[:filename].end_with?(" - #{format.upcase}.zip"))
+      FileUtils.cp(path, File.join(@output, "sample-#{format}.zip"))
+    end
+    check("PDF ZIP reuses the downloaded first volume without contacting its server", !server.requests.include?("/1/pdf"))
+    check("ZIP exports remember the chosen directory", captured.last[:directory] == folder)
+
+    server.hold_path = "/2/pdf"
+    click(get(:export_controls).fetch(keys.first))
+    wait_for_export_condition { !server.waiting.empty? && get(:export_active_job)&.fetch(:fraction, 0).to_f.positive? }
+    job = get(:file_operations).fetch(keys.first)
+    path = job.fetch(:path)
+    previous = File.binread(path)
+    check("ZIP progress is visible and repeated clicks cannot queue duplicates", !get(:export_progress).hidden && !get(:export_cancel).hidden && get(:export_controls).fetch(keys.first).style[:state] == "disabled")
+    count = captured.length
+    @app.export_all("pdf")
+    check("A repeated bulk export does not open another save dialog", captured.length == count)
+    @automation.wait_frames
+    shot("bulk-export-progress")
+    @app.close_dialog
+    @app.open_dialog(:export)
+    @automation.wait_frames
+    check("Closing and reopening the dialog retains ZIP progress and cancellation", get(:export_active_job).equal?(job) && !get(:export_cancel).hidden)
+    click(get(:export_controls).fetch(keys[1]))
+    queued = get(:file_operations).fetch(keys[1])
+    check("Queuing a second format retains progress for the active transfer", queued[:status] == :saving && get(:export_active_job).equal?(job))
+    click(get(:export_cancel))
+    server.release << true
+    wait_for_exports
+    check("Cancelling an active ZIP preserves the previous file without a failure notice", job[:status] == :cancelled && File.binread(path) == previous && !get(:notifications).find(:export_failed))
+    check("ZIP cancellation removes partial files", Dir.glob(File.join(folder, ".aljam3-export-*")).empty?)
+    check("Cancelling one format lets the queued format finish", queued[:status] == :done)
+    server.hold_path = nil
+    click(get(:export_controls).fetch(keys.first))
+    wait_for_exports
+    check("A cancelled ZIP can be downloaded again", get(:file_operations).fetch(keys.first)[:status] == :done)
+
+    server.fail_path = "/2/txt"
+    click(get(:export_controls).fetch(keys[1]))
+    wait_for_exports
+    job = get(:file_operations).fetch(keys[1])
+    check("A failed volume leaves a retry action and preserves the previous ZIP", job[:status] == :failed && get(:export_controls).fetch(keys[1]).text == "إعادة TXT" && Zip::File.open(job.fetch(:path)) { |zip| zip.entries.length == 3 })
+    @automation.wait_frames
+    shot("bulk-export-retry")
+    server.fail_path = nil
+    count = captured.length
+    click(get(:export_controls).fetch(keys[1]))
+    wait_for_exports
+    check("Retry finishes the full archive at the original destination", job[:status] == :done && captured.length == count && !get(:notifications).find(:export_failed))
+
+    @app.close_dialog
+    files.last["urls"].delete("docx")
+    @app.open_dialog(:export)
+    @automation.wait_frames
+    check("A format missing from one volume disables its bulk action", get(:export_controls).fetch(keys[2]).style[:state] == "disabled")
+    @app.close_dialog
+    get(:reader)[:files] = saved_reader.fetch(:files)
+    @app.open_dialog(:export)
+    @automation.wait_frames
+    check("Single-file books retain their compact dialog without bulk actions", get(:export_controls).keys.none? { |key| key.first == :archive } && @automation.rect_of!(get(:dialog_panel).linkable_id).h < 200)
+    shot("single-file-export")
+  ensure
+    server&.close
+    @app.singleton_class.remove_method(:ask_save_file) if @app.singleton_methods.include?(:ask_save_file)
+    @app.close_dialog if get(:dialog)
+    set(reader: saved_reader) if saved_reader
+  end
+
+  def wait_for_export_condition
+    Timeout.timeout(10) do
+      until yield
+        @app.tick
+        @automation.wait_frames
+        sleep 0.005
       end
     end
   end

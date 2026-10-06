@@ -116,6 +116,7 @@ module Aljam3
     def tick
       return if @closing
       pump_reader if @reader_pump
+      drain_export_progress
       @workers.each do |worker|
         worker.drain
         return if @closing

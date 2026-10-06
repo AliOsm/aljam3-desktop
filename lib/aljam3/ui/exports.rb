@@ -2,6 +2,7 @@
 
 require_relative "../desktop"
 require_relative "../export_name"
+require_relative "../archive_export"
 require "tempfile"
 
 module Aljam3
@@ -21,13 +22,37 @@ module Aljam3
 
       def draw_export
         book = @reader.fetch(:book)
+        files = @reader.fetch(:files)
+        multiple = files.length > 1
         @export_download_button = action("", icon: "download", width: 1.0, live: "polite") { queue_download(book) }
         @export_download_progress = progress(top: 41, width: 1.0, height: 4)
         update_export_download
-        @export_feedback = para "احفظ نسخة بصيغة PDF أو نص أو Word.", top: 48, size: 14, stroke: muted, live: "polite", wrap: "trim"
+        @export_feedback_width = @main_width
+        @export_feedback = para export_hint, top: 48, size: 14, stroke: muted, live: "polite", wrap: "trim"
+        @export_cancel = action("إلغاء", left: 0, top: 46, width: 72, height: 28, size: 13, hidden: true) do
+          cancel_archive_export(@export_active_job) if @export_active_job
+        end
+        @export_progress = progress(top: 76, width: 1.0, height: 4, hidden: true)
         @export_controls = {}
-        files = @reader.fetch(:files)
-        scroll_area(top: 76, height: @content_height - 76, scroll: true, bottom_padding: 0) do
+        @export_unavailable = []
+        if multiple
+          row(top: 88) do
+            %w[pdf txt docx].each_with_index do |format, index|
+              available = archive_export(format).available?
+              margin = index < 2 ? 8 : 0
+              key = [:archive, book.fetch("id"), format]
+              @export_unavailable << key unless available
+              @export_controls[key] = action("تنزيل كل #{format.upcase}", key:,
+                width: (@main_width - 16).fdiv(3) + margin, margin_right: margin,
+                state: available ? nil : "disabled", tooltip: available ? "حفظ جميع الأجزاء في ملف ZIP" : "هذه الصيغة غير متاحة لجميع الأجزاء") do
+                export_all(format)
+              end
+            end
+          end
+          separator(top: 136, width: 1.0)
+        end
+        list_top = multiple ? 148 : 76
+        scroll_area(top: list_top, height: @content_height - list_top, scroll: true, bottom_padding: 0) do
           files.each_with_index do |file, index|
             gap = index < files.length - 1 ? 8 : 0
             row(height: 36 + gap, margin_bottom: gap) do
@@ -43,6 +68,50 @@ module Aljam3
           end
         end
         update_export_feedback
+      end
+
+      def export_hint
+        @reader.fetch(:files).length > 1 ? "احفظ جميع الأجزاء في ZIP أو نزّل كل جزء على حدة." : "احفظ نسخة بصيغة PDF أو نص أو Word."
+      end
+
+      def archive_export(format)
+        ArchiveExport.new(book: @reader.fetch(:book), files: @reader.fetch(:files).dup, format:, downloader: @downloader)
+      end
+
+      def export_all(format)
+        return unless @reader.fetch(:files).length > 1
+
+        book_id = @reader.fetch(:book).fetch("id")
+        key = [:archive, book_id, format]
+        previous = @file_operations[key]
+        return if previous&.dig(:status) == :saving
+        return run_file_save(previous) if previous&.dig(:status) == :failed
+
+        archive = archive_export(format)
+        return unless archive.available?
+
+        path = export_destination("zip", part: format.upcase)
+        save_file(key, path:, book_id:, archive:) if path
+      end
+
+      def cancel_archive_export(job)
+        return unless job[:status] == :saving && job[:archive]
+
+        job.fetch(:archive).cancel
+        job[:message] = "جارٍ إلغاء الحفظ…"
+        update_export_feedback
+      end
+
+      def drain_export_progress
+        changed = false
+        until !@export_events || @export_events.empty?
+          job, attempt, fraction, message = @export_events.pop
+          next unless job[:status] == :saving && job[:attempt].equal?(attempt) && !job.fetch(:archive).cancelled?
+
+          job.merge!(fraction:, message:)
+          changed = true
+        end
+        update_export_feedback if changed
       end
 
       def export_file(file, format)
@@ -96,29 +165,43 @@ module Aljam3
         path
       end
 
-      def save_file(key, path:, book_id:, worker: @export_worker, &work)
+      def save_file(key, path:, book_id:, worker: @export_worker, archive: nil, &work)
         return if @file_operations.dig(key, :status) == :saving
 
-        job = { key:, path:, book_id:, work:, worker: }
-        @file_operations.delete(key)
-        @file_operations[key] = job
+        job = { key:, path:, book_id:, work:, worker:, archive: }
         run_file_save(job)
       end
 
       def run_file_save(job)
         return if job[:status] == :saving
 
-        job.merge!(status: :saving, message: "جارٍ حفظ الملف…")
+        @file_operations.delete(job.fetch(:key))
+        @file_operations[job.fetch(:key)] = job
+        job[:archive]&.reset
+        job.merge!(status: :saving, fraction: 0, message: job[:archive] ? "جارٍ تجهيز ZIP…" : "جارٍ حفظ الملف…")
         if (failure = @notifications.find(:export_failed))
           notify_file_failure(failure.fetch(:jobs).reject { |item| item.fetch(:key) == job.fetch(:key) })
         end
         update_export_feedback
-        job.fetch(:worker).submit(job.fetch(:work)) do |_result, error|
-          job.merge!(status: error ? :failed : :done, message: error ? error_message(error) : "تم حفظ الملف")
-          job.delete(:work) unless error # Completed exports need not retain their page's pixels.
+        work = job.fetch(:work)
+        if job[:archive]
+          @export_events ||= Queue.new
+          job[:attempt] = attempt = Object.new
+          work = -> do
+            job.fetch(:archive).call(job.fetch(:path)) do |fraction, message|
+              @export_events << [job, attempt, fraction, message]
+            end
+          end
+        end
+        job.fetch(:worker).submit(work) do |_result, error|
+          cancelled = error.is_a?(ArchiveExport::Cancelled)
+          status = cancelled ? :cancelled : error ? :failed : :done
+          message = cancelled ? "تم إلغاء الحفظ" : error ? error_message(error) : "تم حفظ الملف"
+          job.merge!(status:, message:)
+          job.delete(:work) unless error && !cancelled # Completed exports need not retain their page's pixels.
           update_export_feedback
-          notify_file_save(job, error:)
-          completed = @file_operations.select { |_key, item| item[:status] == :done }.keys
+          notify_file_save(job, error:) unless cancelled
+          completed = @file_operations.select { |_key, item| %i[done cancelled].include?(item[:status]) }.keys
           completed.take([completed.length - 20, 0].max).each { |key| @file_operations.delete(key) }
         end
       end
@@ -128,7 +211,12 @@ module Aljam3
         return unless @dialog&.dig(:type) == :export
 
         jobs = @file_operations.values.select { |job| job[:book_id] == @reader.fetch(:book).fetch("id") }
-        latest = jobs.reverse.find { |job| job[:status] == :saving } || jobs.reverse.find { |job| job[:status] == :failed } || jobs.last
+        @export_active_job = jobs.find { |job| job[:status] == :saving && job[:archive] }
+        latest = @export_active_job || jobs.reverse.find { |job| job[:status] == :saving } || jobs.reverse.find { |job| job[:status] == :failed } || jobs.last
+        cancellable = !!@export_active_job
+        @export_cancel.style(hidden: !cancellable, state: @export_active_job&.fetch(:archive)&.cancelled? ? "disabled" : nil)
+        @export_feedback.style(left: cancellable ? 80 : 0, width: @export_feedback_width - (cancellable ? 80 : 0))
+        @export_progress.style(hidden: !cancellable || @reader.fetch(:files).length < 2, fraction: @export_active_job&.fetch(:fraction, 0) || 0)
         if latest
           @export_feedback.text = latest.fetch(:message)
           @export_feedback.tooltip = "#{latest.fetch(:message)} · #{latest.fetch(:path)}"
@@ -136,8 +224,12 @@ module Aljam3
         end
         jobs.each do |job|
           next unless (control = @export_controls[job.fetch(:key)])
+          next if @export_unavailable.include?(job.fetch(:key))
 
           control.style(state: job[:status] == :saving ? "disabled" : nil, tooltip: job.fetch(:message))
+          if job[:archive]
+            control.text = "#{job[:status] == :failed ? 'إعادة' : 'تنزيل كل'} #{job.fetch(:archive).format.upcase}"
+          end
         end
       end
 
