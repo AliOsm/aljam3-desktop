@@ -8,8 +8,8 @@ module Aljam3
         heading = { saved: "كتبي المحمّلة", authors: "المؤلفون", browse: "الكتب", home: "نتائج البحث" }.fetch(@screen)
         category_id = @scope_filters&.[](:category) if @screen == :browse
         title = @scope_label || heading
-        title_style = { font: HEADING_FONT, size: 24, width: category_id ? -192 : 1.0 }
-        title_style.merge!(wrap: "trim", tooltip: title) if category_id
+        title_style = { font: HEADING_FONT, size: 24, width: 1.0 }
+        title_style.merge!(margin_left: 192, wrap: "trim", tooltip: title) if category_id
         para title, **title_style
         if category_id
           category = { "id" => category_id, "name" => filter_label(:category, category_id) }
