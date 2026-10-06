@@ -1,0 +1,41 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "digest"
+require "json"
+require "open3"
+require_relative "../packaging/macos_disk_image"
+abort "Run DMG verification on macOS" unless RUBY_PLATFORM.include?("darwin")
+root = File.expand_path("..", __dir__)
+image = File.expand_path(ARGV.shift || Dir.glob(File.join(root, "dist/*.dmg")).max || abort("No disk image"))
+destination = ARGV.shift
+version = File.basename(image)[/\AAljam3-(\d+\.\d+\.\d+)-macos-arm64\.dmg\z/, 1] || abort("Unexpected DMG filename")
+output = File.join(root, "dist/dmg-verification", version)
+FileUtils.mkdir_p(output)
+expected = File.read("#{image}.sha256").split.first
+raise "DMG checksum mismatch" unless Digest::SHA256.file(image).hexdigest == expected
+
+def run(*command)
+  raise "Failed: #{command.first}" unless system(*command)
+end
+
+MacDiskImage.mount(image) do |mount|
+  app = File.join(mount, "Aljam3.app")
+  build = JSON.parse(File.read(File.join(app, "Contents/Resources/build.json")))
+  raise "Wrong app version or platform" unless build.values_at("version", "target") == [version, "macos-arm64"]
+  raise "Applications shortcut is missing" unless File.symlink?(File.join(mount, "Applications")) && File.readlink(File.join(mount, "Applications")) == "/Applications"
+  raise "Unexpected visible disk contents" unless Dir.children(mount).reject { |name| name.start_with?(".") }.sort == %w[Aljam3.app Applications]
+  raise "Installation window is missing" unless File.file?(File.join(mount, ".DS_Store")) && File.file?(File.join(mount, ".background/background.tiff"))
+  run("codesign", "--verify", "--deep", "--strict", app)
+  File.binwrite(File.join(output, "background.tiff"), File.binread(File.join(mount, ".background/background.tiff")))
+  run("osascript", File.join(root, "packaging/verify_dmg_window.applescript"), mount, File.join(output, "window.png"))
+  if destination
+    raise "Destination already exists" if File.exist?(destination)
+    run("ditto", app, destination)
+    run("codesign", "--verify", "--deep", "--strict", destination)
+  end
+end
+File.write(File.join(output, "passed.json"), JSON.pretty_generate(passed: true, version: version,
+  checks: %w[checksum signed_bundle applications_shortcut install_window saved_icon_positions read_only_mount]))
+puts "Verified DMG #{version}"

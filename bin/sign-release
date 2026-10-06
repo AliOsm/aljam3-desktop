@@ -14,7 +14,7 @@ key = OpenSSL::PKey.read(ENV.fetch("UPDATE_PRIVATE_KEY"))
 public_key = OpenSSL::PKey.read(File.read(File.expand_path("../packaging/update-public.pem", __dir__)))
 abort "Wrong release signing key" unless key.public_to_der == public_key.public_to_der
 packages = {}
-{ "macos-arm64" => ".zip", "windows-x64" => "-setup.exe" }.each do |target, suffix|
+{ "macos-arm64" => ".dmg", "windows-x64" => "-setup.exe" }.each do |target, suffix|
   name = "Aljam3-#{version}-#{target}#{suffix}"
   path = File.join(directory, name)
   next unless File.file?(path)

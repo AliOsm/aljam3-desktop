@@ -8,8 +8,9 @@
 #include <unistd.h>
 
 static NSString *appPath, *resultPath;
+static NSString *failureResult = @"failed";
 static void finish(int code) {
-    [(code == 0 ? @"installed" : @"failed") writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+    [(code == 0 ? @"installed" : failureResult) writeToFile:resultPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
     NSTask *task = [NSTask new];
     task.launchPath = @"/usr/bin/open";
     NSMutableArray *arguments = [NSMutableArray array];
@@ -54,7 +55,12 @@ static void finish(int code) {
 - (void)dismissUpdateInstallation {}
 - (void)showUpdateInFocus {}
 - (void)updater:(SPUUpdater *)updater didFinishUpdateCycleForUpdateCheck:(SPUUpdateCheck)check error:(NSError *)error {
-    if (error) NSLog(@"Sparkle: %@", error);
+    if (error) {
+        NSLog(@"Sparkle: %@", error);
+        if ([error.domain isEqualToString:SUSparkleErrorDomain] && (error.code == SURunningTranslocated || error.code == SURunningFromDiskImageError)) {
+            failureResult = @"move_to_applications";
+        }
+    }
     finish(error ? 1 : 0);
 }
 @end
@@ -67,7 +73,7 @@ static NSString *serve(NSString *archive, NSString *version, NSString *signature
     getsockname(listener, (struct sockaddr *)&address, &length);
     NSString *base = [NSString stringWithFormat:@"http://127.0.0.1:%d", ntohs(address.sin_port)];
     unsigned long long size = [[[NSFileManager defaultManager] attributesOfItemAtPath:archive error:nil] fileSize];
-    NSData *feed = [[NSString stringWithFormat:@"<?xml version=\"1.0\"?><rss version=\"2.0\" xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"><channel><title>Aljam3</title><item><title>Aljam3 %@</title><sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion><enclosure url=\"%@/update.zip\" sparkle:version=\"%@\" sparkle:shortVersionString=\"%@\" sparkle:edSignature=\"%@\" length=\"%llu\" type=\"application/octet-stream\"/></item></channel></rss>", version, base, version, version, signature, size] dataUsingEncoding:NSUTF8StringEncoding];
+    NSData *feed = [[NSString stringWithFormat:@"<?xml version=\"1.0\"?><rss version=\"2.0\" xmlns:sparkle=\"http://www.andymatuschak.org/xml-namespaces/sparkle\"><channel><title>Aljam3</title><item><title>Aljam3 %@</title><sparkle:minimumSystemVersion>13.0</sparkle:minimumSystemVersion><enclosure url=\"%@/update.dmg\" sparkle:version=\"%@\" sparkle:shortVersionString=\"%@\" sparkle:edSignature=\"%@\" length=\"%llu\" type=\"application/x-apple-diskimage\"/></item></channel></rss>", version, base, version, version, signature, size] dataUsingEncoding:NSUTF8StringEncoding];
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         while (YES) {
             int client = accept(listener, NULL, NULL);
@@ -83,11 +89,11 @@ static NSString *serve(NSString *archive, NSString *version, NSString *signature
                 received += count;
             }
             BOOL isFeed = received > 0 && strncmp(request, "GET /feed.xml ", 14) == 0;
-            BOOL isArchive = received > 0 && strncmp(request, "GET /update.zip ", 16) == 0;
+            BOOL isArchive = received > 0 && strncmp(request, "GET /update.dmg ", 16) == 0;
             FILE *stream = fdopen(client, "w");
             if (!stream) { close(client); continue; }
             if (isFeed || isArchive) {
-                fprintf(stream, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %llu\r\nConnection: close\r\n\r\n", isFeed ? "application/xml" : "application/octet-stream", isFeed ? (unsigned long long)feed.length : size);
+                fprintf(stream, "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nContent-Length: %llu\r\nConnection: close\r\n\r\n", isFeed ? "application/xml" : "application/x-apple-diskimage", isFeed ? (unsigned long long)feed.length : size);
                 if (isFeed) fwrite(feed.bytes, 1, feed.length, stream);
                 else {
                     FILE *file = fopen(archive.fileSystemRepresentation, "rb");

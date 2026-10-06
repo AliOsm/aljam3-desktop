@@ -14,10 +14,16 @@ module Aljam3
         @update_fraction = 0
         result = File.join(@updater.directory, "result.txt")
         if File.file?(result)
-          failed = File.read(result).strip != "installed"
+          outcome = File.read(result).strip
+          failed = outcome != "installed"
           @notifications.push(:update_result, persistent: failed) do
-            { error: failed, message: failed ? "تعذّر تثبيت التحديث" : "تم تحديث الجامع",
-              detail: failed ? "يمكنك المحاولة مجددًا من تحديثات التطبيق. كتبك وموضع القراءة محفوظة." : "الإصدار #{@updater.version} جاهز للقراءة." }
+            if outcome == "move_to_applications"
+              { error: true, message: "انقل الجامع إلى مجلد التطبيقات",
+                detail: "أغلق الجامع، واسحبه إلى Applications باستخدام Finder، ثم افتحه من هناك وأعد التحديث." }
+            else
+              { error: failed, message: failed ? "تعذّر تثبيت التحديث" : "تم تحديث الجامع",
+                detail: failed ? "يمكنك المحاولة مجددًا من تحديثات التطبيق. كتبك وموضع القراءة محفوظة." : "الإصدار #{@updater.version} جاهز للقراءة." }
+            end
           end
           FileUtils.rm_f(result)
         end

@@ -1,0 +1,55 @@
+name: Verify Mac DMG release
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: macos-15
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+      - name: Package and verify the test pair as disk images
+        env:
+          GH_TOKEN: ${{ github.token }}
+          UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
+        run: ruby bin/repack-mac-dmg
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aljam3-macos-dmg
+          path: |
+            dist/*.dmg
+            dist/*.sha256
+            dist/update-*.json
+            dist/dmg-verification/
+            dist/update-verification/
+          retention-days: 1
+  macos-26:
+    needs: package
+    runs-on: macos-26
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+      - uses: actions/download-artifact@v4
+        with:
+          name: Aljam3-macos-dmg
+          path: input
+      - name: Verify the DMG on macOS 26
+        run: ruby bin/verify-dmg input/Aljam3-0.0.2-macos-arm64.dmg dist/Aljam3.app
+      - name: Verify Sparkle DMG signatures and installation restrictions
+        run: ruby bin/verify-sparkle
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Aljam3-dmg-macos-26-verification
+          path: |
+            dist/dmg-verification/
+            dist/update-verification/
+          retention-days: 1

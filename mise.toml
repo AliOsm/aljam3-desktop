@@ -33,6 +33,10 @@ run = "bundle exec ruby bin/package"
 description = "Build a Windows installer from dist/Aljam3 using Inno Setup 6"
 run = "ruby bin/build-installer"
 
+[tasks.dmg]
+description = "Build the Mac installation disk image from dist/Aljam3.app"
+run = "ruby bin/build-dmg"
+
 [tasks.peek]
 description = "Render and interact with the app without opening a window"
 run = "bundle exec ruby bin/peek"

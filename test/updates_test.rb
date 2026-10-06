@@ -9,6 +9,7 @@ class UpdatesTest < Minitest::Test
     @key = OpenSSL::PKey.generate_key("ED25519")
     @body = "verified installer bytes"
     @version = "0.0.2"
+    @target = "windows-x64"
     @package = { "url" => "https://github.com/AliOsm/aljam3-desktop/releases/download/v0.0.2/Aljam3-0.0.2-windows-x64-setup.exe",
       "size" => @body.bytesize, "sha256" => Digest::SHA256.hexdigest(@body) }
     @resources = File.join(@directory, "resources")
@@ -22,7 +23,7 @@ class UpdatesTest < Minitest::Test
   def teardown = FileUtils.remove_entry(@directory)
 
   def envelope(key = @key)
-    payload = JSON.generate(version: @version, packages: { "windows-x64" => @package })
+    payload = JSON.generate(version: @version, packages: { @target => @package })
     JSON.generate(payload: Base64.strict_encode64(payload), signature: Base64.strict_encode64(key.sign(nil, payload)))
   end
 
@@ -34,6 +35,36 @@ class UpdatesTest < Minitest::Test
     assert_equal [1.0], progress
     assert_equal path, @updater.download(package)
     assert_equal 2, @calls.size
+  end
+
+  def use_mac_package
+    @target = "macos-arm64"
+    File.write(File.join(@resources, "build.json"), JSON.generate(version: "0.0.1", target: @target))
+    @package["url"] = "https://github.com/AliOsm/aljam3-desktop/releases/download/v0.0.2/Aljam3-0.0.2-macos-arm64.dmg"
+    @package["sparkle_signature"] = Base64.strict_encode64(@key.sign(nil, @body))
+    @updater = Aljam3::Updates.new(directory: @directory, resources: @resources, public_key: @key.public_to_pem,
+      transport: ->(url, &block) { @calls << url; block.call(url == Aljam3::Updates::FEED ? envelope : @body) })
+  end
+
+  def test_mac_downloads_and_restores_the_signed_dmg
+    use_mac_package
+    package = @updater.check
+    path = @updater.download(package)
+    assert_equal "Aljam3-0.0.2-macos-arm64.dmg", File.basename(path)
+    assert_equal @body, File.binread(path)
+    assert_equal package, @updater.cached
+    assert_equal 2, @calls.size
+  end
+
+  def test_mac_refuses_zip_or_missing_sparkle_signature
+    use_mac_package
+    @package["url"] = @package["url"].sub(/\.dmg\z/, ".zip")
+    assert_raises(Aljam3::Updates::Error) { @updater.check }
+    @package["url"] = @package["url"].sub(/\.zip\z/, ".dmg")
+    @package.delete("sparkle_signature")
+    assert_raises(Aljam3::Updates::Error) { @updater.check }
+    @package["sparkle_signature"] = Base64.strict_encode64("too short")
+    assert_raises(Aljam3::Updates::Error) { @updater.check }
   end
 
   def test_rejects_untrusted_signer_before_following_package_url

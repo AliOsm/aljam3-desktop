@@ -1,0 +1,44 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "tmpdir"
+require "digest"
+require "json"
+abort "Build the Mac disk image on macOS." unless RUBY_PLATFORM.include?("darwin")
+root = File.expand_path("..", __dir__)
+bundle = File.join(root, "dist/Aljam3.app")
+build = JSON.parse(File.read(File.join(bundle, "Contents/Resources/build.json")))
+abort "Not an Apple silicon build" unless build.fetch("target") == "macos-arm64"
+version = build.fetch("version")
+abort "Invalid version" unless /\A\d+\.\d+\.\d+\z/.match?(version)
+image = File.join(root, "dist/Aljam3-#{version}-macos-arm64.dmg")
+
+def run(*command)
+  raise "Failed: #{command.first}" unless system(*command)
+end
+
+Dir.mktmpdir("aljam3-dmg-") do |scratch|
+  source = File.join(scratch, "source")
+  background = File.join(source, ".background")
+  mount = File.join(scratch, "mounted")
+  writable = File.join(scratch, "writable.dmg")
+  FileUtils.mkdir_p([background, mount])
+  run("ditto", bundle, File.join(source, "Aljam3.app"))
+  File.symlink("/Applications", File.join(source, "Applications"))
+  run("swift", File.join(root, "packaging/dmg-background.swift"), root, File.join(background, "background.tiff"))
+  run("hdiutil", "create", "-quiet", "-fs", "HFS+", "-format", "UDRW", "-volname", "Aljam3", "-srcfolder", source, writable)
+  run("hdiutil", "attach", "-quiet", "-readwrite", "-noverify", "-noautoopen", "-mountpoint", mount, writable)
+  begin
+    run("osascript", File.join(root, "packaging/dmg-layout.applescript"), mount)
+    # Finder writes the window layout into the image before it is made read-only.
+    raise "Finder did not save the install window" unless File.file?(File.join(mount, ".DS_Store"))
+  ensure
+    run("hdiutil", "detach", "-quiet", mount)
+  end
+  FileUtils.rm_f(image)
+  run("hdiutil", "convert", "-quiet", writable, "-format", "UDZO", "-imagekey", "zlib-level=9", "-o", image)
+  run("hdiutil", "verify", "-quiet", image)
+end
+File.write("#{image}.sha256", "#{Digest::SHA256.file(image).hexdigest}  #{File.basename(image)}\n")
+puts image

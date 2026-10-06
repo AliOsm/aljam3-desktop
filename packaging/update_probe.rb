@@ -14,6 +14,8 @@ directory = Aljam3.data_directory
 build = JSON.parse(File.read(File.join(root, "build.json")))
 store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
 if build.fetch("version") == "0.0.2"
+  result = File.read(File.join(directory, "updates/result.txt")).strip
+  raise "Updater reported #{result}" unless result == "installed"
   raise "Active download was not safely queued before shutdown" unless store.download(90_001).fetch(:status) == :queued
   raise "Paused download changed during update" unless store.download(90_002).fetch(:status) == :paused
   raise "Partial download progress lost" unless store.download(90_001).fetch(:bytes) == 40
@@ -46,7 +48,7 @@ app.every(0.1) do
       before.each { |path, digest| raise "Book content changed" unless Digest::SHA256.file(path).hexdigest == digest }
       raise "Updater reported failure" if File.read(File.join(directory, "updates/install.log")).include?("Package checksum mismatch")
       File.write(File.join(output, "passed.json"), JSON.pretty_generate(passed: true, version: "0.0.2",
-        checks: %w[signed_feed verified_download restart actual_upgrade preserved_books preserved_reading_position preserved_preferences offline_search safely_queued_active_download resumed_download preserved_paused_download preserved_partial_file]))
+        checks: %w[signed_feed verified_download restart actual_upgrade successful_install_result preserved_books preserved_reading_position preserved_preferences offline_search safely_queued_active_download resumed_download preserved_paused_download preserved_partial_file]))
       app.close
       next
     end

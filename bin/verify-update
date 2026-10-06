@@ -10,7 +10,7 @@ abort "Run only on disposable macOS/Windows CI runners" unless ENV["GITHUB_ACTIO
 root = File.expand_path("..", __dir__)
 windows = Gem.win_platform?
 target = windows ? "windows-x64" : "macos-arm64"
-suffix = windows ? "-setup.exe" : ".zip"
+suffix = windows ? "-setup.exe" : ".dmg"
 workspace = File.join(root, ".cache/Update Test - مكتبة الجامع")
 FileUtils.rm_rf(workspace)
 FileUtils.mkdir_p(workspace)
@@ -20,7 +20,10 @@ new_package = File.join(root, "dist/Aljam3-0.0.2-#{target}#{suffix}")
 if windows
   abort "Old installer failed" unless system([old, old], "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/SP-", "/DIR=#{bundle}")
 else
-  abort "Old app extraction failed" unless system("ditto", "-x", "-k", old, workspace)
+  require_relative "../packaging/macos_disk_image"
+  MacDiskImage.mount(old) do |mount|
+    abort "Old app installation failed" unless system("ditto", File.join(mount, "Aljam3.app"), bundle)
+  end
 end
 home = File.join(workspace, "home")
 output = File.join(root, "dist/update-verification")

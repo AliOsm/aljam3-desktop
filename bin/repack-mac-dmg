@@ -1,0 +1,69 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "json"
+require "digest"
+require "openssl"
+require "base64"
+abort "Use a disposable Mac runner" unless ENV["GITHUB_ACTIONS"] == "true" && RUBY_PLATFORM.include?("darwin")
+root = File.expand_path("..", __dir__)
+FileUtils.mkdir_p(".cache/dmg-source")
+def run(*args)
+  raise "Failed: #{args.first}" unless system(*args)
+end
+archive = ".cache/dmg-source/Aljam3-0.0.2-macos-arm64.zip"
+run("gh", "release", "download", "v0.0.2", "-p", File.basename(archive), "-p", "update.json", "--dir", ".cache/dmg-source")
+envelope = JSON.parse(File.read(".cache/dmg-source/update.json"))
+key = OpenSSL::PKey.read(File.read("packaging/update-public.pem"))
+payload = Base64.strict_decode64(envelope.fetch("payload"))
+raise "Untrusted release" unless key.verify(nil, Base64.strict_decode64(envelope.fetch("signature")), payload)
+package = JSON.parse(payload).fetch("packages").fetch("macos-arm64")
+raise "Source package differs from signed release" unless File.size(archive) == package.fetch("size") && Digest::SHA256.file(archive).hexdigest == package.fetch("sha256")
+revision = IO.popen(["git", "rev-parse", "HEAD"], &:read).strip
+%w[0.0.1 0.0.2].each do |version|
+  bundle = File.join(root, "dist/Aljam3.app")
+  FileUtils.rm_rf(bundle)
+  run("ditto", "-x", "-k", archive, File.join(root, "dist"))
+  resources = File.join(bundle, "Contents/Resources")
+  FileUtils.rm_rf(File.join(resources, "app/lib"))
+  FileUtils.cp_r("lib", File.join(resources, "app/lib"))
+  FileUtils.cp("README.md", File.join(resources, "README.md"))
+  FileUtils.mkdir_p(File.join(resources, "licenses"))
+  FileUtils.cp("packaging/Sparkle-LICENSE.txt", File.join(resources, "licenses/Sparkle-LICENSE.txt"))
+  File.write(File.join(resources, "app/lib/aljam3/version.rb"), "# frozen_string_literal: true\nmodule Aljam3\n  VERSION = #{version.inspect}\nend\n")
+  build_path = File.join(resources, "build.json")
+  build = JSON.parse(File.read(build_path)).merge("version" => version, "revision" => revision)
+  File.write(build_path, JSON.pretty_generate(build))
+  %w[CFBundleVersion CFBundleShortVersionString].each do |name|
+    run("/usr/libexec/PlistBuddy", "-c", "Set :#{name} #{version}", File.join(bundle, "Contents/Info.plist"))
+  end
+  frameworks = File.join(bundle, "Contents/Frameworks")
+  helper = File.join(resources, "update")
+  run("clang", "-fobjc-arc", "-mmacosx-version-min=13.0", "-F#{frameworks}", "-framework", "Sparkle", "-framework", "AppKit",
+    "-Wl,-rpath,@loader_path/../Frameworks", "packaging/macos-updater.m", "-o", helper)
+  run("codesign", "--force", "--sign", "-", "--timestamp=none", helper)
+  run("codesign", "--force", "--sign", "-", "--timestamp=none", bundle)
+  run("codesign", "--verify", "--deep", "--strict", bundle)
+  run("ruby", "bin/build-dmg")
+  run("ruby", "bin/verify-dmg", "dist/Aljam3-#{version}-macos-arm64.dmg")
+end
+resources = File.join(root, "dist/Aljam3.app/Contents/Resources")
+seed = File.join(root, ".cache/dmg-seed.rb")
+File.write(seed, <<~SOURCE)
+  ENV["ALJAM3_BUNDLE_ROOT"] = #{resources.inspect}
+  ENV["SSL_CERT_FILE"] = #{File.join(resources, 'ruby/lib/ca-bundle.crt').inspect}
+  ENV.delete("SSL_CERT_DIR")
+  ENV.delete("SQLITE_TOKENIZER_AR_EXTENSION")
+  require "rubygems"
+  Gem.use_paths(#{File.join(resources, 'gems').inspect}, [#{File.join(resources, 'ruby/lib/ruby/gems/3.4.0').inspect}])
+  require #{File.join(resources, 'app/lib/aljam3').inspect}
+  directory = #{File.join(root, '.cache/smoke').inspect}
+  store = Aljam3::Store.new(File.join(directory, "library.sqlite3"))
+  Aljam3::Downloader.new(api: Aljam3::API.new, store: store, directory: File.join(directory, "books")).call(1)
+  store.close
+SOURCE
+run(File.join(resources, "ruby/bin/ruby"), seed)
+run("ruby", "bin/sign-release", "dist", "0.0.2")
+run("ruby", "bin/verify-update")
+run("ruby", "bin/verify-sparkle")

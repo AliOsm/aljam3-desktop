@@ -8,6 +8,7 @@ require "base64"
 require "digest"
 require "timeout"
 require "json"
+require_relative "../packaging/macos_disk_image"
 abort "Run on a disposable Mac CI runner" unless RUBY_PLATFORM.include?("darwin") && ENV["GITHUB_ACTIONS"] == "true"
 root = File.expand_path("..", __dir__)
 output = File.join(root, "dist/update-verification")
@@ -44,10 +45,20 @@ Dir.mktmpdir("aljam3-sparkle-") do |scratch|
     run("codesign", "--force", "--sign", "-", app)
     app
   end
-  package = File.join(scratch, "new.zip")
-  run("ditto", "-c", "-k", "--sequesterRsrc", "--keepParent", apps.last, package)
+  package = File.join(scratch, "new.dmg")
+  run("hdiutil", "create", "-quiet", "-fs", "HFS+", "-format", "UDZO", "-volname", "Aljam3 Update", "-srcfolder", File.dirname(apps.last), package)
   signature = Base64.strict_encode64(key.sign(nil, File.binread(package)))
   result = File.join(scratch, "result.txt")
+  # Reproduce running straight from a mounted download before trying installation.
+  old_image = File.join(scratch, "old.dmg")
+  run("hdiutil", "create", "-quiet", "-fs", "HFS+", "-format", "UDZO", "-volname", "Aljam3 Old", "-srcfolder", File.dirname(apps.first), old_image)
+  MacDiskImage.mount(old_image) do |mount|
+    File.open(File.join(output, "sparkle-read-only.log"), "w") do |log|
+      status = Timeout.timeout(90) { system([helper, helper], File.join(mount, "Aljam3.app"), package, "0.0.2", signature, "0", result, out: log, err: log) }
+      raise "Read-only host should not be updated" if status
+      raise "Missing Applications guidance" unless File.read(result) == "move_to_applications"
+    end
+  end
   [Base64.strict_encode64("x" * 64), signature].each_with_index do |sig, index|
     status = nil
     File.open(File.join(output, "sparkle-#{index}.log"), "w") do |log|
@@ -56,8 +67,9 @@ Dir.mktmpdir("aljam3-sparkle-") do |scratch|
     puts File.read(File.join(output, "sparkle-#{index}.log"))
     raise "Signature rejection failed" if index.zero? && status
     raise "Sparkle upgrade failed" if index == 1 && !status
+    raise "Incorrect updater result" unless File.read(result) == (index.zero? ? "failed" : "installed")
     actual = IO.popen(["/usr/libexec/PlistBuddy", "-c", "Print :CFBundleVersion", File.join(apps.first, "Contents/Info.plist")], &:read).strip
     raise "Wrong installed version: #{actual}" unless actual == (index.zero? ? "0.0.1" : "0.0.2")
   end
-  File.write(File.join(output, "sparkle.json"), JSON.pretty_generate(passed: true, checks: %w[ad_hoc_signed_host invalid_archive_signature_rejected signed_archive_installed]))
+  File.write(File.join(output, "sparkle.json"), JSON.pretty_generate(passed: true, checks: %w[ad_hoc_signed_host read_only_host_gets_applications_guidance invalid_dmg_signature_rejected signed_dmg_installed correct_install_result]))
 end

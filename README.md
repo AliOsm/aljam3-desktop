@@ -26,6 +26,7 @@ mise run verify-ui     # Reader and UI integration checks
 mise run verify-scroll # PDF scrolling and pinch zoom
 mise run package      # Standalone app, on macOS or Windows
 mise run installer    # Windows installer; requires Inno Setup 6
+mise run dmg          # Mac disk image, from the packaged app
 mise run clean        # Remove builds, reports, and scratch data
 ```
 
@@ -35,7 +36,7 @@ For a release, bump `lib/aljam3/version.rb` and run **Build packages** with **pu
 
 ## Installation and data
 
-On Mac, extract the ZIP and move `Aljam3.app` to Applications. The app is ad-hoc signed without notarization; macOS may require **Privacy & Security → Open Anyway**. On Windows, run the installer. Windows executables are unsigned and may trigger SmartScreen.
+On Mac, open the DMG, drag Aljam3 onto Applications, then open it from Applications. The app is ad-hoc signed without notarization; macOS may require **Privacy & Security → Open Anyway**. On Windows, run the installer. Windows executables are unsigned and may trigger SmartScreen.
 
 Installed apps check GitHub Releases daily and download signed updates in the background. Use the update icon to check manually, then choose **إعادة التشغيل والتحديث** when ready. Books and reading positions survive the restart. Mac installation uses [Sparkle](https://sparkle-project.org); Windows uses the installer with a recovery copy of the previous app.
 

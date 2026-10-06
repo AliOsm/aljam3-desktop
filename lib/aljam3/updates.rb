@@ -65,7 +65,7 @@ module Aljam3
       return unless Gem::Version.new(candidate) > Gem::Version.new(@version)
 
       package = release.fetch("packages").fetch(@target)
-      extension = @target == "windows-x64" ? "-setup.exe" : ".zip"
+      extension = @target == "windows-x64" ? "-setup.exe" : ".dmg"
       expected = "https://github.com/#{REPOSITORY}/releases/download/v#{candidate}/Aljam3-#{candidate}-#{@target}#{extension}"
       raise Error, "Unexpected package URL" unless package.fetch("url") == expected
       raise Error, "Invalid package size" unless package["size"].is_a?(Integer) && (1..MAX_PACKAGE).cover?(package["size"])

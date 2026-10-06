@@ -94,6 +94,9 @@ jobs:
         env:
           ALJAM3_VERIFY_TIMEOUT: '600'
         run: ruby bin/verify-installer
+      - name: Verify the Mac installation disk image
+        if: runner.os == 'macOS'
+        run: ruby bin/verify-dmg
       - name: Verify Windows failed-install recovery
         if: runner.os == 'Windows'
         run: ruby bin/verify-update-helper
@@ -110,13 +113,14 @@ jobs:
         with:
           name: Aljam3-${{ matrix.target }}
           path: |
-            dist/*.zip
+            dist/*.dmg
             dist/*-setup.exe
             dist/*.sha256
             dist/update-*.json
             dist/verification/
             dist/installer-verification/
             dist/update-verification/
+            dist/dmg-verification/
           if-no-files-found: warn
           retention-days: 1
 
@@ -134,13 +138,11 @@ jobs:
         with:
           name: Aljam3-macos-arm64
           path: input
-      - name: Unpack the verified Apple silicon app
+      - name: Install the verified Apple silicon disk image
         run: |
           test "$(uname -m)" = arm64
           sw_vers
-          cd input
-          shasum -a 256 -c *.zip.sha256
-          ditto -x -k "$(ls Aljam3-*.zip | sort -V | tail -1)" ../dist
+          ruby bin/verify-dmg "$(ls input/Aljam3-*.dmg | sort -V | tail -1)" dist/Aljam3.app
       - name: Prepare headless verification helpers
         run: ruby bin/setup --prepare
       - name: Exercise bundled PDF cancellation and rapid navigation
