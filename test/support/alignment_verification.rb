@@ -157,7 +157,7 @@ class AlignmentVerification
 
   def search_controls
     mode_label, scope_label = node("Para", "البحث في:"), node("Para", "ضمن:")
-    mode, scope = node("Button", "نصوص الكتب"), node("Button", "كل المكتبة")
+    mode, scope = node("Button", "عناوين الكتب"), node("Button", "كل المكتبة")
     check("search labels sit eight pixels from their controls", near(mode_label[:x] - right(mode), 8) && near(scope_label[:x] - right(scope), 8))
     check("search choices share one row above the query", near(mode[:y], scope[:y]) && bottom(mode) < node("Button", "بحث")[:y])
     @automation.click({ id: mode[:id] })
@@ -170,13 +170,13 @@ class AlignmentVerification
     @automation.key("enter")
     @automation.wait_frames
     field = @app.instance_variable_get(:@query_field)
-    check("keyboard selection updates the search mode and placeholder", @app.instance_variable_get(:@mode) == :books && field.style[:placeholder] == "ابحث عن عنوان كتاب…")
+    check("keyboard selection updates the search mode and placeholder", @app.instance_variable_get(:@mode) == :content && field.style[:placeholder] == "ابحث عن كلمة أو عبارة في نصوص الكتب…")
     check("dropdown selection restores focus to its trigger", @automation.focused == @app.instance_variable_get(:@action_views).fetch(:search_mode).linkable_id)
     @automation.click({ id: @app.instance_variable_get(:@action_views).fetch(:search_scope).linkable_id })
     @automation.wait_frames
     @layout = @automation.layout
     @automation.click({ id: @app.instance_variable_get(:@action_views).fetch("كتبي المحمّلة").linkable_id })
-    check("search location changes independently of search mode", @app.instance_variable_get(:@search_scope) == :downloaded && @app.instance_variable_get(:@mode) == :books)
+    check("search location changes independently of search mode", @app.instance_variable_get(:@search_scope) == :downloaded && @app.instance_variable_get(:@mode) == :content)
     @automation.click({ id: @app.instance_variable_get(:@action_views).fetch(:search_scope).linkable_id })
     @automation.key("escape")
     check("Escape closes dropdown without changing search scope", !@app.instance_variable_get(:@dialog) && @app.instance_variable_get(:@search_scope) == :downloaded)

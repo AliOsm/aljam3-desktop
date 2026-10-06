@@ -88,7 +88,7 @@ module Aljam3
       def search_controls(top:)
         row(top:) do
           para "البحث في:", align: "left", margin_right: 8, size: 14, stroke: muted
-          dropdown({ content: "نصوص الكتب", books: "عناوين الكتب" }, selected: @mode,
+          dropdown({ books: "عناوين الكتب", content: "نصوص الكتب" }, selected: @mode,
             key: :search_mode, tooltip: "البحث في النصوص أو العناوين", width: 168, margin_right: 20) { |mode| switch_search_mode(mode) }
           para "ضمن:", align: "left", margin_right: 8, size: 14, stroke: muted
           dropdown({ all: "كل المكتبة", downloaded: "كتبي المحمّلة" }, selected: @search_scope,

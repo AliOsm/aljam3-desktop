@@ -48,7 +48,7 @@ module Aljam3
       @download_queue = Downloads.new(store: @store, downloader: @downloader) { |download| notify_download(download) }
       @downloaded_ids = @store.downloaded_ids
       @categories, @libraries = @store.preference("categories", []), @store.preference("libraries", [])
-      @screen, @mode, @query = :home, :content, ""
+      @screen, @mode, @query = :home, :books, ""
       @search_order = :relevance
       @search_scope, @connection = :all, @api.connection
       @filters, @scope_filters, @expanded = {}, {}, {}
@@ -264,7 +264,7 @@ module Aljam3
       remember_location unless @screen == screen && @filters == filters && @query.empty?
       @store.cancel_search
       @navigation_motion = 0 if @screen != screen || @filters != filters || !@query.empty?
-      @screen, @query, @mode = screen, "", screen == :authors ? :authors : :content
+      @screen, @query, @mode = screen, "", screen == :authors ? :authors : :books
       @search_scope = screen == :saved ? :downloaded : :all
       @result = @results = @error = @dialog = @dialog_scroll = nil
       @catalog_refresh_pending = false

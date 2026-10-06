@@ -242,6 +242,7 @@ app.every(0.1) do
       app.navigate(:downloads)
       shot.call("downloads")
       app.navigate(:saved)
+      app.switch_search_mode(:content)
       app.instance_variable_set(:@query, "العلم")
       app.request_catalog
       step = 12
