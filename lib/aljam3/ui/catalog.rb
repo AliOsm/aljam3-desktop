@@ -163,7 +163,7 @@ module Aljam3
         "#{result_count(@result.data)} · #{@source == :online ? 'كل المكتبة' : 'المحفوظ على جهازك'}"
       end
 
-      def book_heading(book, aligned: false)
+      def book_heading(book, aligned: false, query: "")
         category, author = book.values_at("category", "author")
         stack(height_group: aligned ? "book_category" : nil) do
           if category
@@ -171,7 +171,7 @@ module Aljam3
           end
         end
         stack(height_group: aligned ? "book_title" : nil, margin_top: category || aligned ? 8 : 0) do
-          para text_link(Text.plain(book.fetch("title"))) { open_book(book) }, size: 20, weight: "semibold"
+          para text_link(*highlighted(Text.plain(book.fetch("title")), query)) { open_book(book) }, size: 20, weight: "semibold"
         end
         stack(height_group: aligned ? "book_author" : nil, margin_top: author || aligned ? 8 : 0) do
           if author
@@ -182,7 +182,7 @@ module Aljam3
 
       def book_row(book, **styles)
         card(**styles) do
-          stack(padding: 16) { book_heading(book, aligned: true) }
+          stack(padding: 16) { book_heading(book, aligned: true, query: @mode == :books ? @result_query.to_s : "") }
           book_footer(book, "#{format_number(book.fetch('pages_count'))} صفحة · #{format_number(book.fetch('files_count'))} ملف")
         end
       end

@@ -139,8 +139,8 @@ module Aljam3
         field
       end
 
-      def text_link(text, **styles, &block)
-        link(text, **styles) { @editing_field = nil; block.call }
+      def text_link(*text, **styles, &block)
+        link(*text, **styles) { @editing_field = nil; block.call }
       end
 
       def icon_button(icon, label, **styles, &block)
