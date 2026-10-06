@@ -14,7 +14,7 @@ module Aljam3
   # Release metadata is signed as exact bytes, before any URLs are trusted.
   class Updates
     class Error < StandardError; end
-    REPOSITORY = "AliOsm/aljam3-desktop"
+    REPOSITORY = "ieasybooks/aljam3-desktop"
     FEED = "https://github.com/#{REPOSITORY}/releases/latest/download/update.json"
     MAX_PACKAGE = 1_500_000_000
     INTERVAL = 86_400

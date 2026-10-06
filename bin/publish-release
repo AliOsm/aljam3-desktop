@@ -7,6 +7,7 @@ require "digest"
 require_relative "../lib/aljam3/version"
 directory = File.expand_path(ARGV.shift || "dist")
 versions = ARGV.empty? ? [Aljam3::VERSION] : ARGV
+draft = ENV["ALJAM3_RELEASE_DRAFT"] == "true"
 versions.each do |version|
   names = ["Aljam3-#{version}-macos-arm64.dmg", "Aljam3-#{version}-windows-x64-setup.exe"]
   files = names.flat_map { |name| [File.join(directory, name), File.join(directory, "#{name}.sha256")] }
@@ -20,8 +21,15 @@ versions.each do |version|
   feed = File.join(directory, "update.json")
   FileUtils.cp(File.join(directory, "update-#{version}.json"), feed)
   Tempfile.create("aljam3-release-notes") do |notes|
-    notes.write(versions.length > 1 ? "Temporary update test build. Install 0.0.1, then use the app’s update button to install 0.0.2.\n\n" : "Aljam3 Desktop #{version}.\n\n")
-    notes.write("Windows: run the installer. Mac: open the DMG, drag Aljam3 onto Applications, then open it from Applications.\n\nApps are unsigned/not notarized; Windows or macOS may show a security prompt. Updates are verified with Ed25519 signatures. Books and reading positions are preserved.\n")
+    notes.write("الجامع لسطح المكتب — الإصدار #{version}\n\n")
+    if versions.length > 1
+      notes.write("إصدار مؤقت لاختبار التحديث: ثبّت 0.0.1 ثم استخدم زر التحديث داخل التطبيق للانتقال إلى 0.0.2.\n\n")
+    end
+    notes.write("تصفّح مكتبة الجامع وابحث في عناوين الكتب ونصوصها، واقرأ ملفات PDF مع النص. نزّل الكتب أو تصنيفًا كاملًا للقراءة والبحث دون إنترنت، واحفظ مواضع القراءة والعلامات المرجعية.\n\n")
+    notes.write("- **ويندوز 10 و11:** نزّل ملف `Aljam3-#{version}-windows-x64-setup.exe` وشغّل المثبّت. يعمل على أجهزة x64 وعلى ويندوز 11 ARM بالمحاكاة.\n")
+    notes.write("- **ماك بمعالج Apple silicon، إصدار macOS 13 فأحدث:** افتح ملف `Aljam3-#{version}-macos-arm64.dmg`، واسحب التطبيق إلى مجلد التطبيقات، ثم افتحه من هناك.\n\n")
+    notes.write("قد يظهر تنبيه أمني لأن التطبيقات غير موقّعة بشهادة مطوّر وغير موثّقة لدى Apple. في ماك، يمكنك السماح بالتشغيل من «إعدادات النظام ← الخصوصية والأمان ← فتح على أي حال».\n\n")
+    notes.write("تصل التحديثات اللاحقة من داخل التطبيق بعد التحقق من توقيعها الرقمي، مع الاحتفاظ بالكتب والإعدادات ومواضع القراءة.\n")
     notes.flush
     revision = ENV.fetch("GITHUB_SHA") { IO.popen(["git", "rev-parse", "HEAD"], &:read).strip }
     tag = "refs/tags/v#{version}"
@@ -34,7 +42,9 @@ versions.each do |version|
     target = tagged_revision ? ["--verify-tag"] : ["--target", revision]
     license = File.expand_path("../packaging/Sparkle-LICENSE.txt", __dir__)
     abort "Draft release creation failed" unless system("gh", "release", "create", "v#{version}", *files, feed, license,
-      "--draft", *target, "--title", "#{version}", "--notes-file", notes.path)
-    abort "Release publication failed" unless system("gh", "release", "edit", "v#{version}", "--draft=false", "--latest")
+      "--draft", *target, "--title", "الجامع #{version}", "--notes-file", notes.path)
+    unless draft
+      abort "Release publication failed" unless system("gh", "release", "edit", "v#{version}", "--draft=false", "--latest")
+    end
   end
 end

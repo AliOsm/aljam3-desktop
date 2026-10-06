@@ -1,10 +1,10 @@
-# PDFium patches
+# تعديلات PDFium
 
-`bin/build-pdfium` pins PDFium, its build scripts, and depot tools. Its version fingerprint includes the builder and these patches, so setup rebuilds when they change.
+يثبّت `bin/build-pdfium` نسخًا محددة من PDFium وسكربتات البناء وأدوات depot. تشمل بصمة الإصدار سكربت البناء وهذه التعديلات؛ لذلك يُعاد البناء عند تغييرها.
 
-- `handle-stream-read-errors.patch`: return an error when an HTTP read fails or is cancelled, allowing Ruby to handle it without a native crash.
-- `skip-page-branches.patch`: skip unrelated page-tree branches during distant seeks; restart traversal when needed for backward navigation.
-- `zz-page-index-prefetch.patch`: expose page-dictionary offsets for bounded concurrent fetching of flat indexes. PDFium still validates and selects each page.
+- `handle-stream-read-errors.patch`: يعيد خطأ عند فشل قراءة HTTP أو إلغائها، ليعالجها Ruby دون انهيار المحرّك.
+- `skip-page-branches.patch`: يتجاوز فروع شجرة الصفحات غير المطلوبة عند الانتقال البعيد، ويبدأ الاجتياز من جديد عند الحاجة للعودة إلى صفحات سابقة.
+- `zz-page-index-prefetch.patch`: يتيح مواقع قواميس الصفحات لجلب الفهارس المسطّحة بالتوازي ضمن حدود محددة. يظل PDFium مسؤولًا عن التحقق من كل صفحة واختيارها.
 
 ```sh
 mise exec -- bundle exec ruby bin/verify-ui pdf
@@ -12,4 +12,4 @@ mise run verify-scroll
 mise run benchmark-pdf -- 3435 8291 104 471
 ```
 
-`ruby bin/verify-package --pdf-only` checks an existing package. Verification covers failed reads, cancellation, page pixels, navigation, zoom, and online/offline scrolling. Online reading uses byte ranges; explicit downloads save complete PDFs.
+يفحص `ruby bin/verify-package --pdf-only` حزمة مبنية مسبقًا. تشمل الاختبارات فشل القراءة والإلغاء وصور الصفحات والتنقل والتكبير والتمرير مع الإنترنت ودونه. تستخدم القراءة عبر الإنترنت نطاقات البايتات، بينما يحفظ التنزيل الصريح ملفات PDF كاملة.

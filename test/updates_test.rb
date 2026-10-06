@@ -10,7 +10,7 @@ class UpdatesTest < Minitest::Test
     @body = "verified installer bytes"
     @version = "0.0.2"
     @target = "windows-x64"
-    @package = { "url" => "https://github.com/AliOsm/aljam3-desktop/releases/download/v0.0.2/Aljam3-0.0.2-windows-x64-setup.exe",
+    @package = { "url" => "https://github.com/ieasybooks/aljam3-desktop/releases/download/v0.0.2/Aljam3-0.0.2-windows-x64-setup.exe",
       "size" => @body.bytesize, "sha256" => Digest::SHA256.hexdigest(@body) }
     @resources = File.join(@directory, "resources")
     FileUtils.mkdir_p(@resources)
@@ -40,7 +40,7 @@ class UpdatesTest < Minitest::Test
   def use_mac_package
     @target = "macos-arm64"
     File.write(File.join(@resources, "build.json"), JSON.generate(version: "0.0.1", target: @target))
-    @package["url"] = "https://github.com/AliOsm/aljam3-desktop/releases/download/v0.0.2/Aljam3-0.0.2-macos-arm64.dmg"
+    @package["url"] = "https://github.com/ieasybooks/aljam3-desktop/releases/download/v0.0.2/Aljam3-0.0.2-macos-arm64.dmg"
     @package["sparkle_signature"] = Base64.strict_encode64(@key.sign(nil, @body))
     @updater = Aljam3::Updates.new(directory: @directory, resources: @resources, public_key: @key.public_to_pem,
       transport: ->(url, &block) { @calls << url; block.call(url == Aljam3::Updates::FEED ? envelope : @body) })
@@ -87,7 +87,7 @@ class UpdatesTest < Minitest::Test
   end
 
   def test_rejects_redirect_to_different_repo_in_signed_metadata
-    @package["url"] = @package["url"].sub("AliOsm", "someone")
+    @package["url"] = @package["url"].sub("ieasybooks", "someone")
     assert_raises(Aljam3::Updates::Error) { @updater.check }
   end
 

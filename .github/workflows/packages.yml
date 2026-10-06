@@ -7,10 +7,14 @@ on:
         description: Build and verify the temporary 0.0.1 to 0.0.2 update
         type: boolean
         default: false
-      publish:
-        description: Publish verified packages to GitHub Releases
-        type: boolean
-        default: false
+      release:
+        description: Prepare a draft or publish verified packages to GitHub Releases
+        type: choice
+        options:
+          - none
+          - draft
+          - publish
+        default: none
 
 permissions:
   contents: read
@@ -212,8 +216,8 @@ jobs:
             dist/update-verification/
           retention-days: 1
 
-  publish:
-    if: inputs.publish
+  release:
+    if: inputs.release != 'none'
     needs: [package, macos-26, windows-arm]
     runs-on: ubuntu-latest
     permissions:
@@ -228,11 +232,12 @@ jobs:
           pattern: Aljam3-*
           merge-multiple: true
           path: dist
-      - name: Sign and publish verified releases
+      - name: Sign and prepare verified releases
         env:
           GH_TOKEN: ${{ github.token }}
           UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
           TEST_PAIR: ${{ inputs.test_pair }}
+          ALJAM3_RELEASE_DRAFT: ${{ inputs.release == 'draft' }}
         run: |
           if [ "$TEST_PAIR" = true ]; then
             ruby bin/publish-release dist 0.0.1 0.0.2

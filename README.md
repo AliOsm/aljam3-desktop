@@ -1,12 +1,21 @@
-# الجامع · Aljam3 Desktop
+# الجامع لسطح المكتب
 
-An Arabic desktop library for [aljam3.com](https://aljam3.com), built with Ruby and [Scarpe](https://github.com/scarpe-team/scarpe). Browse books, read PDFs and text, and download books for offline reading and search.
+تطبيق عربي لمكتبة [الجامع](https://aljam3.com)، مبني باستخدام Ruby و[Scarpe](https://github.com/scarpe-team/scarpe). تصفّح الكتب وابحث في عناوينها ونصوصها، واقرأ ملفات PDF مع النص، ونزّل الكتب أو تصنيفًا كاملًا للقراءة والبحث دون إنترنت.
 
-Pre-launch. Packages support Apple silicon Macs (macOS 13+) and Windows 10/11 x64, including Windows 11 ARM through emulation.
+يدعم ماك بمعالجات Apple silicon على macOS 13 فأحدث، وويندوز 10 و11 بمعمارية x64، وويندوز 11 ARM بالمحاكاة.
 
-## Run from source
+## التنزيل والتثبيت
 
-Install [mise](https://mise.jdx.dev), Git, curl, Python, and a C/C++ toolchain. macOS needs Xcode Command Line Tools; Windows needs Visual Studio C++ tools and Git Bash; Linux needs pkg-config.
+تتوفر الحزم في [صفحة الإصدارات](https://github.com/ieasybooks/aljam3-desktop/releases).
+
+- **ماك:** افتح ملف DMG، واسحب التطبيق إلى مجلد التطبيقات، ثم افتحه من هناك. التطبيق غير موثّق لدى Apple؛ قد تحتاج إلى اختيار «فتح على أي حال» من «إعدادات النظام ← الخصوصية والأمان».
+- **ويندوز:** شغّل ملف التثبيت EXE. قد يظهر تنبيه SmartScreen لأن التطبيق غير موقّع بشهادة مطوّر.
+
+يتحقق التطبيق من التحديثات يوميًا وينزّلها في الخلفية بعد التحقق من توقيعها الرقمي. يمكنك أيضًا استخدام أيقونة التحديث، ثم اختيار «إعادة التشغيل والتحديث». تبقى الكتب والإعدادات ومواضع القراءة محفوظة.
+
+## التشغيل من المصدر
+
+ثبّت [mise](https://mise.jdx.dev) وGit وcurl وPython وأدوات C/C++. يحتاج ماك إلى Xcode Command Line Tools، وويندوز إلى أدوات Visual Studio C++ وGit Bash، ولينكس إلى pkg-config.
 
 ```sh
 mise trust
@@ -15,37 +24,35 @@ mise run setup
 mise run start
 ```
 
-Setup installs pinned dependencies and builds the native renderer and PDFium. The first build takes longer. The interface is Arabic; development on Linux requires a graphical desktop to open the window.
+يثبّت الإعداد نسخًا محددة من الاعتماديات، ويبني محرّك الواجهة وPDFium؛ لذلك يستغرق التشغيل الأول وقتًا أطول. يتطلب فتح التطبيق على لينكس بيئة سطح مكتب رسومية.
 
-## Development
+## التطوير والإصدارات
 
 ```sh
-mise run test          # Application tests
-mise run test-native   # Native renderer tests
-mise run verify-ui     # Reader and UI integration checks
-mise run verify-scroll # PDF scrolling and pinch zoom
-mise run package      # Standalone app, on macOS or Windows
-mise run installer    # Windows installer; requires Inno Setup 6
-mise run dmg          # Mac disk image, from the packaged app
-mise run clean        # Remove builds, reports, and scratch data
+mise run test          # اختبارات التطبيق
+mise run test-native   # اختبارات محرّك الواجهة
+mise run verify-ui     # اختبارات القارئ والواجهة
+mise run verify-scroll # اختبارات التمرير والتكبير بالإيماءات
+mise run package       # بناء التطبيق على ماك أو ويندوز
+mise run installer     # إنشاء مثبّت ويندوز، ويتطلب Inno Setup 6
+mise run dmg           # إنشاء حزمة DMG للتطبيق المبني
+mise run clean         # حذف الحزم والتقارير والبيانات المؤقتة
 ```
 
-GitHub builds run manually. Temporary artifacts expire after one day; delete test runs after review and publish approved builds through GitHub Releases. Performance tools live in [bench/](bench/README.md); PDFium patch notes are in [packaging/pdfium/](packaging/pdfium/README.md).
+لإعداد إصدار، حدّث `lib/aljam3/version.rb` ثم شغّل **Build packages** يدويًا في GitHub Actions. اختر `draft` في حقل `release` لإعداد مسودة بعد اجتياز اختبارات المنصات، أو `publish` للنشر مباشرة. تنتهي صلاحية ملفات Actions المؤقتة بعد يوم؛ احذف تشغيلات الاختبار بعد مراجعتها.
 
-For a release, bump `lib/aljam3/version.rb` and run **Build packages** with **publish** enabled. The workflow signs update metadata using the `UPDATE_PRIVATE_KEY` repository secret and publishes after platform verification. Keep an independent backup of that private key; its public half is `packaging/update-public.pem`.
+تُوقّع بيانات التحديث باستخدام سرّ المستودع `UPDATE_PRIVATE_KEY`. احتفظ بنسخة احتياطية مستقلة من المفتاح الخاص؛ المفتاح العام موجود في `packaging/update-public.pem`. يستخدم ماك [Sparkle](https://sparkle-project.org) للتحديث، ويستخدم ويندوز المثبّت مع نسخة استرداد من التطبيق السابق.
 
-## Installation and data
+أدوات قياس الأداء في [bench/](bench/README.md)، وتعديلات PDFium في [packaging/pdfium/](packaging/pdfium/README.md).
 
-On Mac, open the DMG, drag Aljam3 onto Applications, then open it from Applications. The app is ad-hoc signed without notarization; macOS may require **Privacy & Security → Open Anyway**. On Windows, run the installer. Windows executables are unsigned and may trigger SmartScreen.
+## البيانات والعمل دون إنترنت
 
-Installed apps check GitHub Releases daily and download signed updates in the background. Use the update icon to check manually, then choose **إعادة التشغيل والتحديث** when ready. Books and reading positions survive the restart. Mac installation uses [Sparkle](https://sparkle-project.org); Windows uses the installer with a recovery copy of the previous app.
+تُحفظ الكتب والإعدادات ومواضع القراءة خارج مجلد التطبيق:
 
-Books, settings, and reading positions are stored outside the app:
+- ماك: `~/Library/Application Support/Aljam3`
+- ويندوز: `%LOCALAPPDATA%/Aljam3`
+- لينكس: `${XDG_DATA_HOME:-~/.local/share}/aljam3`
 
-- macOS: `~/Library/Application Support/Aljam3`
-- Windows: `%LOCALAPPDATA%/Aljam3`
-- Linux: `${XDG_DATA_HOME:-~/.local/share}/aljam3`
+يمكن تغيير الموقع باستخدام `ALJAM3_DATA_DIR`. تتطلب القراءة والبحث دون إنترنت اكتمال التنزيل. يرتّب البحث المحلي أول 10,000 صفحة مطابقة، ويوسّع النطاق عند اختيار «البحث في المزيد»؛ لذلك قد تختلف النتائج عن البحث عبر الإنترنت.
 
-`ALJAM3_DATA_DIR` overrides this location. Offline reading and search require completed downloads. Offline relevance ranks an initial pool of 10,000 matching pages; **البحث في المزيد** expands it, so results can differ from online search.
-
-Assets and licenses are documented in [assets/](assets/README.md). Setup retains the licenses for [PDFium](https://pdfium.googlesource.com/pdfium/) and [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar) under `vendor/`.
+مصادر الرسومات والخطوط وتراخيصها موضّحة في [assets/](assets/README.md). يحتفظ الإعداد بتراخيص [PDFium](https://pdfium.googlesource.com/pdfium/) و[sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar) داخل `vendor/`.
