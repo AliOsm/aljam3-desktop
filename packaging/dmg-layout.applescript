@@ -10,16 +10,16 @@ on run argv
             set toolbar visible to false
             set statusbar visible to false
             set bounds to {200, 160, 840, 582}
-            set options to icon view options
-            set arrangement of options to not arranged
-            set icon size of options to 104
-            set text size of options to 14
-            set background picture of options to file ".background:background.tiff" of imageFolder
         end tell
+        set options to the icon view options of container window of imageFolder
+        set arrangement of options to not arranged
+        set icon size of options to 104
+        set text size of options to 14
+        set background picture of options to file ".background:background.tiff" of imageFolder
         set position of item "Aljam3.app" of imageFolder to {162, 202}
         set position of item "Applications" of imageFolder to {478, 202}
         update imageFolder without registering applications
-        delay 2
+        delay 3
         close container window of imageFolder
         delay 1
     end tell

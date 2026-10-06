@@ -10,8 +10,9 @@ on run argv
         tell container window of imageFolder
             if current view is not icon view then error "Install window is not in icon view"
             if toolbar visible then error "Install window toolbar should be hidden"
-            if icon size of icon view options is not 104 then error "Icon size was not saved"
         end tell
+        set options to the icon view options of container window of imageFolder
+        if icon size of options is not 104 then error "Icon size was not saved"
         if position of item "Aljam3.app" of imageFolder is not {162, 202} then error "App icon position was not saved"
         if position of item "Applications" of imageFolder is not {478, 202} then error "Applications icon position was not saved"
         do shell script "/usr/sbin/screencapture -x " & quoted form of screenshotPath
