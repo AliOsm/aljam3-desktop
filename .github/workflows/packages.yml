@@ -77,6 +77,7 @@ jobs:
           bundle exec ruby bin/verify-ui motion
           bundle exec ruby bin/verify-ui feedback
           bundle exec ruby bin/verify-ui interaction
+          bundle exec ruby bin/verify-ui categories
           bundle exec ruby bin/verify-ui updates
       - name: Download and verify a real sample book
         run: bundle exec ruby bin/smoke

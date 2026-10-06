@@ -115,6 +115,33 @@ class HTTPTest < Minitest::Test
     end
   end
 
+  def test_category_download_listing_follows_all_pages_and_restores_category_metadata
+    requests = []
+    data = { "id" => 2, "name" => "علوم", "books_count" => 3 }
+    replies = [[book(1), book(2)], [book(3)]].each_with_index.map do |books, index|
+      body = data.merge("books" => books.map { |item| item.reject { |key, _| key == "category" } },
+        "pagination" => { "count" => 3, "next_page" => index.zero? ? 2 : nil })
+      ->(request) { requests << request; response(JSON.generate(body)) }
+    end
+    with_server(*replies) do |url|
+      batches = Aljam3::API.new(base_url: url, interval: 0).each_category_book_batch(2).to_a
+      assert_equal [1, 2, 3], batches.flat_map(&:first).map { |item| item.fetch("id") }
+      assert batches.flat_map(&:first).all? { |item| item.dig("category", "id") == 2 }
+      assert_equal [3, 3], batches.map(&:last)
+    end
+    parameters = requests.map { |request| URI.decode_www_form(URI(request.split[1]).query).to_h }
+    assert_equal ["1", "2"], parameters.map { |params| params.fetch("page") }
+    assert_equal ["500", "500"], parameters.map { |params| params.fetch("limit") }
+  end
+
+  def test_category_download_listing_rejects_pagination_loops
+    data = { "id" => 2, "name" => "علوم", "books_count" => 2, "books" => [book],
+      "pagination" => { "count" => 2, "next_page" => 1 } }
+    with_server(response(JSON.generate(data))) do |url|
+      assert_raises(Aljam3::ResponseError) { Aljam3::API.new(base_url: url, interval: 0).each_category_book_batch(2).to_a }
+    end
+  end
+
   def test_individual_text_export_is_atomic_without_pdf_validation
     Dir.mktmpdir do |directory|
       target = File.join(directory, "book.txt")

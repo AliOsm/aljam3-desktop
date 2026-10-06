@@ -28,7 +28,8 @@ module Aljam3
       end
 
       def download_message(download)
-        size = download[:bytes] && "#{format_bytes(download[:bytes])}#{download[:total] ? " / #{format_bytes(download[:total])}" : ''}"
+        size = format_bytes(download[:bytes]) if download[:bytes]
+        size = "\u2066#{size} / #{format_bytes(download[:total])}\u2069" if size && download[:total]
         [download.fetch(:message), size].compact.join("  ·  ")
       end
 
@@ -52,13 +53,17 @@ module Aljam3
           top: 124, size: 14, stroke: muted, live: "polite"
         @results = scroll_area(top: 164, height: @content_height - 164) do
           page, filter = @download_page || 1, @download_filter || :all
-          count = @store.download_count(filter:)
+          groups = @store.category_downloads(filter:)
+          count = groups.length + @store.download_count(filter:, ungrouped: true)
           @download_page = page = [page, [(count.fdiv(Store::PAGE_SIZE)).ceil, 1].max].min
-          entries = @download_queue.entries(page:, filter:)
-          if entries.empty?
+          offset = (page - 1) * Store::PAGE_SIZE
+          visible_groups = groups.drop(offset).take(Store::PAGE_SIZE)
+          entries = @download_queue.entries(filter:, ungrouped: true, offset: [offset - groups.length, 0].max, limit: Store::PAGE_SIZE - visible_groups.length)
+          if count.zero?
             empty_state("لا توجد تنزيلات هنا", "نزّل الكتاب مرة واحدة لتقرأ النص وPDF وتبحث فيه دون اتصال.",
               icon: "download", action_label: "تصفح الكتب") { navigate(:browse) }
           end
+          visible_groups.each { |group| category_download_card(group) }
           entries.each do |id, download|
             if download[:status] == :done
               completed_download_row(id, download)
@@ -104,8 +109,12 @@ module Aljam3
           action("إيقاف مؤقت", icon: "pause", width: 144, margin_left: 12) { @download_queue.pause(id); draw_window }
           action("إلغاء التنزيل", width: 124, variant: :ghost) { cancel_download(id) }
         when :paused, :failed
-          action(download[:status] == :paused ? "متابعة التنزيل" : "إعادة المحاولة", icon: "play", width: 158, margin_left: 12) { queue_download(download.fetch(:book)) }
+          action(download[:status] == :paused ? "متابعة التنزيل" : "إعادة المحاولة", icon: "play", width: 158, margin_left: 12) do
+            download[:failure] == "cancel" ? cancel_download(id) : queue_download(download.fetch(:book))
+          end
           action("إلغاء التنزيل", width: 124, variant: :ghost) { cancel_download(id) }
+        when :cancelled
+          action("تنزيل الكتاب", icon: "download", width: 158) { queue_download(download.fetch(:book)) }
         end
       end
 

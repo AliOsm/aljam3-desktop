@@ -6,7 +6,15 @@ module Aljam3
       def draw_catalog
         saved, authors = @screen == :saved, @screen == :authors
         heading = { saved: "كتبي المحمّلة", authors: "المؤلفون", browse: "الكتب", home: "نتائج البحث" }.fetch(@screen)
-        para @scope_label || heading, font: HEADING_FONT, size: 24
+        category_id = @scope_filters&.[](:category) if @screen == :browse
+        title = @scope_label || heading
+        title_style = { font: HEADING_FONT, size: 24, width: category_id ? -192 : 1.0 }
+        title_style.merge!(wrap: "trim", tooltip: title) if category_id
+        para title, **title_style
+        if category_id
+          category = { "id" => category_id, "name" => filter_label(:category, category_id) }
+          action("تنزيل التصنيف", icon: "download", left: 0, top: 0, width: 180, key: :download_category) { prepare_category_download(category) }
+        end
         description = if saved
           "#{format_number(@downloaded_ids.length)} كتاب للقراءة والبحث دون اتصال."
         elsif authors

@@ -11,6 +11,7 @@ require_relative "ui/book_search"
 require_relative "ui/dialogs"
 require_relative "ui/browsing"
 require_relative "ui/downloads"
+require_relative "ui/category_downloads"
 require_relative "ui/reader_tools"
 require_relative "ui/feedback"
 require_relative "ui/exports"
@@ -20,7 +21,7 @@ require_relative "ui/updates"
 
 module Aljam3
   module UI
-    include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation, UpdateScreen
+    include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, CategoryDownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation, UpdateScreen
 
     def setup
       directory = Aljam3.data_directory
@@ -42,6 +43,8 @@ module Aljam3
       @pdf = PDF.new(cache: File.join(directory, "renders"))
       @network_worker, @render_worker, @page_worker, @export_worker = Array.new(4) { Worker.new }
       @workers = [@network_worker, @render_worker, @page_worker, @export_worker]
+      @category_worker = Worker.new
+      @workers << @category_worker
       @notifications = Notifications.new
       setup_updates(directory)
       @file_operations = {}
@@ -123,6 +126,7 @@ module Aljam3
       end
       render_dialog if @dialog_redraw_pending && @dialog && !@editing_field
       refresh_download_state if @download_queue.tick
+      tick_category_downloads
       if @connection != @api.connection
         @connection = @api.connection
         update_connection
@@ -154,6 +158,8 @@ module Aljam3
       text_scroll = @text_surface&.scroll_top || 0
       remember_pdf_anchor
       @progress_views = {}
+      @category_progress_views = {}
+      @category_book_labels = {}
       @main_width = @screen == :reader ? width - PAGE_MARGIN * 2 : [width - PAGE_MARGIN * 2, 1120].min
       @content_height = [height - PAGE_TOP - STATUS_HEIGHT - 16, 260].max
       draw_frame unless @frame_signature == [width, height, @theme]

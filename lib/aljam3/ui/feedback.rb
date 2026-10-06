@@ -4,6 +4,8 @@ module Aljam3
   module UI
     module Feedback
       def notify_download(download)
+        return notify_category_download(download[:category_id]) if download[:category_id]
+
         book = download.fetch(:book)
         if download.fetch(:status) == :failed
           failures = [*@notifications.find(:download_failed)&.fetch(:downloads, []), download]

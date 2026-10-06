@@ -52,6 +52,23 @@ module Aljam3
       Result.new(@store.catalog(**options, downloaded: !query.strip.empty?), :local, error.status)
     end
 
+    def category_download_preview(category_id, check: -> {})
+      ids, expected = Set.new, nil
+      @api.each_category_book_batch(category_id, check:) do |books, total|
+        if expected && expected != total
+          raise ConnectionError, "The category changed while preparing its download. Please retry."
+        end
+        expected = total
+        @store.cache_books(books)
+        books.each { |book| ids << book.fetch("id") }
+        yield ids.length, total if block_given?
+      end
+      check.call
+      raise ConnectionError, "The category listing is incomplete. Please retry." unless ids.length == expected
+
+      { book_ids: ids.to_a, **@store.category_download_preview(category_id, ids.to_a) }
+    end
+
     def search(query, category: nil, author: nil, library: nil, page: 1, book_id: nil, downloaded: false, order: "relevance", pool_size: Store::Search::POOL_SIZE)
       options = { category:, author:, library:, page:, book_id: }
       generation = @store.search_generation

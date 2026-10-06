@@ -9,13 +9,33 @@ module Aljam3
       @store, @downloader = store, downloader
       @on_finish = on_finish
       @worker, @cleanup, @progress = Worker.new, Worker.new, Queue.new
-      @store.recover_downloads.each { |id| finish_stop(id, :cancelled) }
+      @store.recover_downloads
       repair_sizes
     end
 
     def entries(**options) = @store.downloads(**options)
     def entry(id) = @active == id ? @entry : @store.download(id)
     def current = @entry
+
+    def enqueue_category(category, book_ids) = @store.queue_category_download(category, book_ids)
+
+    def pause_category(id)
+      @store.pause_category_download(id)
+      pause(@active) if @entry&.dig(:category_id) == id && @entry[:status] == :downloading
+    end
+
+    def resume_category(category, failed_only: false)
+      ids = @store.category_download_book_ids(category.fetch("id"), states: failed_only ? ["failed"] : nil)
+      @store.retry_category_cancellations(category.fetch("id"))
+      enqueue_category(category, ids)
+      clean_cancellations
+    end
+
+    def cancel_category(id)
+      @store.cancel_category_download(id)
+      cancel(@active) if @entry&.dig(:category_id) == id && !@store.downloaded?(@active)
+      clean_cancellations
+    end
 
     def enqueue(book)
       id = book.fetch("id")
@@ -55,6 +75,7 @@ module Aljam3
       end
       @worker.drain
       @cleanup.drain
+      clean_cancellations
       start_next unless @active
       @changed
     end
@@ -103,18 +124,37 @@ module Aljam3
     def finish_stop(id, state)
       if state == :cancelled
         @store.save_download(id, entry(id).merge(status: :cancelling, message: "جارٍ إلغاء التنزيل…"))
-        return if @closing
-
-        @cleanup.submit(-> { @downloader.cancel(id); @store.forget_download(id) }) do |_result, error|
-          if error
-            failed = entry(id).merge(status: :failed, failure: "cancel", message: "تعذّر إلغاء التنزيل. حاول مرة أخرى.")
-            @store.save_download(id, failed)
-            @on_finish&.call(failed)
-          end
-          @changed = true
-        end
+        clean_cancellations
       else
         @store.save_download(id, entry(id).merge(status: :paused, message: "متوقف مؤقتًا · يمكنك المتابعة لاحقًا"))
+      end
+    end
+
+    def clean_cancellations
+      return if @closing || @cleaning
+
+      ids = @store.cancelling_downloads(except: @active)
+      return if ids.empty?
+
+      @cleaning = true
+      @cleanup.submit(-> do
+        ids.filter_map do |id|
+          begin
+            @downloader.cancel(id)
+            @store.forget_download(id)
+            nil
+          rescue StandardError
+            failed = @store.download(id).merge(status: :failed, failure: "cancel", message: "تعذّر إلغاء التنزيل. حاول مرة أخرى.",
+              category_id: @store.download_category_id(id))
+            @store.save_download(id, failed)
+            failed
+          end
+        end
+      end) do |failures, error|
+        @cleaning = false
+        warn error.full_message if error
+        failures&.each { |failed| @on_finish&.call(failed) }
+        @changed = true
       end
     end
 
@@ -122,7 +162,7 @@ module Aljam3
       id = @store.next_download
       return unless id
 
-      @entry = @store.download(id).merge(status: :downloading, message: "جارٍ تجهيز الكتاب…")
+      @entry = @store.download(id).merge(status: :downloading, message: "جارٍ تجهيز الكتاب…", category_id: @store.download_category_id(id))
       @active, @stop = id, nil
       @progress_dirty, @progress_saved_at = false, 0
       persist

@@ -64,6 +64,27 @@ module Aljam3
       end
     end
 
+    def each_category_book_batch(category_id, check: -> {})
+      return enum_for(__method__, category_id, check:) unless block_given?
+
+      page = 1
+      while page
+        check.call
+        data = get("categories/#{Integer(category_id)}", "expand[]" => "books", "limit" => 500, "page" => page)
+        check.call
+        raise ResponseError.new(502), "Unexpected category response." unless data.fetch("id") == category_id
+
+        category = data.slice("id", "name", "books_count", "link")
+        books = data.fetch("books").map { |book| book.merge("category" => category) }
+        pagination = data.fetch("pagination")
+        yield books, pagination.fetch("count")
+        following = pagination.fetch("next_page")
+        raise ResponseError.new(502), "Category pagination did not advance." if following && (!following.is_a?(Integer) || following <= page)
+
+        page = following
+      end
+    end
+
     private
 
     def get(path, parameters = {})

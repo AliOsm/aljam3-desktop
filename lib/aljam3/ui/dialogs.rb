@@ -147,6 +147,7 @@ module Aljam3
           when :bookmarks then [600, @bookmarks.empty? ? 128 : [99 + @bookmarks.length * 76, 496].min]
           when :shortcuts then [540, 384]
           when :remove_download then [560, 296]
+          when :category_download then [520, category_download_dialog_height]
           when :unavailable then [520, 264]
           when :updates then [520, update_dialog_height]
           else [800, 640]
@@ -173,7 +174,7 @@ module Aljam3
         title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
           authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
           reader_options: "خيارات القراءة", reader_copy: "نسخ النص", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
-          remove_download: "إزالة النسخة المحمّلة", unavailable: "الكتاب غير محمّل", updates: "تحديثات الجامع" }.fetch(type, "اختر"))
+          remove_download: "إزالة النسخة المحمّلة", category_download: "تنزيل التصنيف", unavailable: "الكتاب غير محمّل", updates: "تحديثات الجامع" }.fetch(type, "اختر"))
         backdrop_alpha = %i[select reader_copy].include?(shell_type) ? 0 : popup ? 0.10 : 0.28
         { type:, menu:, left:, top:, width: panel_width, height: panel_height, title:, backdrop_alpha: }
       end
@@ -233,6 +234,7 @@ module Aljam3
           when :bookmarks then draw_bookmarks
           when :shortcuts then draw_shortcuts
           when :remove_download then draw_remove_download
+          when :category_download then draw_category_download
           when :unavailable then draw_unavailable_book
           when :updates then draw_updates
           end

@@ -8,13 +8,14 @@ require "set"
 require_relative "text"
 require_relative "store/reading"
 require_relative "store/downloads"
+require_relative "store/category_downloads"
 require_relative "store/connection"
 require_relative "store/worker"
 require_relative "store/search"
 
 module Aljam3
   class Store
-    include Reading, Downloads
+    include Reading, Downloads, CategoryDownloads
     PAGE_SIZE = 12
 
     def initialize(path, background: true)
@@ -216,12 +217,12 @@ module Aljam3
 
     def migrate
       version = @db.get_first_value("PRAGMA user_version")
-      raise "This library was created by a newer version of Aljam3 Desktop." if version > 4
-      return if version == 4
+      raise "This library was created by a newer version of Aljam3 Desktop." if version > 5
+      return if version == 5
 
       @db.transaction(:immediate) do
         version = @db.get_first_value("PRAGMA user_version")
-        next if version == 4
+        next if version == 5
 
         @db.execute_batch(File.read(File.join(__dir__, "schema.sql"))) if version.zero?
         @db.execute_batch(File.read(File.join(__dir__, "migrations/002_arabic_search.sql"))) if version == 1
@@ -234,6 +235,7 @@ module Aljam3
           cached = @db.get_first_value("SELECT value FROM preferences WHERE key = 'authors'")
           write_authors(JSON.parse(cached)) if cached
         end
+        @db.execute_batch(File.read(File.join(__dir__, "migrations/005_category_downloads.sql"))) if version < 5
       end
     end
 
