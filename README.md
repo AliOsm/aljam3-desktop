@@ -1,21 +1,27 @@
-# الجامع لسطح المكتب
+<p align="center" dir="ltr">
+  <a href="README.md">العربية</a> · <a href="README.en.md">English</a>
+</p>
 
-تطبيق عربي لمكتبة [الجامع](https://aljam3.com)، مبني باستخدام Ruby و[Scarpe](https://github.com/scarpe-team/scarpe). تصفّح الكتب وابحث في عناوينها ونصوصها، واقرأ ملفات PDF مع النص، ونزّل الكتب أو تصنيفًا كاملًا للقراءة والبحث دون إنترنت.
+<h1 dir="rtl">الجامع لسطح المكتب</h1>
 
-يدعم ماك بمعالجات Apple silicon على macOS 13 فأحدث، وويندوز 10 و11 بمعمارية x64، وويندوز 11 ARM بالمحاكاة.
+<p dir="rtl">تطبيق عربي لمكتبة <a href="https://aljam3.com">الجامع</a>، مبني باستخدام Ruby و<a href="https://github.com/scarpe-team/scarpe" dir="ltr">Scarpe</a>. تصفّح الكتب وابحث في عناوينها ونصوصها، واقرأ ملفات PDF مع النص، ونزّل الكتب أو تصنيفًا كاملًا للقراءة والبحث دون إنترنت.</p>
 
-## التنزيل والتثبيت
+<p dir="rtl">يدعم ماك بمعالجات Apple silicon على macOS 13 فأحدث، وويندوز 10 و11 بمعمارية x64، وويندوز 11 ARM بالمحاكاة.</p>
 
-تتوفر الحزم في [صفحة الإصدارات](https://github.com/ieasybooks/aljam3-desktop/releases).
+<h2 dir="rtl">التنزيل والتثبيت</h2>
 
-- **ماك:** افتح ملف DMG، واسحب التطبيق إلى مجلد التطبيقات، ثم افتحه من هناك. التطبيق غير موثّق لدى Apple؛ قد تحتاج إلى اختيار «فتح على أي حال» من «إعدادات النظام ← الخصوصية والأمان».
-- **ويندوز:** شغّل ملف التثبيت EXE. قد يظهر تنبيه SmartScreen لأن التطبيق غير موقّع بشهادة مطوّر.
+<p dir="rtl">تتوفر الحزم في <a href="https://github.com/ieasybooks/aljam3-desktop/releases">صفحة الإصدارات</a>.</p>
 
-يتحقق التطبيق من التحديثات يوميًا وينزّلها في الخلفية بعد التحقق من توقيعها الرقمي. يمكنك أيضًا استخدام أيقونة التحديث، ثم اختيار «إعادة التشغيل والتحديث». تبقى الكتب والإعدادات ومواضع القراءة محفوظة.
+<ul dir="rtl">
+  <li><strong>ماك:</strong> افتح ملف DMG، واسحب التطبيق إلى مجلد التطبيقات، ثم افتحه من هناك. التطبيق غير موثّق لدى Apple؛ قد تحتاج إلى اختيار «فتح على أي حال» من «إعدادات النظام ← الخصوصية والأمان».</li>
+  <li><strong>ويندوز:</strong> شغّل ملف التثبيت EXE. قد يظهر تنبيه SmartScreen لأن التطبيق غير موقّع بشهادة مطوّر.</li>
+</ul>
 
-## التشغيل من المصدر
+<p dir="rtl">يتحقق التطبيق من التحديثات يوميًا وينزّلها في الخلفية بعد التحقق من توقيعها الرقمي. يمكنك أيضًا استخدام أيقونة التحديث، ثم اختيار «إعادة التشغيل والتحديث». تبقى الكتب والإعدادات ومواضع القراءة محفوظة.</p>
 
-ثبّت [mise](https://mise.jdx.dev) وGit وcurl وPython وأدوات C/C++. يحتاج ماك إلى Xcode Command Line Tools، وويندوز إلى أدوات Visual Studio C++ وGit Bash، ولينكس إلى pkg-config.
+<h2 dir="rtl">التشغيل من المصدر</h2>
+
+<p dir="rtl">ثبّت <a href="https://mise.jdx.dev" dir="ltr">mise</a> وGit وcurl وPython وأدوات C/C++. يحتاج ماك إلى Xcode Command Line Tools، وويندوز إلى أدوات Visual Studio C++ وGit Bash، ولينكس إلى pkg-config.</p>
 
 ```sh
 mise trust
@@ -24,9 +30,9 @@ mise run setup
 mise run start
 ```
 
-يثبّت الإعداد نسخًا محددة من الاعتماديات، ويبني محرّك الواجهة وPDFium؛ لذلك يستغرق التشغيل الأول وقتًا أطول. يتطلب فتح التطبيق على لينكس بيئة سطح مكتب رسومية.
+<p dir="rtl">يثبّت الإعداد نسخًا محددة من الاعتماديات، ويبني محرّك الواجهة وPDFium؛ لذلك يستغرق التشغيل الأول وقتًا أطول. يتطلب فتح التطبيق على لينكس بيئة سطح مكتب رسومية.</p>
 
-## التطوير والإصدارات
+<h2 dir="rtl">التطوير والإصدارات</h2>
 
 ```sh
 mise run test          # اختبارات التطبيق
@@ -39,20 +45,22 @@ mise run dmg           # إنشاء حزمة DMG للتطبيق المبني
 mise run clean         # حذف الحزم والتقارير والبيانات المؤقتة
 ```
 
-لإعداد إصدار، حدّث `lib/aljam3/version.rb` ثم شغّل **Build packages** يدويًا في GitHub Actions. اختر `draft` في حقل `release` لإعداد مسودة بعد اجتياز اختبارات المنصات، أو `publish` للنشر مباشرة. تنتهي صلاحية ملفات Actions المؤقتة بعد يوم؛ احذف تشغيلات الاختبار بعد مراجعتها.
+<p dir="rtl">لإعداد إصدار، حدّث <code dir="ltr">lib/aljam3/version.rb</code> ثم شغّل <strong>Build packages</strong> يدويًا في GitHub Actions. اختر <code dir="ltr">draft</code> في حقل <code dir="ltr">release</code> لإعداد مسودة بعد اجتياز اختبارات المنصات، أو <code dir="ltr">publish</code> للنشر مباشرة. تنتهي صلاحية ملفات Actions المؤقتة بعد يوم؛ احذف تشغيلات الاختبار بعد مراجعتها.</p>
 
-تُوقّع بيانات التحديث باستخدام سرّ المستودع `UPDATE_PRIVATE_KEY`. احتفظ بنسخة احتياطية مستقلة من المفتاح الخاص؛ المفتاح العام موجود في `packaging/update-public.pem`. يستخدم ماك [Sparkle](https://sparkle-project.org) للتحديث، ويستخدم ويندوز المثبّت مع نسخة استرداد من التطبيق السابق.
+<p dir="rtl">تُوقّع بيانات التحديث باستخدام سرّ المستودع <code dir="ltr">UPDATE_PRIVATE_KEY</code>. احتفظ بنسخة احتياطية مستقلة من المفتاح الخاص؛ المفتاح العام موجود في <code dir="ltr">packaging/update-public.pem</code>. يستخدم ماك <a href="https://sparkle-project.org" dir="ltr">Sparkle</a> للتحديث، ويستخدم ويندوز المثبّت مع نسخة استرداد من التطبيق السابق.</p>
 
-أدوات قياس الأداء في [bench/](bench/README.md)، وتعديلات PDFium في [packaging/pdfium/](packaging/pdfium/README.md).
+<p dir="rtl">أدوات قياس الأداء في <a href="bench/README.md" dir="ltr">bench/</a>، وتعديلات PDFium في <a href="packaging/pdfium/README.md" dir="ltr">packaging/pdfium/</a>.</p>
 
-## البيانات والعمل دون إنترنت
+<h2 dir="rtl">البيانات والعمل دون إنترنت</h2>
 
-تُحفظ الكتب والإعدادات ومواضع القراءة خارج مجلد التطبيق:
+<p dir="rtl">تُحفظ الكتب والإعدادات ومواضع القراءة خارج مجلد التطبيق:</p>
 
-- ماك: `~/Library/Application Support/Aljam3`
-- ويندوز: `%LOCALAPPDATA%/Aljam3`
-- لينكس: `${XDG_DATA_HOME:-~/.local/share}/aljam3`
+<ul dir="rtl">
+  <li>ماك: <code dir="ltr">~/Library/Application Support/Aljam3</code></li>
+  <li>ويندوز: <code dir="ltr">%LOCALAPPDATA%/Aljam3</code></li>
+  <li>لينكس: <code dir="ltr">${XDG_DATA_HOME:-~/.local/share}/aljam3</code></li>
+</ul>
 
-يمكن تغيير الموقع باستخدام `ALJAM3_DATA_DIR`. تتطلب القراءة والبحث دون إنترنت اكتمال التنزيل. يرتّب البحث المحلي أول 10,000 صفحة مطابقة، ويوسّع النطاق عند اختيار «البحث في المزيد»؛ لذلك قد تختلف النتائج عن البحث عبر الإنترنت.
+<p dir="rtl">يمكن تغيير الموقع باستخدام <code dir="ltr">ALJAM3_DATA_DIR</code>. تتطلب القراءة والبحث دون إنترنت اكتمال التنزيل. يرتّب البحث المحلي أول 10,000 صفحة مطابقة، ويوسّع النطاق عند اختيار «البحث في المزيد»؛ لذلك قد تختلف النتائج عن البحث عبر الإنترنت.</p>
 
-مصادر الرسومات والخطوط وتراخيصها موضّحة في [assets/](assets/README.md). يحتفظ الإعداد بتراخيص [PDFium](https://pdfium.googlesource.com/pdfium/) و[sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar) داخل `vendor/`.
+<p dir="rtl">مصادر الرسومات والخطوط وتراخيصها موضّحة في <a href="assets/README.md" dir="ltr">assets/</a>. يحتفظ الإعداد بتراخيص <a href="https://pdfium.googlesource.com/pdfium/" dir="ltr">PDFium</a> و<a href="https://github.com/yshalsager/sqlite-tokenizer-ar" dir="ltr">sqlite-tokenizer-ar</a> داخل <code dir="ltr">vendor/</code>.</p>
