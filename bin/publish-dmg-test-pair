@@ -1,0 +1,48 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "fileutils"
+require "tempfile"
+require "json"
+require "openssl"
+require "base64"
+require "digest"
+abort "Use the temporary publication workflow" unless ENV["GITHUB_ACTIONS"] == "true"
+key = OpenSSL::PKey.read(File.read("packaging/update-public.pem"))
+
+def run(*args)
+  raise "Failed: #{args.first}" unless system(*args)
+end
+
+%w[0.0.1 0.0.2].each do |version|
+  tag = "v#{version}"
+  directory = File.join(".cache", "dmg-publication", version)
+  FileUtils.mkdir_p(directory)
+  run("gh", "release", "download", tag, "--pattern", "*-setup.exe*", "--pattern", "update.json", "--dir", directory)
+  envelope = JSON.parse(File.read(File.join(directory, "update.json")))
+  payload = Base64.strict_decode64(envelope.fetch("payload"))
+  raise "Untrusted existing release" unless key.verify(nil, Base64.strict_decode64(envelope.fetch("signature")), payload)
+  release = JSON.parse(payload)
+  raise "Wrong existing release" unless release.fetch("version") == version
+  windows = release.fetch("packages").fetch("windows-x64")
+  installer = File.join(directory, "Aljam3-#{version}-windows-x64-setup.exe")
+  raise "Existing Windows installer changed" unless File.size(installer) == windows.fetch("size") && Digest::SHA256.file(installer).hexdigest == windows.fetch("sha256")
+  dmg = "dist/Aljam3-#{version}-macos-arm64.dmg"
+  raise "DMG checksum mismatch" unless Digest::SHA256.file(dmg).hexdigest == File.read("#{dmg}.sha256").split.first
+  FileUtils.cp([dmg, "#{dmg}.sha256"], directory)
+  run("ruby", "bin/sign-release", directory, version)
+  # Upload packages before replacing the signed feed, then remove the retired ZIP.
+  run("gh", "release", "upload", tag, dmg, "#{dmg}.sha256", "packaging/Sparkle-LICENSE.txt", "--clobber")
+  FileUtils.cp(File.join(directory, "update-#{version}.json"), File.join(directory, "update.json"))
+  run("gh", "release", "upload", tag, File.join(directory, "update.json"), "--clobber")
+  Tempfile.create("dmg-release-notes") do |notes|
+    notes.write("Temporary update test build. Install the new 0.0.1 DMG, then update in the app to 0.0.2.\n\n")
+    notes.write("[Mac — Apple silicon](https://github.com/AliOsm/aljam3-desktop/releases/download/#{tag}/Aljam3-#{version}-macos-arm64.dmg) · [Windows installer](https://github.com/AliOsm/aljam3-desktop/releases/download/#{tag}/Aljam3-#{version}-windows-x64-setup.exe)\n\n")
+    notes.write("Mac: open the DMG, drag Aljam3 onto Applications, then open it from Applications. Windows: run the installer.\n\n")
+    notes.write("Apps are unsigned/not notarized. Updates use Ed25519 signatures. Books and reading positions are preserved.\n")
+    notes.flush
+    run("gh", "release", "edit", tag, "--notes-file", notes.path)
+  end
+  run("gh", "release", "delete-asset", tag, "Aljam3-#{version}-macos-arm64.zip", "--yes")
+  run("gh", "release", "delete-asset", tag, "Aljam3-#{version}-macos-arm64.zip.sha256", "--yes")
+end
