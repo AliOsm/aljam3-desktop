@@ -33,6 +33,7 @@ class InteractionVerification
     set(categories: AlignmentVerification::CATEGORIES, libraries: AlignmentVerification::LIBRARIES, downloaded_ids: @store.downloaded_ids)
     selection_and_scroll
     page_number_input
+    author_search
     scopes
     history
     pdf_controls
@@ -219,6 +220,39 @@ class InteractionVerification
     @app.turn_page(2)
   ensure
     get(:reader)[:file] = file if file
+  end
+
+  def author_search
+    @app.navigate(:home)
+    @app.open_filters
+    click(action([:filter, :author]))
+    settle
+    [[:enter, "البخاري"], [:button, "البخاري"], [:enter, "النووي"], [:enter, "اسم غير موجود"], [:enter, "البخاري"]].each do |submit, query|
+      expected = @store.authors(query:).fetch("authors")
+      click(get(:dialog_first))
+      @automation.key("control_a")
+      @automation.type(query)
+      request = get(:dialog).fetch(:request_number)
+      submit == :enter ? @automation.key("enter") : click(action("بحث"))
+      settle
+      layout = @automation.layout
+      authors = get(:dialog).fetch(:result).data.fetch("authors")
+      check("Author search via #{submit} submits #{query} once and returns matching authors", get(:dialog)[:request_number] == request + 1 &&
+        authors.map { |author| author.fetch("id") } == expected.map { |author| author.fetch("id") })
+      check("Author search via #{submit} displays #{query} results without another click", get(:dialog_first).text == query &&
+        layout.none? { |node| node[:kind] == "Para" && node[:text] == "جارٍ البحث…" } &&
+        expected.all? { |author| layout.any? { |node| node[:kind] == "Button" && node[:text] == author.fetch("name") } })
+      if expected.empty?
+        check("Enter shows the empty author-search message", layout.any? { |node| node[:kind] == "Para" && node[:text] == "لا توجد أسماء مطابقة." })
+      end
+    end
+    shot("author-search-enter")
+    click(action(@book.dig("author", "name")))
+    check("An author found with Enter can be selected", get(:dialog)[:type] == :filters && get(:dialog).dig(:filters, :author) == @book.dig("author", "id"))
+    click(action("تطبيق"))
+    settle
+    check("Applying an Enter search selection filters the book list", get(:filters) == { author: @book.dig("author", "id") } &&
+      get(:result).data.fetch("books").map { |book| book.fetch("id") } == [@book.fetch("id")])
   end
 
   def scopes

@@ -323,6 +323,7 @@ module Aljam3
       end
 
       def request_authors(page: 1)
+        @editing_field = nil
         dialog = @dialog
         query = dialog.fetch(:query).strip
         request_number = dialog.fetch(:request_number, 0) + 1
