@@ -4,6 +4,7 @@ on run argv
     tell application "Finder"
         activate
         set imageFolder to (POSIX file mountPath) as alias
+        set imageFolder to disk (name of imageFolder)
         open imageFolder
         delay 2
         tell container window of imageFolder

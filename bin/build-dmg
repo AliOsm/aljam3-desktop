@@ -5,6 +5,7 @@ require "fileutils"
 require "tmpdir"
 require "digest"
 require "json"
+require_relative "../packaging/macos_disk_image"
 abort "Build the Mac disk image on macOS." unless RUBY_PLATFORM.include?("darwin")
 root = File.expand_path("..", __dir__)
 bundle = File.join(root, "dist/Aljam3.app")
@@ -34,7 +35,7 @@ Dir.mktmpdir("aljam3-dmg-") do |scratch|
     # Finder writes the window layout into the image before it is made read-only.
     raise "Finder did not save the install window" unless File.file?(File.join(mount, ".DS_Store"))
   ensure
-    run("hdiutil", "detach", "-quiet", mount)
+    MacDiskImage.detach(mount)
   end
   FileUtils.rm_f(image)
   run("hdiutil", "convert", "-quiet", writable, "-format", "UDZO", "-imagekey", "zlib-level=9", "-o", image)

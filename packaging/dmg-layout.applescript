@@ -2,7 +2,9 @@ on run argv
     set mountPath to item 1 of argv
     tell application "Finder"
         set imageFolder to (POSIX file mountPath) as alias
+        set imageFolder to disk (name of imageFolder)
         open imageFolder
+        delay 1
         tell container window of imageFolder
             set current view to icon view
             set toolbar visible to false
