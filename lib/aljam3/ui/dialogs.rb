@@ -264,8 +264,7 @@ module Aljam3
           selected = filters[key] ? filter_label(key, filters[key]) : "الجميع"
           row(top: 32 + index * 48, height: 40) do
             para label, width: 76, size: 15
-            action(selected, key: [:filter, key], tooltip: selected, icon: "chevron-down", width: -76, height: 40, align: "right",
-              state: (@scope_filters || {}).key?(key) ? "disabled" : nil) do
+            action(selected, key: [:filter, key], tooltip: selected, icon: "chevron-down", width: -76, height: 40, align: "right") do
               selection = ->(value) do
                 value ? filters[key] = value : filters.delete(key)
               end
@@ -280,14 +279,9 @@ module Aljam3
         end
         separator(top: 180)
         row(top: 192) do
-          action("مسح التصفية", width: 124, variant: :ghost) { filters.replace(@scope_filters || {}); render_dialog }
+          action("مسح التصفية", width: 124, variant: :ghost) { filters.clear; render_dialog }
           stack(width: -228, height: 1)
-          action("تطبيق", width: 104, variant: :solid) do
-            @filters = filters.merge(@scope_filters || {})
-            @dialog = @dialog_scroll = nil
-            @screen = :browse if @screen == :home && @query.strip.empty?
-            request_catalog
-          end
+          action("تطبيق", width: 104, variant: :solid) { apply_filters(filters) }
         end
       end
 

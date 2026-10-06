@@ -59,7 +59,7 @@ class InteractionVerification
       loop do
         @app.tick
         @automation.wait_frames
-        break unless get(:busy)
+        break unless get(:busy) || get(:dialog)&.dig(:busy)
 
         sleep 0.01
       end
@@ -222,18 +222,27 @@ class InteractionVerification
   end
 
   def scopes
+    other_book = AlignmentVerification::BOOKS[1]
+    other_author = other_book.fetch("author")
+    @store.add_pages(other_book.fetch("id"), [{ "id" => 940_002, "number" => 2, "content" => @text }])
+    other_category = AlignmentVerification::CATEGORIES.first
+    category_book = @book.merge("id" => 940_010, "title" => "الجامع في علوم القرآن", "category" => other_category, "pages_count" => 1,
+      "files" => [{ "id" => 940_010, "name" => "الكتاب", "pages_count" => 1, "urls" => {} }])
+    @store.prepare_download(category_book)
+    @store.add_pages(940_010, [{ "id" => 940_010, "number" => 1, "content" => @text }])
+    @store.complete_download(category_book.fetch("id"))
+    set(downloaded_ids: @store.downloaded_ids)
     @app.browse_scope(:author, @book.fetch("author"))
     settle
     author_scope = { author: @book.dig("author", "id") }
     label = get(:scope_label)
     click(action(:filters))
-    check("The author page identity cannot be accidentally replaced in filters", action([:filter, :author]).state == "disabled")
-    click(action([:filter, :category]))
-    check("The category refinement opens its choices", get(:dialog)&.dig(:type) == :choices)
-    click(action(AlignmentVerification::CATEGORIES[1].fetch("name")))
+    check("The page author can be changed in filters", action([:filter, :author]).state.nil?)
+    select_filter(:category, @book.dig("category", "name"))
+    select_filter(:library, @book.dig("library", "name"))
     click(action("تطبيق"))
     settle
-    both = author_scope.merge(category: @book.dig("category", "id"))
+    both = author_scope.merge(category: @book.dig("category", "id"), library: @book.dig("library", "id"))
     check("Choosing a category preserves the author and page heading", get(:filters) == both && get(:scope_label) == label)
     @app.switch_search_mode(:content)
     settle
@@ -245,17 +254,103 @@ class InteractionVerification
     settle
     hits = get(:result).data.fetch("pages")
     check("Scoped offline text results belong to the author and category", !hits.empty? && hits.all? { |hit| hit.dig("book", "author", "id") == both[:author] && hit.dig("book", "category", "id") == both[:category] })
+    click(action(:search_scope))
+    click(action("كتبي المحمّلة"))
+    settle
+    click(action(:search_order))
+    click(action("ترتيب المكتبة"))
+    settle
+
+    @app.open_filters
+    select_filter(:author, other_author.fetch("name"))
+    check("Changing the author is only a draft until Apply", get(:filters) == both && get(:scope_label) == label &&
+      get(:dialog).dig(:filters, :author) == other_author.fetch("id"))
+    @automation.key("escape")
+    check("Cancel discards the author change", !get(:dialog) && get(:filters) == both && get(:scope_label) == label)
+    @app.open_filters
+    select_filter(:author, other_author.fetch("name"))
+    click(action("تطبيق"))
+    settle
+    changed = both.merge(author: other_author.fetch("id"))
+    check("Changing authors updates the heading and preserves other filters", get(:filters) == changed &&
+      get(:scope_filters) == { author: other_author.fetch("id") } && heading?(other_author.fetch("name")))
+    check("Changing authors preserves the query, text mode, downloaded scope, and sort", get(:query) == "العلم" &&
+      get(:mode) == :content && get(:search_scope) == :downloaded && get(:search_order) == :library)
+    hits = get(:result).data.fetch("pages")
+    check("Changed-author results come from the selected author", !hits.empty? && hits.all? { |hit| hit.dig("book", "id") == other_book.fetch("id") })
+    shot("changed-author-scope")
+    back
+    check("Back restores the previous author and filters", get(:filters) == both && heading?(label))
+    forward
+    check("Forward restores the new author and results", get(:filters) == changed && heading?(other_author.fetch("name")) && get(:result).data.fetch("pages") == hits)
+
+    @app.open_filters
+    select_filter(:author, "جميع المؤلفين")
+    click(action("تطبيق"))
+    settle
+    check("Clearing the author returns to Books and keeps the query and other filters", get(:screen) == :browse &&
+      get(:scope_filters).empty? && get(:scope_label).nil? && heading?("الكتب") && get(:filters) == both.except(:author) && get(:query) == "العلم")
+    hits = get(:result).data.fetch("pages")
+    check("Cleared-author results include both matching authors", hits.map { |hit| hit.dig("book", "author", "id") }.uniq.sort == [both[:author], changed[:author]].sort)
+    shot("cleared-author-scope")
+
+    @app.browse_scope(:category, @book.fetch("category"))
+    settle
+    click(get(:query_field))
+    @automation.type("الجامع")
+    @automation.key("enter")
+    settle
+    @app.open_filters
+    check("The page category can be changed in filters", action([:filter, :category]).state.nil?)
+    select_filter(:author, @book.dig("author", "name"))
+    select_filter(:library, @book.dig("library", "name"))
+    select_filter(:category, other_category.fetch("name"))
+    click(action("تطبيق"))
+    settle
+    check("Changing category updates its heading while preserving author and library", heading?(other_category.fetch("name")) &&
+      get(:scope_filters) == { category: other_category.fetch("id") } && get(:filters) == both.merge(category: other_category.fetch("id")))
+    check("Changing category preserves title search and returns matching books", get(:query) == "الجامع" && get(:mode) == :books &&
+      get(:result).data.fetch("books").map { |book| book.fetch("id") } == [category_book.fetch("id")])
+    shot("changed-category-scope")
+    @app.open_filters
+    select_filter(:category, "الجميع")
+    click(action("تطبيق"))
+    settle
+    check("Clearing category returns to Books with the other filters intact", get(:scope_filters).empty? && get(:scope_label).nil? &&
+      heading?("الكتب") && get(:filters) == both.except(:category) && get(:query) == "الجامع")
+    check("Cleared-category results include books from both categories", get(:result).data.fetch("books").map { |book| book.fetch("id") }.sort == [@book.fetch("id"), category_book.fetch("id")].sort)
+
+    @app.browse_scope(:category, other_category)
+    settle
+    @app.open_filters
+    click(action("مسح التصفية"))
+    @automation.key("escape")
+    check("Cancel also discards Clear filters", get(:filters) == { category: other_category.fetch("id") } && heading?(other_category.fetch("name")))
     @app.open_filters
     click(action("مسح التصفية"))
     click(action("تطبيق"))
     settle
-    check("Clearing refinements keeps the author page scope", get(:filters) == author_scope && get(:scope_label) == label)
-    shot("author-search-scope")
-    @app.browse_scope(:category, @book.fetch("category"))
+    check("Clear filters removes the page scope and returns to Books", get(:filters).empty? && get(:scope_filters).empty? && get(:scope_label).nil? && heading?("الكتب"))
+
+    @app.browse_scope(:library, @book.fetch("library"))
     settle
-    @app.switch_search_mode(:content)
+    @app.open_filters
+    other_library = AlignmentVerification::LIBRARIES[1]
+    select_filter(:library, other_library.fetch("name"))
+    click(action("تطبيق"))
     settle
-    check("Category pages retain their scope after changing search mode", get(:filters) == { category: @book.dig("category", "id") })
+    check("Library pages use the same editable scope behavior", get(:filters) == { library: other_library.fetch("id") } &&
+      get(:scope_filters) == get(:filters) && heading?(other_library.fetch("name")))
+  end
+
+  def select_filter(key, label)
+    click(action([:filter, key]))
+    settle
+    click(action(label))
+  end
+
+  def heading?(label)
+    @automation.layout.any? { |node| node[:kind] == "Para" && node[:text] == label && node[:y] < 120 }
   end
 
   def back

@@ -108,7 +108,22 @@ module Aljam3
         when :category then @categories.find { |category| category.fetch("id") == id }
         when :author then @store.author(id)
         end
-        entity ? Text.plain(entity.fetch("name")) : @scope_label || { library: "المكتبة", category: "التصنيف", author: "المؤلف" }.fetch(key)
+        return Text.plain(entity.fetch("name")) if entity
+        return @scope_label if @scope_label && @scope_filters&.[](key) == id
+
+        { library: "المكتبة", category: "التصنيف", author: "المؤلف" }.fetch(key)
+      end
+
+      def apply_filters(filters)
+        scope = filters.slice(*(@scope_filters || {}).keys)
+        if scope != (@scope_filters || {})
+          remember_location
+          @scope_label = scope.empty? ? nil : filter_label(*scope.first)
+        end
+        @filters, @scope_filters = filters.dup, scope.freeze
+        @dialog = @dialog_scroll = nil
+        @screen = :browse if @screen == :home && @query.strip.empty?
+        request_catalog
       end
 
       def refinement_filters
