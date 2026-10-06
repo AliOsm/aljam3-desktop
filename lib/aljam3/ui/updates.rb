@@ -107,6 +107,17 @@ module Aljam3
         end
       end
 
+      def update_dialog_height
+        return 132 unless @updater.supported?
+
+        case @update_state
+        when :ready then 200
+        when :downloading then 152
+        when :idle, :current, :error then 180
+        else 132
+        end
+      end
+
       def draw_updates
         @update_progress = nil
         para "الإصدار الحالي: #{@updater.version}", size: 15, stroke: muted
@@ -118,15 +129,15 @@ module Aljam3
             ready: "الإصدار #{@update_package&.fetch('version')} جاهز للتثبيت.", installing: "جارٍ تجهيز التحديث وإعادة التشغيل…",
             error: "تعذّر إكمال التحديث. تحقق من الاتصال والمساحة المتاحة ثم حاول مجددًا." }.fetch(@update_state)
         end
-        para text, top: 34, size: 16, stroke: ink, live: "polite"
+        para text, top: 28, size: 16, stroke: ink, live: "polite"
         if @update_state == :downloading
-          @update_progress = progress(top: 96, width: 1.0, height: 6)
+          @update_progress = progress(top: 64, width: 1.0, height: 6)
           @update_progress.fraction = @update_fraction
         elsif @update_state == :ready
-          para(@update_wait_for_export ? "انتظر اكتمال حفظ الملفات ثم أعد المحاولة." : "سنحفظ موضع القراءة وتُستأنف تنزيلات الكتب بعد إعادة التشغيل.", top: 86, size: 14, stroke: muted)
-          action("إعادة التشغيل والتحديث", top: 144, right: 0, width: 204, variant: :solid) { restart_for_update }
+          para(@update_wait_for_export ? "انتظر اكتمال حفظ الملفات ثم أعد المحاولة." : "سنحفظ موضع القراءة وتُستأنف تنزيلات الكتب بعد إعادة التشغيل.", top: 52, size: 14, stroke: muted)
+          action("إعادة التشغيل والتحديث", top: 84, right: 0, width: 204, variant: :solid) { restart_for_update }
         elsif @updater.supported? && %i[idle current error].include?(@update_state)
-          action("التحقق من التحديثات", top: 144, right: 0, width: 204, variant: :solid) { check_updates }
+          action("التحقق من التحديثات", top: 64, right: 0, width: 204, variant: :solid) { check_updates }
         end
       end
     end

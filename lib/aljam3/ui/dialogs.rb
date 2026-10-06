@@ -148,7 +148,7 @@ module Aljam3
           when :shortcuts then [540, 384]
           when :remove_download then [560, 296]
           when :unavailable then [520, 264]
-          when :updates then [520, 288]
+          when :updates then [520, update_dialog_height]
           else [800, 640]
         end
         @dialog[:panel_width] = requested_width
