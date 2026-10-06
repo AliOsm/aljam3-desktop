@@ -110,7 +110,7 @@ module Aljam3
       def draw_categories
         para "التصنيفات", font: HEADING_FONT, size: 24
         para "اختر مجالًا لاستكشاف كتبه، أو ابحث عن تصنيف.", size: 15, stroke: muted, margin_top: 8
-        input(@query, top: 72, width: 1.0, height: 44, placeholder: "اسم التصنيف…", tooltip: "البحث في التصنيفات") do |field|
+        @query_field = input(@query, top: 72, width: 1.0, height: 44, placeholder: "اسم التصنيف…", tooltip: "البحث في التصنيفات") do |field|
           @query = field.text
           draw_category_choices
         end

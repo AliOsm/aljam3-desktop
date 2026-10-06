@@ -386,7 +386,11 @@ module Aljam3
     def refresh_connection
       @network_worker.submit(-> { [@library.categories, @library.libraries] }) do |data, _error|
         @categories, @libraries = data if data
-        %i[browse saved authors].include?(@screen) ? request_catalog : draw_window
+        if %i[browse saved authors].include?(@screen) || (@screen == :home && !@query.strip.empty?)
+          @catalog_refresh_pending = true
+        else
+          refresh_window
+        end
       end
     end
 

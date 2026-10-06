@@ -9,6 +9,7 @@ module Aljam3
           open_dialog(:unavailable, book:)
           return
         end
+        @notifications&.dismiss([:open_book_failed, book.fetch("id")])
         remember_location
         unless @screen == :reader
           @catalog_return = { screen: @screen, scroll: @results&.scroll_top || 0 }
@@ -35,10 +36,7 @@ module Aljam3
             next unless @request_number == request_number && @screen == :opening
 
             if error
-              @screen = @catalog_return.fetch(:screen)
-              @error = error_message(error)
-              @busy = false
-              draw_window
+              book_opening_failed(book, error, page_id:, hit:, query:)
             else
               start_reader(data.first, location: data.last, query:)
             end
@@ -48,7 +46,7 @@ module Aljam3
 
       def start_reader(book, location: nil, notice: nil, query: nil)
         files = book.fetch("files")
-        raise ResponseError.new(404), "This book has no files." if files.empty?
+        return book_opening_failed(book, ResponseError.new(404), hit: location, query:) if files.empty?
 
         saved = @store.preference("reading:#{book.fetch('id')}", {})
         location ||= saved
@@ -61,6 +59,17 @@ module Aljam3
           tashkeel: options.fetch("tashkeel", true), split_ratio: options.fetch("split_ratio", 0.5), pdf_appearance: options.fetch("pdf_appearance", "auto"), query: query.to_s }
         @screen = :reader
         turn_page(file ? location.fetch("number", 1) : 1, notice:)
+      end
+
+      def book_opening_failed(book, error, **location)
+        message = error_message(error)
+        @screen = @catalog_return.fetch(:screen)
+        @busy, @error = false, nil
+        draw_window
+        @notifications.push([:open_book_failed, book.fetch("id")], persistent: true) do
+          { error: true, message: "تعذّر فتح الكتاب", detail: message,
+            action_label: "إعادة المحاولة", action: -> { open_book(book, **location) } }
+        end
       end
 
       def close_reader

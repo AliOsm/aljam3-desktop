@@ -94,6 +94,16 @@ class CategoryDownloadsTest < StoreTestCase
     assert_equal 8, @store.category_download_preview(3, (1..8).to_a)[:existing]
   end
 
+  def test_download_filters_include_matching_books_inside_a_partly_finished_category
+    @queue.enqueue_category(CATEGORY, [1, 2, 3])
+    @queue.pause_category(2)
+    @store.complete_download(1)
+    assert_equal [2], @store.category_downloads(filter: :done).map { |item| item[:category_id] }
+    assert_equal [2], @store.category_downloads(filter: :active).map { |item| item[:category_id] }
+    assert_equal [1], @store.downloads(category_id: 2, filter: :done).keys
+    assert_equal [2, 3], @store.downloads(category_id: 2, filter: :active).keys
+  end
+
   def test_pause_restart_resume_and_failure_only_retry_preserve_successful_books
     @queue.enqueue_category(CATEGORY, (1..8).to_a)
     @transfer.finish

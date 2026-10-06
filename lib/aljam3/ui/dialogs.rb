@@ -327,6 +327,7 @@ module Aljam3
       def request_authors(page: 1)
         @editing_field = nil
         dialog = @dialog
+        dialog[:scroll], @dialog_results = 0, nil
         query = dialog.fetch(:query).strip
         request_number = dialog.fetch(:request_number, 0) + 1
         dialog.merge!(busy: true, result: nil, error: nil, request_number:)

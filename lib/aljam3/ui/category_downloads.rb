@@ -128,9 +128,11 @@ module Aljam3
           if expanded
             separator(margin_top: 16, margin_bottom: 8)
             page = (@category_download_pages ||= {}).fetch(id, 1)
-            pages = [group[:total].fdiv(Store::PAGE_SIZE).ceil, 1].max
+            filter = @download_filter || :all
+            count = { all: group[:total], done: group[:done], active: group[:total] - group[:done] }.fetch(filter)
+            pages = [count.fdiv(Store::PAGE_SIZE).ceil, 1].max
             page = @category_download_pages[id] = [page, pages].min
-            @download_queue.entries(category_id: id, page:).each do |book_id, download|
+            @download_queue.entries(category_id: id, page:, filter:).each do |book_id, download|
               row(height: 78) do
                 stack(width: -312) do
                   para Text.plain(download.fetch(:book).fetch("title")), size: 16, wrap: "trim",

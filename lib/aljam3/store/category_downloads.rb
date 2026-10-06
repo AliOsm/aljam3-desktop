@@ -65,7 +65,14 @@ module Aljam3
             GROUP BY g.category_id ORDER BY g.created_at DESC, g.category_id
           SQL
             row.transform_keys(&:to_sym)
-          end.select { |group| filter.to_sym == :all || (group[:done] == group[:total]) == (filter.to_sym == :done) }
+          end.select do |group|
+            case filter.to_sym
+            when :all then true
+            when :done then group[:done].positive?
+            when :active then group[:done] < group[:total]
+            else raise ArgumentError, "Unknown download filter"
+            end
+          end
         end
       end
 
