@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "timeout"
 require_relative "motion_preference"
 load File.expand_path("../../app.rb", __dir__)
 app = Shoes.APPS.first
@@ -17,19 +18,22 @@ app.timer(0.5) do
     checks = 0
     verify_dialog = lambda do |state|
       automation.wait_frames
-      panel = automation.rect_of!(app.instance_variable_get(:@dialog_panel).linkable_id)
+      # Compare the shell and its contents from the same rendered frame.
+      layout = automation.layout
+      shell = layout.find { |item| item[:id] == app.instance_variable_get(:@dialog_panel).linkable_id }
+      panel = Scarpe::Native::Rect.new(*shell.values_at(:x, :y, :w, :h))
       raise "Update dialog outside window in #{state}" unless panel.x >= 16 && panel.x + panel.w <= app.width - 16 &&
         panel.y >= 16 && panel.y + panel.h <= app.height - 16
 
       body = app.instance_variable_get(:@dialog_transition).current.contents.last
       ids = body.contents.map(&:linkable_id)
-      nodes = automation.layout.select { |item| ids.include?(item[:id]) }
+      nodes = layout.select { |item| ids.include?(item[:id]) }
       raise "Missing update content in #{state}" unless nodes.size == ids.size
       buttons = nodes.select { |item| item[:kind] == "Button" }
       expected = supported && %i[idle ready error current].include?(state) ? 1 : 0
       raise "Wrong update actions in #{state}" unless buttons.size == expected
       nodes.each do |item|
-        raise "Update content outside dialog in #{state}" unless item[:x] >= panel.x + 16 && item[:x] + item[:w] <= panel.x + panel.w - 16 &&
+        raise "Update content outside dialog in #{state}: #{item.inspect}; panel=#{panel.inspect}" unless item[:x] >= panel.x + 16 && item[:x] + item[:w] <= panel.x + panel.w - 16 &&
           item[:y] >= panel.y + 64 && item[:y] + item[:h] <= panel.y + panel.h - 16
       end
       nodes.sort_by { |item| item[:y] }.each_cons(2) do |first, second|
@@ -67,7 +71,11 @@ app.timer(0.5) do
           MotionPreference.set(app, reduced:)
           app.instance_variable_set(:@update_state, :checking)
           app.open_dialog(:updates)
-          automation.advance(0.25)
+          # A busy runner can spend the fixed delay dispatching the animation.
+          automation.wait_frames
+          Timeout.timeout(5) do
+            automation.advance(0.05) while app.instance_variable_get(:@motion).active?
+          end
           anchor = verify_dialog.call(:checking)
           %i[downloading ready installing error checking current].each do |state|
             app.instance_variable_set(:@update_state, state)

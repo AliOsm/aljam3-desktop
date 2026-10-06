@@ -586,7 +586,7 @@ class InteractionVerification
       click(get(:export_controls).fetch(keys[index]))
       wait_for_exports
       path = File.join(folder, captured.last.fetch(:filename))
-      entries = Zip::File.open(path) { |zip| zip.entries.map { |entry| [entry.name.dup.force_encoding("UTF-8"), entry.get_input_stream.read] } }
+      entries = Zip::File.open(path) { |zip| zip.entries.map { |entry| [entry.name.dup.force_encoding("UTF-8"), entry.get_input_stream(&:read)] } }
       check("#{format.upcase} ZIP contains all volumes in reading order", entries.map(&:first) == %w[الأول الثاني الثالث].each_with_index.map { |name, part| "0#{part + 1} - المجلد #{name}.#{format}" })
       expected = (1..3).map { |part| bodies.fetch("/#{part}/#{format}").b }
       expected[0] = File.binread(get(:downloader).pdf_path(@book.fetch("id"), files.first.fetch("id"))) if format == "pdf"

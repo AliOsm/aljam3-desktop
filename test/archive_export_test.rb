@@ -46,7 +46,7 @@ class ArchiveExportTest < StoreTestCase
   end
 
   def archive_entries
-    Zip::File.open(@destination) { |zip| zip.entries.map { |entry| [entry.name.dup.force_encoding(Encoding::UTF_8), entry.get_input_stream.read] } }
+    Zip::File.open(@destination) { |zip| zip.entries.map { |entry| [entry.name.dup.force_encoding(Encoding::UTF_8), entry.get_input_stream(&:read)] } }
   end
 
   def assert_no_temporary_files
