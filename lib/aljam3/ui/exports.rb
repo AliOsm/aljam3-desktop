@@ -196,6 +196,7 @@ module Aljam3
         job.fetch(:worker).submit(work) do |_result, error|
           cancelled = error.is_a?(ArchiveExport::Cancelled)
           status = cancelled ? :cancelled : error ? :failed : :done
+          @analytics&.count(:file_exports) if status == :done
           message = cancelled ? "تم إلغاء الحفظ" : error ? error_message(error) : "تم حفظ الملف"
           job.merge!(status:, message:)
           job.delete(:work) unless error && !cancelled # Completed exports need not retain their page's pixels.

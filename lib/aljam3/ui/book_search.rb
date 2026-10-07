@@ -26,8 +26,8 @@ module Aljam3
       def draw_book_search
         row(height: 40) do
           @book_query_field = input(@book_search.fetch(:query), width: -88, tooltip: "البحث في نص هذا الكتاب", placeholder: "اكتب كلمة أو عبارة…") { |field| @book_search[:query] = field.text }
-          @book_query_field.finish = proc { request_book_search }
-          action("بحث", width: 88, height: 40, margin_left: 12, variant: :solid) { request_book_search }
+          @book_query_field.finish = proc { submit_book_search }
+          action("بحث", width: 88, height: 40, margin_left: 12, variant: :solid) { submit_book_search }
         end
         result = @book_search[:result]
         if result
@@ -51,6 +51,11 @@ module Aljam3
             para "اكتب كلمة أو عبارة. يمكنك البحث في كتبك المحمّلة دون اتصال أيضًا.", size: 15, stroke: muted
           end
         end
+      end
+
+      def submit_book_search
+        @analytics&.count(:book_searches) unless @book_search.fetch(:query).strip.empty?
+        request_book_search
       end
 
       def request_book_search(page: 1, expand: false)

@@ -171,7 +171,7 @@ module Aljam3
           left, top = (width - panel_width) / 2, (height - panel_height) / 2
           # Reserve room for Settings feedback plus a ready update without
           # adding empty space or shifting the dialog during state changes.
-          top = [top, height - 468 - 16].min if shell_type == :settings
+          top = [top, height - 564 - 16].min if shell_type == :settings
         end
         @dialog_rest_top = top
         @dialog_offset = popup ? (anchor && top < anchor[1] ? 5 : -5) : 8
@@ -361,8 +361,8 @@ module Aljam3
       def draw_author_choices
         row(height: 40) do
           @dialog_first = field = input(@dialog.fetch(:query), width: -82, tooltip: "اسم المؤلف", placeholder: "اسم المؤلف…") { |control| @dialog[:query] = control.text }
-          field.finish = proc { request_authors }
-          action("بحث", width: 82, margin_left: 12, height: 40, variant: :solid) { request_authors }
+          field.finish = proc { submit_author_search }
+          action("بحث", width: 82, margin_left: 12, height: 40, variant: :solid) { submit_author_search }
         end
         scroll_area(top: 48, height: @content_height - 48, scroll: true, bottom_padding: 0) do
           selection = @dialog.fetch(:selection)
@@ -382,6 +382,11 @@ module Aljam3
             page_controls(page: current, previous: current > 1, following: current < total) { |number| request_authors(page: number) }
           end
         end
+      end
+
+      def submit_author_search
+        @analytics&.count(:author_searches) unless @dialog.fetch(:query).strip.empty?
+        request_authors
       end
 
       def draw_share

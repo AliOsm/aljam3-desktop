@@ -230,7 +230,7 @@ module Aljam3
 
       def validate_destination!
         allowed = %w[app.lock .DS_Store desktop.ini Thumbs.db]
-        allowed += [CONFIG, "updates", "launcher.log"] if File.identical?(@destination, @storage.app_directory)
+        allowed += [CONFIG, "updates", "analytics", "launcher.log"] if File.identical?(@destination, @storage.app_directory)
         raise Error, "اختر مجلدًا فارغًا لحفظ المكتبة؛ لن ندمجها مع ملفات أخرى." unless (Dir.children(@destination) - allowed).empty?
       end
 

@@ -45,6 +45,7 @@ module Aljam3
         @storage_worker.close
         save_reader_position if @store && @screen == :reader
       ensure
+        finish_analytics
         close_library_services
         @update_worker&.close
         @library_transfer&.release
@@ -76,7 +77,7 @@ module Aljam3
         @library_bytes ? "المساحة المستخدمة: #{format_bytes(@library_bytes)}" : "جارٍ حساب المساحة المستخدمة…"
       end
 
-      def settings_dialog_height = 220 + update_dialog_height + (@settings_message ? 48 : 0)
+      def settings_dialog_height = 316 + update_dialog_height + (@settings_message ? 48 : 0)
 
       def library_path(path, **styles)
         stack(height: 36, **styles) do
@@ -97,8 +98,12 @@ module Aljam3
         extra = @settings_message ? 48 : 0
         para @settings_message, top: 164, size: 14, stroke: primary, live: "polite" if @settings_message
         separator(top: 168 + extra, width: 1.0)
-        para "تحديثات التطبيق", top: 184 + extra, size: 19, font: HEADING_FONT
-        @settings_updates = stack(top: 220 + extra, width: 1.0, height: update_dialog_height - 80) { draw_updates }
+        para "إحصاءات الاستخدام", top: 184 + extra, size: 19, font: HEADING_FONT
+        para "تُرسل إلى PostHog إحصاءات عن مدة القراءة واستخدام الميزات.", top: 216 + extra, size: 14, stroke: muted
+        para "بمعرّف تثبيت عشوائي، دون عناوين الكتب أو نصوص البحث.", top: 240 + extra, size: 14, stroke: muted
+        separator(top: 264 + extra, width: 1.0)
+        para "تحديثات التطبيق", top: 280 + extra, size: 19, font: HEADING_FONT
+        @settings_updates = stack(top: 316 + extra, width: 1.0, height: update_dialog_height - 80) { draw_updates }
       end
 
       def library_move_blocked?
@@ -224,6 +229,7 @@ module Aljam3
       end
 
       def finish_library_move(error, cleaned:)
+        @analytics&.count(:library_moves) if @library_transfer&.committed?
         @library_moving = false
         @previous_library_instance&.close
         @previous_library_instance = nil

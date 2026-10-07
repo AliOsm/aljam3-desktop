@@ -79,6 +79,7 @@ module Aljam3
               end
             end
           else
+            @analytics&.count(:category_downloads)
             @notifications.dismiss([:category_download, category.fetch("id")])
             refresh_download_state
             if @dialog.equal?(dialog)

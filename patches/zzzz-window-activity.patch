@@ -1,0 +1,161 @@
+--- a/native/src/window.rs
++++ b/native/src/window.rs
+@@ -4,6 +4,7 @@
+ //! Each window has an AccessKit adapter, so a screen reader can read and work it (a11y.rs).
+ 
+ mod ghost;
++mod activity;
+ mod pacing;
+ mod voiceover;
+ #[cfg(target_os = "windows")]
+@@ -91,6 +92,7 @@
+ 
+ struct Win {
+     app: Id,
++    activity: activity::Activity,
+     /// Declared before the window so it lets go of the window's view first.
+     a11y: accesskit_winit::Adapter,
+     /// What the screen reader was last sent, so a frame sends only what changed.
+@@ -266,6 +268,7 @@
+             id,
+             Win {
+                 app,
++                activity: activity::Activity::default(),
+                 a11y,
+                 mirror,
+                 #[cfg(target_os = "windows")]
+@@ -457,6 +460,9 @@
+         match event.window_event {
+             accesskit_winit::WindowEvent::InitialTreeRequested => tell_screen_reader(&mut self.rt, win),
+             accesskit_winit::WindowEvent::ActionRequested(request) => {
++                if win.activity.input(Instant::now()) {
++                    self.rt.out.event("window_activity", Some(win.app), vec![serde_json::json!(true)]);
++                }
+                 self.rt.stats.input();
+                 self.rt.active_app = Some(win.app);
+                 if let Err(e) = self.rt.a11y_action(win.app, &request) {
+@@ -527,7 +533,10 @@
+             UserEvent::A11y(event) => self.a11y_event(event),
+             #[cfg(target_os = "windows")]
+             UserEvent::ZoomWheel { window, dy, x, y, req } => {
+-                if let Some(win) = self.windows.get(&window) {
++                if let Some(win) = self.windows.get_mut(&window) {
++                    if win.activity.input(Instant::now()) {
++                        self.rt.out.event("window_activity", Some(win.app), vec![serde_json::json!(true)]);
++                    }
+                     let scale = win.window.scale_factor();
+                     self.rt.mid_batch = false;
+                     self.rt.zoom_wheel(win.app, dy, Some(((x / scale) as f32, (y / scale) as f32)));
+@@ -547,6 +556,14 @@
+         win.a11y.process_event(&win.window, &event);
+         let app = win.app;
+         let scale = win.window.scale_factor();
++        let user_input = matches!(&event,
++            WindowEvent::CursorMoved { .. } | WindowEvent::MouseInput { .. } |
++            WindowEvent::MouseWheel { .. } | WindowEvent::PinchGesture { .. } |
++            WindowEvent::KeyboardInput { event: KeyEvent { state: ElementState::Pressed, .. }, .. } |
++            WindowEvent::Ime(Ime::Commit(_)));
++        if user_input && win.activity.input(Instant::now()) {
++            self.rt.out.event("window_activity", Some(app), vec![serde_json::json!(true)]);
++        }
+         match event {
+             WindowEvent::CloseRequested => {
+                 self.windows.remove(&id);
+@@ -560,8 +577,17 @@
+                 self.rt.resize_view(app, logical.width as f32, logical.height as f32, true);
+             }
+             WindowEvent::ScaleFactorChanged { .. } => self.rt.request_redraw(app),
+-            WindowEvent::Focused(true) => self.rt.active_app = Some(app),
+-            WindowEvent::Focused(false) => self.rt.cancel_pinch(app),
++            WindowEvent::Focused(focused) => {
++                if let Some(active) = win.activity.focus(focused) {
++                    self.rt.out.event("window_focus", Some(app), vec![serde_json::json!(active)]);
++                }
++                if focused { self.rt.active_app = Some(app); } else { self.rt.cancel_pinch(app); }
++            }
++            WindowEvent::Occluded(occluded) => {
++                if let Some(active) = win.activity.occlude(occluded) {
++                    self.rt.out.event("window_focus", Some(app), vec![serde_json::json!(active)]);
++                }
++            }
+             WindowEvent::CursorMoved { position, .. } => {
+                 let p = position.to_logical::<f64>(scale);
+                 self.rt.pointer_move(app, p.x as f32, p.y as f32);
+--- /dev/null
++++ b/native/src/window/activity.rs
+@@ -0,0 +1,75 @@
++//! Window activity contains no input content. Reports are coalesced so pointer
++//! movement cannot flood Ruby or disturb rendering and scrolling.
++
++use std::time::{Duration, Instant};
++
++#[derive(Default)]
++pub(super) struct Activity {
++    focused: bool,
++    occluded: bool,
++    last_report: Option<Instant>,
++}
++
++impl Activity {
++    pub fn focus(&mut self, focused: bool) -> Option<bool> {
++        let before = self.active();
++        self.focused = focused;
++        self.changed(before)
++    }
++
++    pub fn occlude(&mut self, occluded: bool) -> Option<bool> {
++        let before = self.active();
++        self.occluded = occluded;
++        self.changed(before)
++    }
++
++    fn active(&self) -> bool { self.focused && !self.occluded }
++
++    fn changed(&mut self, before: bool) -> Option<bool> {
++        if before == self.active() { return None; }
++        self.last_report = None;
++        Some(self.active())
++    }
++
++    pub fn input(&mut self, now: Instant) -> bool {
++        if !self.active() || self.last_report.is_some_and(|last| now.duration_since(last) < Duration::from_secs(1)) {
++            return false;
++        }
++        self.last_report = Some(now);
++        true
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    #[test]
++    fn background_and_occluded_windows_do_not_report_input() {
++        let mut activity = Activity::default();
++        let now = Instant::now();
++        assert!(!activity.input(now));
++        assert_eq!(activity.focus(true), Some(true));
++        assert!(activity.input(now));
++        assert_eq!(activity.occlude(true), Some(false));
++        assert!(!activity.input(now + Duration::from_secs(3)));
++        assert_eq!(activity.focus(false), None);
++        assert_eq!(activity.occlude(false), None);
++        assert!(!activity.input(now + Duration::from_secs(4)));
++        assert_eq!(activity.focus(true), Some(true));
++        assert!(activity.input(now + Duration::from_secs(4)));
++    }
++
++    #[test]
++    fn pointer_input_is_coalesced_but_refocusing_reports_immediately() {
++        let mut activity = Activity::default();
++        let now = Instant::now();
++        activity.focus(true);
++        assert!(activity.input(now));
++        for offset in 1..1000 { assert!(!activity.input(now + Duration::from_millis(offset))); }
++        assert!(activity.input(now + Duration::from_secs(1)));
++        assert_eq!(activity.focus(false), Some(false));
++        assert_eq!(activity.focus(true), Some(true));
++        assert!(activity.input(now + Duration::from_millis(1001)));
++    }
++}

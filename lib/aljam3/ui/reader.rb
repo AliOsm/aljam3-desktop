@@ -22,7 +22,7 @@ module Aljam3
           location = hit || (page_id && @store.find_page(page_id))
           location = @store.find_page(location.fetch("id")) if location && !location["file_id"]
           notice = "لم نجد صفحة النتيجة في النسخة المحمّلة. فُتحت بداية الكتاب." if (hit || page_id) && !location
-          start_reader(book.merge("files" => @store.files(book.fetch("id"))), location:, notice:, query:)
+          start_reader(book.merge("files" => @store.files(book.fetch("id"))), location:, notice:, query:, track_open: true)
         else
           request_number = @request_number
           @screen = :opening
@@ -38,16 +38,17 @@ module Aljam3
             if error
               book_opening_failed(book, error, page_id:, hit:, query:)
             else
-              start_reader(data.first, location: data.last, query:)
+              start_reader(data.first, location: data.last, query:, track_open: true)
             end
           end
         end
       end
 
-      def start_reader(book, location: nil, notice: nil, query: nil)
+      def start_reader(book, location: nil, notice: nil, query: nil, track_open: false)
         files = book.fetch("files")
         return book_opening_failed(book, ResponseError.new(404), hit: location, query:) if files.empty?
 
+        @analytics&.count(:books_opened) if track_open
         saved = @store.preference("reading:#{book.fetch('id')}", {})
         location ||= saved
         file = files.find { |candidate| candidate.fetch("id") == location["file_id"] }

@@ -61,4 +61,6 @@ Books, settings, and reading positions are stored outside the app directory:
 
 You can change this location using `ALJAM3_DATA_DIR`. Offline reading and search require completed downloads. Local search ranks the first 10,000 matching pages and expands the search when you select **Search more** (البحث في المزيد), so results may differ from online search.
 
+Installed releases automatically send usage counts, active and reading time, app version, and operating system to [PostHog](https://posthog.com), using a random installation ID. Active time stops when the window loses focus or after three minutes without interaction. Book titles and search text are excluded; offline statistics are queued and sent when connectivity returns.
+
 Sources and licenses for graphics and fonts are documented in [assets/](assets/README.en.md). Setup retains the licenses for [PDFium](https://pdfium.googlesource.com/pdfium/) and [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar) under `vendor/`.

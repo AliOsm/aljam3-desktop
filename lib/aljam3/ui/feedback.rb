@@ -4,6 +4,7 @@ module Aljam3
   module UI
     module Feedback
       def notify_download(download)
+        @analytics&.count(download[:status] == :failed ? :downloads_failed : :downloads_completed)
         return notify_category_download(download[:category_id]) if download[:category_id]
 
         book = download.fetch(:book)

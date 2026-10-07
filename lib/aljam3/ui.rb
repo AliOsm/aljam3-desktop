@@ -19,10 +19,12 @@ require_relative "ui/motion"
 require_relative "ui/navigation"
 require_relative "ui/updates"
 require_relative "ui/settings"
+require_relative "ui/analytics"
 
 module Aljam3
   module UI
     include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, CategoryDownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation, UpdateScreen, SettingsScreen
+    include UsageAnalytics
 
     def setup
       directory = Aljam3.data_directory
@@ -32,6 +34,7 @@ module Aljam3
         close
         return
       end
+      setup_analytics(directory)
       %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
       @theme = nil
       apply_theme
@@ -116,6 +119,7 @@ module Aljam3
 
     def tick
       return if @closing
+      @analytics&.tick(reading: analytics_reading?)
       @storage_worker.drain
       return if @closing
       return tick_library_recovery if @library_unavailable
@@ -356,6 +360,7 @@ module Aljam3
     def queue_download(book)
       return unless @download_queue.enqueue(book)
 
+      @analytics&.count(:downloads_started)
       resolve_download_failure(book.fetch("id"))
       refresh_download_state
     end

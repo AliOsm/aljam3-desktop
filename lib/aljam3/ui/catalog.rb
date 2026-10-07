@@ -88,9 +88,17 @@ module Aljam3
         row(top:, height: 44) do
           @query_field = input(@query, width: -92, height: 44, margin_right: 12,
             placeholder:, tooltip: placeholder.delete_suffix("…")) { |field| @query = field.text }
-          @query_field.finish = proc { request_catalog }
-          action("بحث", icon: "search", width: 92, height: 44, variant: :solid) { request_catalog }
+          @query_field.finish = proc { submit_catalog_search }
+          action("بحث", icon: "search", width: 92, height: 44, variant: :solid) { submit_catalog_search }
         end
+      end
+
+      def submit_catalog_search
+        unless @query.strip.empty?
+          counter = @screen == :authors ? :author_searches : @mode == :content ? :text_searches : :title_searches
+          @analytics&.count(counter)
+        end
+        request_catalog
       end
 
       def search_controls(top:)
