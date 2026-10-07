@@ -25,7 +25,7 @@ app.timer(0.5) do
       raise "Update dialog outside window in #{state}" unless panel.x >= 16 && panel.x + panel.w <= app.width - 16 &&
         panel.y >= 16 && panel.y + panel.h <= app.height - 16
 
-      body = app.instance_variable_get(:@dialog_transition).current.contents.last
+      body = app.instance_variable_get(:@settings_updates)
       ids = body.contents.map(&:linkable_id)
       nodes = layout.select { |item| ids.include?(item[:id]) }
       raise "Missing update content in #{state}" unless nodes.size == ids.size
@@ -34,7 +34,7 @@ app.timer(0.5) do
       raise "Wrong update actions in #{state}" unless buttons.size == expected
       nodes.each do |item|
         raise "Update content outside dialog in #{state}: #{item.inspect}; panel=#{panel.inspect}" unless item[:x] >= panel.x + 16 && item[:x] + item[:w] <= panel.x + panel.w - 16 &&
-          item[:y] >= panel.y + 64 && item[:y] + item[:h] <= panel.y + panel.h - 16
+          item[:y] >= panel.y + 284 && item[:y] + item[:h] <= panel.y + panel.h - 16
       end
       nodes.sort_by { |item| item[:y] }.each_cons(2) do |first, second|
         gap = second[:y] - first[:y] - first[:h]
@@ -52,7 +52,7 @@ app.timer(0.5) do
       [800, 1160].each do |width|
         automation.resize(width, 600)
         app.draw_window
-        button = app.instance_variable_get(:@action_views).fetch(:app_updates)
+        button = app.instance_variable_get(:@action_views).fetch(:settings)
         rect = automation.rect_of!(button.linkable_id)
         raise "Update icon outside window" unless rect.x >= 0 && rect.x + rect.w <= width
         %i[idle restoring checking downloading ready ready_export installing error current unsupported].each do |scenario|
@@ -60,7 +60,7 @@ app.timer(0.5) do
           state = { ready_export: :ready, unsupported: :idle }.fetch(scenario, scenario)
           app.instance_variable_set(:@update_state, state)
           app.instance_variable_set(:@update_wait_for_export, scenario == :ready_export)
-          app.open_dialog(:updates)
+          app.open_settings
           verify_dialog.call(state)
           automation.snapshot(File.join(output, "#{theme}-#{width}-#{scenario}.png"), scale: 1)
           app.close_dialog
@@ -70,7 +70,7 @@ app.timer(0.5) do
         [true, false].each do |reduced|
           MotionPreference.set(app, reduced:)
           app.instance_variable_set(:@update_state, :checking)
-          app.open_dialog(:updates)
+          app.open_settings
           # A busy runner can spend the fixed delay dispatching the animation.
           automation.wait_frames
           Timeout.timeout(5) do

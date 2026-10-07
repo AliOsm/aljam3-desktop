@@ -18,10 +18,11 @@ require_relative "ui/exports"
 require_relative "ui/motion"
 require_relative "ui/navigation"
 require_relative "ui/updates"
+require_relative "ui/settings"
 
 module Aljam3
   module UI
-    include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, CategoryDownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation, UpdateScreen
+    include Theme, Components, Catalog, Reader, ReaderPDF, BookSearch, Dialogs, Browsing, DownloadScreen, CategoryDownloadScreen, ReaderTools, Feedback, Exports, Motion, Navigation, UpdateScreen, SettingsScreen
 
     def setup
       directory = Aljam3.data_directory
@@ -32,36 +33,19 @@ module Aljam3
         return
       end
       %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
-      @store = Store.new(File.join(directory, "library.sqlite3"))
-      @theme = initial_theme
+      @theme = system_theme
       apply_theme
       setup_motion
-      @api = API.new(base_url: ENV.fetch("ALJAM3_API_URL", "https://aljam3.com"))
-      @library = Library.new(api: @api, store: @store)
-      @downloader = Downloader.new(api: @api, store: @store, directory: File.join(directory, "books"))
-      @reading = Reading.new(api: @api, store: @store, downloader: @downloader)
-      @pdf = PDF.new(cache: File.join(directory, "renders"))
-      @network_worker, @render_worker, @page_worker, @export_worker = Array.new(4) { Worker.new }
-      @workers = [@network_worker, @render_worker, @page_worker, @export_worker]
-      @category_worker = Worker.new
-      @workers << @category_worker
+      @workers = []
+      @storage_worker = Worker.new
       @notifications = Notifications.new
-      setup_updates(directory)
       @file_operations = {}
-      @download_queue = Downloads.new(store: @store, downloader: @downloader) { |download| notify_download(download) }
-      @downloaded_ids = @store.downloaded_ids
-      @categories, @libraries = @store.preference("categories", []), @store.preference("libraries", [])
-      @screen, @mode, @query = :home, :books, ""
-      @search_order = :relevance
-      @search_scope, @connection = :all, @api.connection
-      @filters, @scope_filters, @expanded = {}, {}, {}
-      @request_number, @render_number, @page_request = 0, 0, 0
-      @busy = false
-      @search_pool_size = Store::Search::POOL_SIZE
-      draw_window
+      start_library_app
       @ticker = every(0.1) { tick }
       @preference_ticker = every(2) { refresh_motion_preference }
       keypress do |key|
+        next if @library_unavailable
+
         if [:browser_back, :"alt_[", :alt_left].include?(key)
           navigate_history(:back)
         elsif [:browser_forward, :"alt_]", :alt_right].include?(key)
@@ -92,21 +76,30 @@ module Aljam3
           render_pdf if reader_pdf?
         end
       end
-      finish do
-        @closing = true
-        save_reader_position if @screen == :reader
-        @ticker.remove
-        @preference_ticker.remove
-        @reader_pump&.remove
-        @motion.cancel
-        @download_queue.close
-        @workers.each(&:close)
-        @pdf.close
-        @reading.close
-        @store.close
-      ensure
-        @instance.close
+      finish { finish_library_app }
+    end
+
+    def start_library_app
+      @storage ||= Storage.new
+      directory = @storage.resolve!
+      @library_instance ||= Instance.acquire(directory, create: false) unless File.identical?(directory, @storage.app_directory)
+      if !File.identical?(directory, @storage.app_directory) && !@library_instance
+        raise Storage::Error, "هذه المكتبة مفتوحة في نافذة أخرى. أغلقها ثم حاول مجددًا."
       end
+      open_library_services(directory)
+      @library_unavailable = @storage_error = nil
+      @theme = initial_theme
+      apply_theme
+      setup_updates(@storage.app_directory) unless @updater
+      @screen, @mode, @query = :home, :books, ""
+      @search_order = :relevance
+      @search_scope, @connection = :all, @api.connection
+      @filters, @scope_filters, @expanded = {}, {}, {}
+      @request_number, @render_number, @page_request = 0, 0, 0
+      @busy = false
+      @search_pool_size = Store::Search::POOL_SIZE
+      @frame_signature = nil
+      draw_window
       @network_worker.submit(-> { [@library.categories, @library.libraries] }) do |data, error|
         next if error
 
@@ -114,10 +107,20 @@ module Aljam3
         refresh_dialog if @dialog&.dig(:type) == :filters
         refresh_window if %i[home categories].include?(@screen)
       end
+    rescue StandardError => error
+      close_library_services
+      @library_instance&.close
+      @library_instance = nil
+      show_library_recovery(error)
     end
 
     def tick
       return if @closing
+      @storage_worker.drain
+      return if @closing
+      return tick_library_recovery if @library_unavailable
+      return tick_library_move if @library_moving
+      return unless check_library_available
       pump_reader if @reader_pump
       drain_export_progress
       @workers.each do |worker|
@@ -258,7 +261,13 @@ module Aljam3
           navigation_button("كتبي المحمّلة", :saved, width: 116)
           navigation_button("التنزيلات", :downloads, width: 90)
           icon_button(@theme == :dark ? "sun" : "moon", @theme == :dark ? "الوضع الفاتح" : "الوضع الداكن") { toggle_theme }
-          icon_button("refresh-cw", "تحديثات التطبيق", key: :app_updates) { open_dialog(:updates) }
+          stack(width: 36, height: 36) do
+            icon_button("settings", "الإعدادات", key: :settings) { open_settings }
+            @settings_badge = stack(right: 3, top: 3, width: 7, height: 7, hidden: @update_state != :ready) do
+              background primary, curve: 4
+              click { open_settings }
+            end
+          end
         end
       end
     end

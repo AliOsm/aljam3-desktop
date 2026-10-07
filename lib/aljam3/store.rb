@@ -18,14 +18,15 @@ module Aljam3
     include Reading, Downloads, CategoryDownloads
     PAGE_SIZE = 12
 
-    def initialize(path, background: true)
+    def initialize(path, background: true, create: true)
       @path = File.expand_path(path)
-      FileUtils.mkdir_p(File.dirname(path))
+      FileUtils.mkdir_p(File.dirname(path)) if create
       extension = ENV.fetch("SQLITE_TOKENIZER_AR_EXTENSION") do
         suffix = RUBY_PLATFORM.match?(/mingw|mswin/) ? "dll" : "so"
         File.expand_path("../../vendor/tokenizer/sqlite_tokenizer_ar.#{suffix}", __dir__)
       end
-      @db = SQLite3::Database.new(path, results_as_hash: true, extensions: [extension])
+      flags = SQLite3::Constants::Open::READWRITE | (create ? SQLite3::Constants::Open::CREATE : 0)
+      @db = SQLite3::Database.new(path, flags:, results_as_hash: true, extensions: [extension])
       @db.busy_handler_timeout = 5_000
       @lock = Mutex.new
       # Larger pages pack OCR text more tightly. Existing libraries retain their
@@ -45,6 +46,12 @@ module Aljam3
       @indexer&.close
       @reader&.close
       @lock.synchronize { @db.close }
+    end
+
+    def check_integrity!
+      @lock.synchronize do
+        raise "Library database failed its integrity check" unless @db.execute("PRAGMA quick_check").map { |row| row.values.first } == ["ok"]
+      end
     end
 
     def cache_books(books)

@@ -41,7 +41,7 @@ module Aljam3
         until @update_events.empty?
           @update_fraction = @update_events.pop
         end
-        @update_progress.fraction = @update_fraction if @dialog&.dig(:type) == :updates && @update_progress
+        @update_progress.fraction = @update_fraction if @dialog&.dig(:type) == :settings && @update_progress
         return unless @updater.supported? && %i[idle current error].include?(@update_state)
         return if Time.now.to_i - @store.preference("update_checked_at", 0) < Updates::INTERVAL
 
@@ -79,7 +79,7 @@ module Aljam3
       def notify_update_ready
         @notifications.push(:update_ready, persistent: true) do
           { message: "تحديث الجامع جاهز", detail: "الإصدار #{@update_package.fetch('version')} · كتبك وموضع القراءة محفوظة",
-            action_label: "عرض التحديث", action: -> { open_dialog(:updates) } }
+            action_label: "عرض التحديث", action: -> { open_settings } }
         end
       end
 
@@ -90,11 +90,13 @@ module Aljam3
       end
 
       def refresh_update_dialog
-        refresh_dialog if @dialog&.dig(:type) == :updates
+        @settings_badge.hidden = @update_state != :ready if @settings_badge
+        refresh_dialog if @dialog&.dig(:type) == :settings
       end
 
       def restart_for_update
         return unless @update_state == :ready
+        return if @library_moving || @library_unavailable
         if @file_operations.values.any? { |job| job[:status] == :saving }
           @update_wait_for_export = true
           return refresh_update_dialog

@@ -95,6 +95,7 @@ module Aljam3
       else
         @worker.close
       end
+    ensure
       @cleanup.close
     end
 

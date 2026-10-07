@@ -15,7 +15,9 @@ Packages are available on the [releases page](https://github.com/ieasybooks/alja
 - **Mac:** Open the DMG, drag the app into Applications, then launch it from there. The app is not notarized by Apple; you may need to select **Open Anyway** under **System Settings → Privacy & Security**.
 - **Windows:** Run the EXE installer. SmartScreen may display a warning because the app is not signed with a developer certificate.
 
-The app checks for updates daily and downloads them in the background after verifying their digital signatures. You can also use the update icon, then select **Restart and update** (إعادة التشغيل والتحديث). Books, settings, and reading positions are preserved.
+The app checks for updates daily and downloads them in the background after verifying their digital signatures. Open **Settings** (the gear icon) to check manually or select **Restart and update** (إعادة التشغيل والتحديث). Books, settings, and reading positions are preserved.
+
+Settings also shows the library folder and its size. **Move library** transfers books, the search index, bookmarks, and reading positions to an empty folder on your computer or an external drive. Keep that drive connected while using the app.
 
 ## Running from source
 

@@ -376,7 +376,7 @@ class AuditVerification
     updater.define_singleton_method(:check) { checks += 1; nil }
     @store.save_preference("update_checked_at", Time.now.to_i)
     set(update_state: :idle)
-    click(action(:app_updates))
+    click(action(:settings))
     activate(action("التحقق من التحديثات"))
     wait { get(:update_state) == :current }
     check("Keyboard update check reaches the current-version state", checks == 1)
@@ -391,7 +391,7 @@ class AuditVerification
     wait { get(:update_state) == :ready }
     check("Update retry finishes in the background after closing its dialog", checks == 3 && downloads == 1 && get(:notifications).find(:update_ready))
     set(file_operations: { audit: { status: :saving } })
-    click(action(:app_updates))
+    click(action(:settings))
     click(action("إعادة التشغيل والتحديث"))
     check("Restart for update waits for an active export", get(:update_state) == :ready && get(:update_wait_for_export))
   ensure

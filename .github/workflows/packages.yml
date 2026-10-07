@@ -84,6 +84,8 @@ jobs:
           bundle exec ruby bin/verify-ui audit
           bundle exec ruby bin/verify-ui categories
           bundle exec ruby bin/verify-ui updates
+          bundle exec ruby bin/verify-ui settings
+          bundle exec ruby bin/verify-ui settings_startup
       - name: Download and verify a real sample book
         run: bundle exec ruby bin/smoke
       - name: Keep the invisible Mac benchmark from background throttling

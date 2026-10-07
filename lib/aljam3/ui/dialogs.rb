@@ -28,6 +28,7 @@ module Aljam3
 
       def close_dialog
         return unless @dialog
+        return if @library_moving
 
         closed = @dialog
         @editing_field = nil
@@ -149,7 +150,8 @@ module Aljam3
           when :remove_download then [560, 296]
           when :category_download then [520, category_download_dialog_height]
           when :unavailable then [520, 264]
-          when :updates then [520, update_dialog_height]
+          when :settings then [600, settings_dialog_height]
+          when :move_library then [600, @library_moving || @dialog[:error] ? 304 : 268]
           else [800, 640]
         end
         @dialog[:panel_width] = requested_width
@@ -167,6 +169,9 @@ module Aljam3
           top = top.clamp(16, height - panel_height - 16)
         else
           left, top = (width - panel_width) / 2, (height - panel_height) / 2
+          # Reserve room for Settings feedback plus a ready update without
+          # adding empty space or shifting the dialog during state changes.
+          top = [top, height - 468 - 16].min if shell_type == :settings
         end
         @dialog_rest_top = top
         @dialog_offset = popup ? (anchor && top < anchor[1] ? 5 : -5) : 8
@@ -174,7 +179,7 @@ module Aljam3
         title = @dialog.fetch(:title, { filters: "خيارات البحث", book_search: "بحث في الكتاب", volumes: "ملفات الكتاب",
           authors: "اختر المؤلف", choices: "اختر", share: "مشاركة الصفحة", export: "تنزيل الملفات",
           reader_options: "خيارات القراءة", reader_copy: "نسخ النص", bookmarks: "الفواصل المحفوظة", shortcuts: "اختصارات لوحة المفاتيح",
-          remove_download: "إزالة النسخة المحمّلة", category_download: "تنزيل التصنيف", unavailable: "الكتاب غير محمّل", updates: "تحديثات الجامع" }.fetch(type, "اختر"))
+          remove_download: "إزالة النسخة المحمّلة", category_download: "تنزيل التصنيف", unavailable: "الكتاب غير محمّل", settings: "الإعدادات", move_library: "نقل المكتبة" }.fetch(type, "اختر"))
         backdrop_alpha = %i[select reader_copy].include?(shell_type) ? 0 : popup ? 0.10 : 0.28
         { type:, menu:, left:, top:, width: panel_width, height: panel_height, title:, backdrop_alpha: }
       end
@@ -216,6 +221,7 @@ module Aljam3
             else
               icon_button("x", "إغلاق") { close_dialog }
             end
+            @dialog_close.state = "disabled" if @library_moving
           end
           separator(left: padding, top: 56, width: @main_width)
         end
@@ -236,7 +242,8 @@ module Aljam3
           when :remove_download then draw_remove_download
           when :category_download then draw_category_download
           when :unavailable then draw_unavailable_book
-          when :updates then draw_updates
+          when :settings then draw_settings
+          when :move_library then draw_library_move
           end
         end
       ensure

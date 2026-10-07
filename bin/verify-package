@@ -28,6 +28,10 @@ exit if pdf_only
 PackageVerification.call(bundle:, home: scratch, output:)
 PackageVerification.call(bundle:, home: File.join(scratch, "interactions"), output: File.join(output, "interactions"),
   probe: File.join(root, "packaging/interaction_probe.rb"))
+%w[settings settings_startup].each do |name|
+  PackageVerification.call(bundle:, home: File.join(scratch, name), output: File.join(output, name),
+    probe: File.join(root, "test/support/#{name}_probe.rb"))
+end
 PackageVerification.call(bundle:, home: scratch, output: File.join(output, "motion"),
   probe: File.join(root, "packaging/motion_probe.rb"))
 require_relative "../packaging/motion_report"

@@ -5,6 +5,7 @@ module Aljam3
   class Worker
     def initialize
       @jobs, @events = Queue.new, Queue.new
+      @pending = 0
       @thread = Thread.new do
         while (job = @jobs.pop)
           work, callback = job
@@ -20,11 +21,17 @@ module Aljam3
       end
     end
 
-    def submit(work, &callback) = @jobs.push([work, callback])
+    def submit(work, &callback)
+      @pending += 1
+      @jobs.push([work, callback])
+    end
+
+    def busy? = @pending.positive?
 
     def drain
       until @events.empty?
         callback, result, error = @events.pop
+        @pending -= 1
         callback.call(result, error)
       end
     end
