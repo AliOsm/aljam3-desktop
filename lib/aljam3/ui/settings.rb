@@ -286,6 +286,8 @@ module Aljam3
       end
 
       def show_library_recovery(error)
+        @theme ||= system_theme
+        apply_theme
         @library_unavailable = true
         @storage_error = storage_error_message(error)
         @screen = :library_unavailable

@@ -2,8 +2,13 @@
 
 require "json"
 require_relative "settings_verification"
-app_path = ENV["ALJAM3_BUNDLE_ROOT"] ? File.join(ENV.fetch("ALJAM3_BUNDLE_ROOT"), "app/app.rb") : File.expand_path("../../app.rb", __dir__)
-load app_path
+require_relative "../../packaging/verify_theme"
+app_root = ENV["ALJAM3_BUNDLE_ROOT"] ? File.join(ENV.fetch("ALJAM3_BUNDLE_ROOT"), "app") : File.expand_path("../..", __dir__)
+require File.join(app_root, "lib/aljam3")
+store = Aljam3::Store.new(File.join(Aljam3.data_directory, "library.sqlite3"))
+store.save_preference("theme", "dark")
+store.close
+ThemeVerification.call(output: ENV.fetch("ALJAM3_VERIFY_OUTPUT"), system_reads: 0) { load File.join(app_root, "app.rb") }
 app = Shoes.APPS.first
 app.timer(0.5) do
   output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")

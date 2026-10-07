@@ -33,7 +33,7 @@ module Aljam3
         return
       end
       %w[NotoNaskhArabicUI Thmanyah Kitab].each { |name| font(File.join(ROOT, "assets/fonts/#{name}.ttf")) }
-      @theme = system_theme
+      @theme = nil
       apply_theme
       setup_motion
       @workers = []

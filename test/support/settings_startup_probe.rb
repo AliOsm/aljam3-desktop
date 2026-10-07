@@ -5,6 +5,7 @@ app_root = ENV["ALJAM3_BUNDLE_ROOT"] ? File.join(ENV.fetch("ALJAM3_BUNDLE_ROOT")
 require File.join(app_root, "lib/aljam3")
 require File.join(app_root, "lib/aljam3/storage")
 require_relative "motion_preference"
+require_relative "../../packaging/verify_theme"
 
 directory = Aljam3.data_directory
 path = File.join(Dir.home, "External drive", "مكتبتي")
@@ -17,7 +18,7 @@ store.close
 File.write(File.join(parked, Aljam3::Storage::MARKER), JSON.generate("id" => "startup-fixture"))
 Aljam3::Storage.new.select(path, "startup-fixture")
 
-load File.join(app_root, "app.rb")
+ThemeVerification.call(output: ENV.fetch("ALJAM3_VERIFY_OUTPUT"), system_reads: 1) { load File.join(app_root, "app.rb") }
 app = Shoes.APPS.first
 app.timer(0.5) do
   output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")
