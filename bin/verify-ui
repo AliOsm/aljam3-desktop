@@ -15,6 +15,7 @@ output = ENV.fetch("ALJAM3_VERIFY_OUTPUT") { File.join(root, ".cache/preview/#{p
 FileUtils.mkdir_p(output)
 %w[passed.json failed.txt].each { |name| FileUtils.rm_f(File.join(output, name)) }
 Dir.mktmpdir("aljam3-ui-") do |scratch|
+  scratch = File.realpath(scratch)
   env = {
     "HOME" => scratch, "USERPROFILE" => scratch, "LOCALAPPDATA" => scratch, "BUNDLE_GEMFILE" => File.join(root, "Gemfile"),
     "ALJAM3_DATA_DIR" => File.join(scratch, "data"), "ALJAM3_VERIFY_OUTPUT" => output,

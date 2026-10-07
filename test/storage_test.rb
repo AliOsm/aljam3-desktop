@@ -8,7 +8,7 @@ class StorageTest < Minitest::Test
   include Fixtures
 
   def setup
-    @scratch = Dir.mktmpdir("aljam3-storage-")
+    @scratch = File.realpath(Dir.mktmpdir("aljam3-storage-"))
     @directory = File.join(@scratch, "app")
     @destination = File.join(@scratch, "مكتبتي الجديدة")
     FileUtils.mkdir_p([@directory, @destination])

@@ -12,6 +12,7 @@ parked = path + "-disconnected"
 FileUtils.mkdir_p(directory)
 store = Aljam3::Store.new(File.join(parked, "library.sqlite3"))
 store.save_preference("startup-proof", "original library")
+store.save_preference("update_checked_at", Time.now.to_i)
 store.close
 File.write(File.join(parked, Aljam3::Storage::MARKER), JSON.generate("id" => "startup-fixture"))
 Aljam3::Storage.new.select(path, "startup-fixture")

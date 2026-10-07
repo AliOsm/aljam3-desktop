@@ -13,6 +13,13 @@ class SettingsVerification
   def call
     MotionPreference.set(@app, reduced: true)
     get(:ticker).remove
+    # Packaged apps can already be checking the public feed. These UI scenarios
+    # control update states explicitly; discard any late real-network callback.
+    get(:workers).delete(get(:update_worker))
+    get(:update_worker).close
+    set(update_worker: Aljam3::Worker.new, update_state: :current)
+    get(:workers) << get(:update_worker)
+    get(:store).save_preference("update_checked_at", Time.now.to_i)
     ready = false
     get(:network_worker).submit(-> { nil }) { ready = true }
     wait { ready }
@@ -20,7 +27,6 @@ class SettingsVerification
     updater = get(:updater)
     updater.define_singleton_method(:supported?) { true }
     set(update_state: :current)
-    get(:store).save_preference("update_checked_at", Time.now.to_i)
     %i[light dark].each do |theme|
       set(theme:)
       @app.apply_theme
@@ -208,6 +214,7 @@ class SettingsVerification
     click(action(:settings))
     @destination = File.join(Dir.home, "Libraries", "مكتبة الجامع")
     FileUtils.mkdir_p(@destination)
+    @destination = File.realpath(@destination)
     picker(@destination)
     activate(action(:move_library))
     check_panel("move confirmation")
@@ -333,7 +340,7 @@ class SettingsVerification
     click(action(:move_library))
     click(action(:confirm_library_move))
     wait { !get(:library_moving) }
-    check("Can move back to default folder", get(:storage).directory == Aljam3.data_directory)
+    check("Can move back to default folder", File.identical?(get(:storage).directory, Aljam3.data_directory))
     check("Default app lock survives moving back", !Aljam3::Instance.acquire(Aljam3.data_directory))
     check("Returned library still searches offline", get(:store).search("العلم").fetch("pages").length == 6)
     check("Moving during online opening returns to a usable catalog", get(:screen) == :home && !get(:busy))

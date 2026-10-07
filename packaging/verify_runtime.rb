@@ -10,6 +10,7 @@ module PackageVerification
     root = File.expand_path("..", __dir__)
     windows = Gem.win_platform?
     FileUtils.mkdir_p([home, output])
+    home = File.realpath(home)
     %w[passed.json failed.txt].each { |name| FileUtils.rm_f(File.join(output, name)) }
     launcher = File.join(bundle, windows ? "Aljam3.exe" : "Contents/MacOS/aljam3")
     system_path = windows ? [File.join(ENV.fetch("SystemRoot"), "System32"), ENV.fetch("SystemRoot")] : %w[/usr/bin /bin /usr/sbin /sbin]
