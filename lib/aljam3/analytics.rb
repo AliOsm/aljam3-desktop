@@ -8,9 +8,10 @@ require "time"
 require "fileutils"
 require_relative "version"
 require_relative "worker"
+require_relative "diagnostics"
 
 module Aljam3
-  # Only named counters and durations cross this boundary. The queue lives beside
+  # Counters, durations, and sanitized diagnostics cross this boundary. The queue lives beside
   # app settings, independently of the downloadable library and its location.
   class Analytics
     PROJECT_TOKEN = "phc_CJ2yNLkpzVyeQFzenZFongzbgiAfiGkMc4G3QcLKkzxT"
@@ -20,10 +21,12 @@ module Aljam3
     CHECKPOINT_SECONDS = 30
     REPORT_SECONDS = 300
     MAX_EVENTS = 2_000
+    MAX_DIAGNOSTICS = 200
     MAX_AGE = 30 * 86_400
     BATCH_SIZE = 40
     COUNTERS = %w[books_opened title_searches text_searches author_searches book_searches
-      downloads_started downloads_completed downloads_failed category_downloads library_moves file_exports].freeze
+      downloads_started downloads_completed downloads_failed category_downloads library_moves file_exports
+      diagnostic_reports_suppressed].freeze
     UUID = /\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\z/
 
     attr_reader :directory
@@ -38,6 +41,9 @@ module Aljam3
       @focused = @reading = false
       @now = @last_sample = @last_input = @last_checkpoint = @last_report = @clock.call
       @next_delivery, @retry_delay = @now, 30
+      @owner = Thread.current
+      @diagnostics = Diagnostics.new(clock:, wall_clock:)
+      @diagnostic_events = SizedQueue.new(50)
       @worker = Worker.new
       FileUtils.mkdir_p(@directory)
       filename = environment == "production" ? "analytics.sqlite3" : "analytics-development.sqlite3"
@@ -85,12 +91,35 @@ module Aljam3
       return unless enabled? && COUNTERS.include?(name.to_s)
 
       @session["counts"][name.to_s] += 1
+      breadcrumb(:counter, feature: name)
+    end
+
+    def breadcrumb(event, **context)
+      @diagnostics&.breadcrumb(event, **context) if available?
+    rescue StandardError
+      nil
+    end
+
+    # Background callers never touch SQLite or wait for the network. The UI
+    # persists the sanitized report, retaining its original event time.
+    def capture_error(error, operation:, context: {}, handled: true)
+      return unless available?
+
+      report = @diagnostics.report(error, operation:, context:, handled:)
+      return unless report
+
+      @diagnostic_events.push(report, true)
+      flush_diagnostics if Thread.current == @owner
+    rescue StandardError => failure
+      warn "Diagnostics unavailable: #{failure.class}"
+      nil
     end
 
     def tick(reading: false)
       return unless available?
 
       @worker.drain
+      flush_diagnostics
       sample
       @reading = !!reading
       return unless enabled?
@@ -110,6 +139,7 @@ module Aljam3
 
       if enabled?
         sample
+        flush_diagnostics
         @db.transaction do
           report_usage
           end_session("closed")
@@ -139,6 +169,19 @@ module Aljam3
     end
 
     private
+
+    def flush_diagnostics
+      @session["counts"]["diagnostic_reports_suppressed"] += @diagnostics.take_suppressed
+      return if @diagnostic_events.empty?
+
+      @db.transaction do
+        until @diagnostic_events.empty?
+          report = @diagnostic_events.pop
+          enqueue("$exception", report.fetch("properties"), recorded: report.fetch("timestamp"))
+        end
+        prune
+      end
+    end
 
     def sample
       @now = @clock.call
@@ -181,7 +224,7 @@ module Aljam3
       value.is_a?(Hash) && UUID.match?(value["id"].to_s) &&
         %w[started_at recorded_at active_seconds reading_seconds pending_active_seconds pending_reading_seconds].all? do |key|
           value[key].is_a?(Numeric) && value[key].finite? && value[key] >= 0
-        end && value["counts"].is_a?(Hash) && value["counts"].keys.sort == COUNTERS.sort &&
+        end && value["counts"].is_a?(Hash) && (value["counts"].keys - COUNTERS).empty? &&
         value["counts"].values.all? { |count| count.is_a?(Integer) && count >= 0 }
     end
 
@@ -209,9 +252,8 @@ module Aljam3
       @session["counts"] = COUNTERS.to_h { |name| [name, 0] }
     end
 
-    def enqueue(name, properties)
+    def enqueue(name, properties, recorded: @session.fetch("recorded_at"))
       id = SecureRandom.uuid
-      recorded = @session.fetch("recorded_at")
       os = RUBY_PLATFORM.include?("darwin") ? "macOS" : Gem.win_platform? ? "Windows" : "Linux"
       data = { "uuid" => id, "event" => name, "distinct_id" => @installation,
         "timestamp" => Time.at(recorded).utc.iso8601(3),
@@ -275,6 +317,8 @@ module Aljam3
     def prune
       @db.execute("DELETE FROM events WHERE created_at < ?", [@wall_clock.call.to_i - MAX_AGE])
       @db.execute("DELETE FROM events WHERE rowid NOT IN (SELECT rowid FROM events ORDER BY rowid DESC LIMIT ?)", [MAX_EVENTS])
+      @db.execute("DELETE FROM events WHERE json_extract(payload, '$.event') = '$exception' AND rowid NOT IN
+        (SELECT rowid FROM events WHERE json_extract(payload, '$.event') = '$exception' ORDER BY rowid DESC LIMIT ?)", [MAX_DIAGNOSTICS])
     end
 
     def preference(key)

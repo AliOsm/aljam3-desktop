@@ -173,6 +173,7 @@ module Aljam3
           end
         end
       rescue StandardError => error
+        report_error(error, operation: :cache)
         warn error.full_message
         control.tooltip = "تعذّر النسخ. حاول مرة أخرى."
       end

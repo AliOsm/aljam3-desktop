@@ -13,6 +13,7 @@ module Aljam3
     end
 
     def call(book_id, check: -> {})
+      stage, file_id, count, expected = :metadata, nil, nil, nil
       return @store.book(book_id) if @store.downloaded?(book_id)
 
       check.call
@@ -20,6 +21,7 @@ module Aljam3
       files = book.fetch("files")
       raise "This book has no downloadable files." if files.empty?
 
+      stage = :prepare
       previous = @store.files(book_id)
       staging = partial_directory(book_id)
       destination = File.join(@directory, Integer(book_id).to_s)
@@ -32,6 +34,8 @@ module Aljam3
       staging = destination if File.directory?(destination)
       FileUtils.mkdir_p(staging)
       files.each_with_index do |file, index|
+        file_id, expected, count = file.fetch("id"), file.fetch("pages_count"), nil
+        stage = :pdf
         check.call
         path = File.join(staging, "#{file.fetch('id')}.pdf")
         unless File.file?(path)
@@ -41,6 +45,7 @@ module Aljam3
           end
         end
         count = @store.page_count(file.fetch("id"))
+        stage = :text
         if count < file.fetch("pages_count")
           @api.each_page_batch(file.fetch("id"), start: count / 500 + 1) do |pages|
             check.call
@@ -50,12 +55,17 @@ module Aljam3
             yield (index + fraction).fdiv(files.length), "حفظ النص · #{Formatting.number(count)} / #{Formatting.number(file.fetch('pages_count'))} صفحة", File.size(path), File.size(path) if block_given?
           end
         end
+        stage = :validate
         raise ConnectionError, "The book's page count changed. Please retry the download." unless count == file.fetch("pages_count")
       end
       check.call
+      stage = :commit
       File.rename(staging, destination) unless staging == destination
       @store.complete_download(book_id, bytes: files.sum { |file| File.size(File.join(destination, "#{file.fetch('id')}.pdf")) })
       book
+    rescue StandardError => error
+      Diagnostics.annotate(error, stage:, book_id:, file_id:, saved_pages: count, expected_pages: expected)
+      raise
     end
 
     def cancel(book_id)

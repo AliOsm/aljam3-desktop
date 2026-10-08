@@ -74,6 +74,19 @@ class LibraryTest < StoreTestCase
     assert_equal 2, result.data.fetch("pages").length
   end
 
+  def test_fallback_reports_server_failures_but_normal_offline_use_stays_quiet
+    errors = []
+    library = Aljam3::Library.new(api: @api, store: @store, on_error: ->(error) { errors << error })
+    @api.error = Aljam3::ConnectionError.new("Offline")
+    assert_equal :offline, library.search("العلم").source
+    assert_empty errors
+    @api.error = Aljam3::ResponseError.new(503)
+    result = library.search("العلم")
+    assert_equal :local, result.source
+    refute_empty result.data.fetch("pages")
+    assert_equal [@api.error], errors
+  end
+
   def test_cancelled_api_request_cannot_start_an_offline_search_after_it_fails
     entered, finish = Queue.new, Queue.new
     pending = nil

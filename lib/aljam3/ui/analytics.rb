@@ -12,6 +12,17 @@ module Aljam3
           !ENV["SCARPE_NATIVE_HEADLESS"] && !ENV["SCARPE_NATIVE_GHOST"] && !ENV["GITHUB_ACTIONS"]
         options = production ? {} : { environment: "development", transport: ->(_batch) { :sent } }
         @analytics = Analytics.new(directory:, **options)
+        @analytics.breadcrumb(:session, operation: :startup)
+        @analytics_error_hook = Shoes.on_error do |error|
+          report_error(error, operation: :ui, context: { during: error["during"] }, handled: false)
+          @analytics_startup_failed = true if error["during"] == "startup"
+        end
+        at_exit do
+          if !@analytics_startup_failed && ($!.is_a?(StandardError) || $!.is_a?(ScriptError))
+            report_error($!, operation: :process_exit, handled: false)
+          end
+          @analytics&.close
+        end
         @analytics_subscriptions = [
           Shoes::DisplayService.subscribe_to_event("window_focus", linkable_id) do |focused, **|
             @analytics.focus(focused, reading: analytics_reading?)
@@ -22,6 +33,18 @@ module Aljam3
         ]
       end
 
+      def report_error(error, operation:, context: {}, handled: true)
+        @analytics&.capture_error(error, operation:, handled:, context: {
+          screen: @screen, search_mode: @mode, reader_mode: @reader&.dig(:mode),
+          connection: @connection, **context
+        })
+      end
+
+      def diagnostic_worker(operation)
+        Worker.new(on_error: ->(error) { report_error(error, operation:) },
+          on_activity: ->(status) { @analytics&.breadcrumb(:worker, operation:, status:) })
+      end
+
       def analytics_reading?
         return false unless @screen == :reader && @reader && !dialog_active? && !@library_moving && !@library_unavailable
 
@@ -30,6 +53,7 @@ module Aljam3
       end
 
       def finish_analytics
+        Shoes.error_hooks.delete(@analytics_error_hook) if @analytics_error_hook
         @analytics_subscriptions&.each { |subscription| Shoes::DisplayService.unsub_from_events(subscription) }
         @analytics&.close
       end

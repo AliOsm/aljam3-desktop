@@ -68,9 +68,24 @@ class DownloaderTest < StoreTestCase
 
   def test_wrong_page_count_does_not_publish_download
     @api.content = [pages.first]
-    assert_raises(Aljam3::ConnectionError) { @downloader.call(1) }
+    failure = assert_raises(Aljam3::ConnectionError) { @downloader.call(1) }
+    details = failure.instance_variable_get(:@aljam3_diagnostics)
+    assert_equal "validate", details.fetch("stage")
+    assert_equal 1, details.fetch("saved_pages")
+    assert_equal 2, details.fetch("expected_pages")
+    assert_equal 10, details.fetch("file_id")
     refute @store.downloaded?(1)
     refute File.exist?(@downloader.pdf_path(1, 10))
+  end
+
+  def test_failed_text_batch_retains_its_stage_and_does_not_leak_book_metadata
+    @api.fail_after_first_batch = true
+    failure = assert_raises(Aljam3::ConnectionError) { @downloader.call(1) }
+    details = failure.instance_variable_get(:@aljam3_diagnostics)
+    assert_equal "text", details.fetch("stage")
+    assert_equal 1, details.fetch("book_id")
+    assert_equal 1, details.fetch("saved_pages")
+    refute_includes JSON.generate(details), book.fetch("title")
   end
 
   def test_resume_skips_completed_text_batches

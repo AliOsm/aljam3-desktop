@@ -10,6 +10,15 @@ module Aljam3
     # from freezing the UI, and can be stopped without interrupting a UI read.
     class Worker
       class Cancelled < StandardError; end
+      class RemoteError < RuntimeError
+        attr_reader :original_error_class
+
+        def initialize(data)
+          @original_error_class = data.fetch("class")
+          super(data.fetch("message"))
+          set_backtrace(data.fetch("backtrace"))
+        end
+      end
       METHODS = %w[search prepare_download add_pages discard_download].freeze
 
       def initialize(path)
@@ -38,7 +47,7 @@ module Aljam3
             end
             response = JSON.parse(line)
             received = true
-            raise response.fetch("error") if response["error"]
+            raise RemoteError.new(response.fetch("error")) if response["error"]
 
             response.fetch("result")
           rescue IOError, Errno::EPIPE

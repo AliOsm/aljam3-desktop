@@ -40,7 +40,7 @@ module Aljam3
       apply_theme
       setup_motion
       @workers = []
-      @storage_worker = Worker.new
+      @storage_worker = diagnostic_worker(:storage)
       @notifications = Notifications.new
       @file_operations = {}
       start_library_app
@@ -111,6 +111,7 @@ module Aljam3
         refresh_window if %i[home categories].include?(@screen)
       end
     rescue StandardError => error
+      report_error(error, operation: :startup)
       close_library_services
       @library_instance&.close
       @library_instance = nil
@@ -136,6 +137,7 @@ module Aljam3
       tick_category_downloads
       if @connection != @api.connection
         @connection = @api.connection
+        @analytics&.breadcrumb(:connection, connection: @connection)
         update_connection
       end
       if @catalog_refresh_pending && !@editing_field && !dialog_active? && !@notification_focus
@@ -281,6 +283,7 @@ module Aljam3
     end
 
     def navigate(screen, filters: {}, label: nil)
+      @analytics&.breadcrumb(:navigation, screen:)
       remember_location unless @screen == screen && @filters == filters && @query.empty?
       @store.cancel_search
       @navigation_motion = 0 if @screen != screen || @filters != filters || !@query.empty?
@@ -409,6 +412,7 @@ module Aljam3
     end
 
     def error_message(error)
+      report_error(error, operation: :ui)
       warn error.full_message
       case error
       when RangeUnsupportedError then "لا يدعم مصدر الكتاب القراءة المباشرة. يمكنك تنزيله من صفحة التنزيلات."

@@ -61,6 +61,7 @@ class AnalyticsVerification
     settle
     signal("window_focus", false)
     settle
+    verify_diagnostics
     @analytics.close
     rows = []
     rows.concat(@received.pop) until @received.empty?
@@ -71,10 +72,48 @@ class AnalyticsVerification
     payload = JSON.generate(rows)
     check("Search text and book titles never enter payloads", !payload.include?(query) && !payload.include?(@book.fetch("title")))
     check("Session start and end reach the background sender", rows.count { |row| row["event"] == "app_session_started" } == 1 && rows.count { |row| row["event"] == "app_session_ended" } == 1)
+    errors = rows.select { |row| row["event"] == "$exception" }.map { |row| row.fetch("properties") }
+    download_errors = errors.select { |row| row["operation"] == "download" }
+    check("Failed downloads and retries include HTTP status and attempt", download_errors.map { |row| row["attempt"] } == [1, 2] && download_errors.all? { |row| row["http_status"] == 503 && row["stage"] == "pdf" })
+    check("PDF worker failures reach Error Tracking", errors.any? { |row| row["operation"] == "pdf" && row["$exception_message"] == "Unable to read this PDF page." })
+    check("Native handler failures are reported as unhandled", errors.any? { |row| row["during"] == "handler" && row.dig("$exception_list", 0, "mechanism", "handled") == false })
+    check("Error reports include activity context", errors.all? { |row| row["breadcrumbs"].any? && row["$session_id"] })
+    check("Private error messages and titles are removed", !payload.include?("diagnostic-private-title"))
     { passed: true, checks: @checks }
   end
 
   private
+
+  def verify_diagnostics
+    @app.navigate(:downloads)
+    downloader = get(:downloader)
+    original = downloader.method(:call)
+    downloader.define_singleton_method(:call) do |id, **|
+      error = Aljam3::ResponseError.new(503)
+      Aljam3::Diagnostics.annotate(error, stage: :pdf, book_id: id)
+      raise error
+    end
+    book = @book.merge("id" => 909_090, "title" => "diagnostic-private-title")
+    2.times do
+      @app.queue_download(book)
+      Timeout.timeout(10) do
+        until get(:download_queue).entry(book.fetch("id"))&.dig(:status) == :failed
+          @app.tick
+          @automation.wait_frames
+          sleep 0.005
+        end
+      end
+    end
+    get(:render_worker).submit(-> { raise "Unable to read this PDF page." }) do |_result, error|
+      check("Diagnostics preserve normal worker callbacks", error.is_a?(RuntimeError))
+    end
+    Shoes::DisplayService.display_service.guarded("diagnostics verification", during: "handler") do
+      raise NoMethodError, "undefined method 'diagnostic_probe' for diagnostic-private-title"
+    end
+    settle
+  ensure
+    downloader&.define_singleton_method(:call, original) if original
+  end
 
   def get(name) = @app.instance_variable_get("@#{name}")
   def action(key) = get(:action_views).fetch(key)

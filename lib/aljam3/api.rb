@@ -105,7 +105,9 @@ module Aljam3
       raise
     rescue JSON::ParserError
       @connection = :unavailable
-      raise ResponseError.new(502), "The library returned an invalid response."
+      failure = ResponseError.new(502)
+      Diagnostics.annotate(failure, **Diagnostics.request_context("#{@base_url}/api/v1/#{path}"))
+      raise failure, "The library returned an invalid response."
     end
   end
 end

@@ -78,6 +78,18 @@ class HTTPTest < Minitest::Test
     end
   end
 
+  def test_http_failure_keeps_request_type_timing_and_status_without_the_query
+    with_server(response("secret response body", status: "429 Too Many Requests")) do |url|
+      error = assert_raises(Aljam3::ResponseError) { Aljam3::HTTP.new.get("#{url}/api/v1/search?q=secret-search") }
+      details = error.instance_variable_get(:@aljam3_diagnostics)
+      assert_equal "search", details.fetch("request_kind")
+      assert_operator details.fetch("duration_ms"), :>=, 0
+      assert_equal 429, error.status
+      refute_includes JSON.generate(details), "secret"
+      refute details.key?("request_host") # Private/custom API hosts are omitted.
+    end
+  end
+
   def test_api_rejects_non_json_responses
     with_server(response("<html>maintenance</html>")) do |url|
       error = assert_raises(Aljam3::ResponseError) { Aljam3::API.new(base_url: url, interval: 0).search("العلم") }

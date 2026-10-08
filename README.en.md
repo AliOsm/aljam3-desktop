@@ -63,4 +63,6 @@ You can change this location using `ALJAM3_DATA_DIR`. Offline reading and search
 
 Installed releases automatically send usage counts, active and reading time, app version, and operating system to [PostHog](https://posthog.com), using a random installation ID. Active time stops when the window loses focus or after three minutes without interaction. Book titles and search text are excluded; offline statistics are queued and sent when connectivity returns.
 
+Error reports include sanitized technical messages, stack traces, recent app actions, and failure context such as HTTP status, retry attempt, and public book/file IDs for failed downloads. Search text, book contents, personal paths, credentials, and raw logs are excluded. Reports are limited and queued offline; installed releases appear under **Error Tracking** in PostHog with `environment = production`.
+
 Sources and licenses for graphics and fonts are documented in [assets/](assets/README.en.md). Setup retains the licenses for [PDFium](https://pdfium.googlesource.com/pdfium/) and [sqlite-tokenizer-ar](https://github.com/yshalsager/sqlite-tokenizer-ar) under `vendor/`.

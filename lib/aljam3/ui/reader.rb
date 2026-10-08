@@ -4,6 +4,7 @@ module Aljam3
   module UI
     module Reader
       def open_book(book, page_id: nil, hit: nil, query: nil)
+        @analytics&.breadcrumb(:navigation, screen: :reader)
         @store.cancel_search
         if offline_unavailable?(book)
           open_dialog(:unavailable, book:)

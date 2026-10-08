@@ -5,9 +5,10 @@ require_relative "worker"
 module Aljam3
   # SQLite owns the queue. Only the current transfer lives in memory.
   class Downloads
-    def initialize(store:, downloader:, &on_finish)
+    def initialize(store:, downloader:, on_error: nil, on_activity: nil, &on_finish)
       @store, @downloader = store, downloader
       @on_finish = on_finish
+      @on_error, @on_activity = on_error, on_activity
       @worker, @cleanup, @progress = Worker.new, Worker.new, Queue.new
       @store.recover_downloads
       repair_sizes
@@ -102,7 +103,8 @@ module Aljam3
     private
 
     def repair_sizes(after: 0)
-      @cleanup.submit(-> { @downloader.repair_download_sizes(after:) }) do |last_id, _error|
+      @cleanup.submit(-> { @downloader.repair_download_sizes(after:) }) do |last_id, error|
+        diagnostic_error(error, operation: :download_repair) if error
         if last_id
           @changed = true
           repair_sizes(after: last_id)
@@ -144,17 +146,21 @@ module Aljam3
             @downloader.cancel(id)
             @store.forget_download(id)
             nil
-          rescue StandardError
+          rescue StandardError => error
             failed = @store.download(id).merge(status: :failed, failure: "cancel", message: "تعذّر إلغاء التنزيل. حاول مرة أخرى.",
               category_id: @store.download_category_id(id))
             @store.save_download(id, failed)
-            failed
+            [failed, error]
           end
         end
       end) do |failures, error|
         @cleaning = false
+        diagnostic_error(error, operation: :download_cleanup) if error
         warn error.full_message if error
-        failures&.each { |failed| @on_finish&.call(failed) }
+        failures&.each do |failed, failure|
+          diagnostic_error(failure, operation: :download_cancel, stage: :cancel, book_id: failed.dig(:book, "id"))
+          @on_finish&.call(failed)
+        end
         @changed = true
       end
     end
@@ -164,9 +170,11 @@ module Aljam3
       return unless id
 
       @entry = @store.download(id).merge(status: :downloading, message: "جارٍ تجهيز الكتاب…", category_id: @store.download_category_id(id))
+      @entry[:attempt] = @entry.fetch(:attempt, 0) + 1
       @active, @stop = id, nil
       @progress_dirty, @progress_saved_at = false, 0
       persist
+      @on_activity&.call(:started)
       @changed = true
       check = -> { raise DownloadStopped if @stop }
       @worker.submit(-> { @downloader.call(id, check:) { |*progress| @progress << [id, *progress] } }) do |_book, error|
@@ -183,12 +191,22 @@ module Aljam3
                     end
           @entry.merge!(status: :failed, message:)
           persist
+          diagnostic_error(error || RuntimeError.new("Download finished without a complete book."), book_id: id,
+            category_id: @entry[:category_id], category_download: !!@entry[:category_id], attempt: @entry[:attempt],
+            bytes: @entry[:bytes], total_bytes: @entry[:total])
         end
+        @on_activity&.call(@entry[:status] == :done ? :completed : @stop ? :cancelled : :failed)
         @on_finish&.call(@entry.dup) if %i[done failed].include?(@entry[:status])
         @active = @entry = nil
         @progress_dirty = false
         @changed = true
       end
+    end
+
+    def diagnostic_error(error, **context)
+      @on_error&.call(error, context)
+    rescue StandardError => failure
+      warn "Download diagnostics: #{failure.class}"
     end
   end
 end

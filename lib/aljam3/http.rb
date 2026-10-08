@@ -4,6 +4,7 @@ require "net/http"
 require "uri"
 require "fileutils"
 require "json"
+require_relative "diagnostics"
 
 module Aljam3
   class ConnectionError < StandardError; end
@@ -109,6 +110,7 @@ module Aljam3
     end
 
     def download(url, destination, validate_pdf: true, resume: false, check: -> {}, &progress)
+      received, expected = 0, nil
       FileUtils.mkdir_p(File.dirname(destination))
       temporary = "#{destination}.part"
       metadata = "#{temporary}.json"
@@ -161,11 +163,13 @@ module Aljam3
       File.rename(temporary, destination)
       FileUtils.rm_f(metadata)
       destination
-    rescue ResponseError => error
-      if error.status == 416 && offset&.positive?
+    rescue StandardError => error
+      if error.is_a?(ResponseError) && error.status == 416 && offset&.positive?
         FileUtils.rm_f([temporary, metadata])
         return download(url, destination, validate_pdf:, resume:, check:, &progress)
       end
+      details = Diagnostics.request_context(url).merge(error.instance_variable_get(:@aljam3_diagnostics) || {})
+      Diagnostics.annotate(error, **details, resumed: !!offset&.positive?, bytes: received, total_bytes: expected)
       raise
     ensure
       FileUtils.rm_f([temporary, metadata].compact) unless resume
@@ -181,6 +185,7 @@ module Aljam3
     end
 
     def request(url, headers: {}, timeout: 8, redirects: 5, persistent: false, &block)
+      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       uri = URI(url)
       raise ArgumentError, "Expected an HTTP(S) URL." unless %w[http https].include?(uri.scheme)
 
@@ -201,7 +206,17 @@ module Aljam3
 
       result
     rescue *NETWORK_ERRORS => error
-      raise ConnectionError, error.message
+      failure = ConnectionError.new(error.message)
+      Diagnostics.annotate(failure, **Diagnostics.request_context(url), redirects: 5 - redirects,
+        duration_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round)
+      raise failure
+    rescue StandardError => error
+      # Retain the innermost request's context when a redirect unwinds.
+      unless error.instance_variable_defined?(:@aljam3_diagnostics)
+        Diagnostics.annotate(error, **Diagnostics.request_context(url), redirects: 5 - redirects,
+          duration_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round)
+      end
+      raise
     end
 
     def connection(uri, timeout:, persistent:)

@@ -193,4 +193,45 @@ class DownloadsTest < StoreTestCase
     10.times { @queue.tick }
     assert_equal 1, @finished.length
   end
+
+  def test_failure_reports_preserve_the_exception_attempt_and_progress_but_not_the_book
+    @queue.close
+    errors = []
+    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer,
+      on_error: ->(error, context) { errors << [error, context] })
+    @transfer.error = Aljam3::ResponseError.new(503)
+    @queue.enqueue(book)
+    pump_until { @queue.entry(1)[:status] == :failed }
+    assert_same @transfer.error, errors.first.first
+    assert_equal 1, errors.first.last.fetch(:attempt)
+    assert_equal 1, errors.first.last.fetch(:book_id)
+    refute errors.first.last.key?(:book)
+    refute_includes JSON.generate(@store.download(1)), "ResponseError"
+    @queue.enqueue(book)
+    pump_until { errors.length == 2 }
+    assert_equal 2, errors.last.last.fetch(:attempt)
+    @transfer.error = nil
+    @queue.enqueue(book)
+    pump_until { @queue.current&.fetch(:bytes, nil) == 40 }
+    @queue.pause(1)
+    pump_until { @queue.entry(1)[:status] == :paused }
+    assert_equal 2, errors.length
+  end
+
+  def test_cancel_failures_reach_diagnostics_and_broken_reporting_cannot_break_downloads
+    @queue.close
+    failures = []
+    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer,
+      on_error: ->(error, context) { failures << [error, context]; raise "reporter failure" })
+    @transfer.cancel_error = Errno::EACCES.new("private path")
+    @queue.enqueue(book)
+    @queue.cancel(1)
+    _out, err = capture_io { pump_until { @queue.entry(1)[:status] == :failed } }
+    assert_includes err, "Download diagnostics: RuntimeError"
+    assert_same @transfer.cancel_error, failures.first.first
+    assert_equal :download_cancel, failures.first.last.fetch(:operation)
+    @transfer.cancel_error = nil
+    @queue.cancel(1)
+    pump_until { @queue.entry(1).nil? }
+  end
 end

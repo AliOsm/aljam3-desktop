@@ -9,6 +9,7 @@ require "fileutils"
 require "uri"
 require "cgi"
 require_relative "version"
+require_relative "diagnostics"
 
 module Aljam3
   # Release metadata is signed as exact bytes, before any URLs are trusted.
@@ -155,7 +156,10 @@ module Aljam3
           case response
           when Net::HTTPSuccess then response.read_body(&block)
           when Net::HTTPRedirection then request(URI.join(url, response.fetch("location")).to_s, redirects + 1, &block)
-          else raise Error, "Update server returned #{response.code}"
+          else
+            failure = Error.new("Update server returned #{response.code}")
+            Diagnostics.annotate(failure, http_status: response.code.to_i, **Diagnostics.request_context(url))
+            raise failure
           end
         end
       end

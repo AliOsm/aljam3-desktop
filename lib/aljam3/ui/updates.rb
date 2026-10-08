@@ -7,7 +7,9 @@ module Aljam3
     module UpdateScreen
       def setup_updates(directory)
         @updater = Updates.new(directory:)
-        @update_worker = Worker.new
+        @update_worker = Worker.new(on_error: ->(error) {
+          @analytics&.capture_error(error, operation: :update, context: { stage: @update_state })
+        }, on_activity: ->(status) { @analytics&.breadcrumb(:worker, operation: :update, status:) })
         @workers << @update_worker
         @update_events = Queue.new
         @update_state = :idle
@@ -16,6 +18,8 @@ module Aljam3
         if File.file?(result)
           outcome = File.read(result).strip
           failed = outcome != "installed"
+          @analytics&.capture_error(Updates::Error.new("The update helper failed."), operation: :update,
+            context: Diagnostics.update_context(@updater.directory, outcome)) if failed
           @notifications.push(:update_result, persistent: failed) do
             if outcome == "move_to_applications"
               { error: true, message: "انقل الجامع إلى مجلد التطبيقات",
@@ -84,6 +88,7 @@ module Aljam3
       end
 
       def update_failed(error)
+        @analytics&.capture_error(error, operation: :update, context: { stage: @update_state })
         warn "Update: #{error.class}: #{error.message}"
         @update_state = :error
         refresh_update_dialog

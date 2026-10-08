@@ -136,7 +136,9 @@ class LargeLibraryTest < StoreTestCase
   def test_failed_page_batch_rolls_back_before_retrying
     @store.prepare_download(book)
     rows = Array.new(600) { |index| { "id" => index + 1, "number" => index + 1, "content" => "العلم" } }
-    assert_raises(RuntimeError) { @store.add_pages(10, rows + [{ "id" => 601, "number" => 601 }]) }
+    error = assert_raises(Aljam3::Store::Worker::RemoteError) { @store.add_pages(10, rows + [{ "id" => 601, "number" => 601 }]) }
+    assert_equal "KeyError", error.original_error_class
+    assert error.backtrace.any? { |line| line.include?("store.rb:") }
     assert_equal 0, @store.page_count(10)
     @store.add_pages(10, rows)
     @store.complete_download(1)

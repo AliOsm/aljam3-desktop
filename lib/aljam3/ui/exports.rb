@@ -260,6 +260,7 @@ module Aljam3
       def reveal_saved_file(path)
         Desktop.reveal(path)
       rescue SystemCallError => error
+        report_error(error, operation: :open_folder)
         warn error.full_message
         @notifications.push(:reveal_failed, persistent: true) do |_count|
           { error: true, message: "تعذّر فتح المجلد", detail: path,

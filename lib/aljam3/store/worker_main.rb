@@ -18,7 +18,8 @@ begin
       result = store.public_send(method, *request.fetch("arguments"), **request.fetch("options").transform_keys(&:to_sym))
       puts JSON.generate(result:)
     rescue StandardError => error
-      puts JSON.generate(error: error.message)
+      puts JSON.generate(error: { class: error.class.name, message: error.message,
+        backtrace: Array(error.backtrace).first(30) })
     end
   end
 ensure

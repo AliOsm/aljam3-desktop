@@ -8,13 +8,16 @@ module Aljam3
       def open_library_services(directory)
         @api ||= API.new(base_url: ENV.fetch("ALJAM3_API_URL", "https://aljam3.com"))
         @store = Store.new(File.join(directory, "library.sqlite3"), create: !@storage.selected?)
-        @library = Library.new(api: @api, store: @store)
+        @library = Library.new(api: @api, store: @store,
+          on_error: ->(error) { @analytics&.capture_error(error, operation: :catalog_fallback, context: { fallback: true }) })
         @downloader = Downloader.new(api: @api, store: @store, directory: File.join(directory, "books"))
         @reading = Reading.new(api: @api, store: @store, downloader: @downloader)
         @pdf = PDF.new(cache: File.join(directory, "renders"))
-        @network_worker, @render_worker, @page_worker, @export_worker, @category_worker = Array.new(5) { Worker.new }
+        @network_worker, @render_worker, @page_worker, @export_worker, @category_worker = %i[network pdf text export category].map { |operation| diagnostic_worker(operation) }
         @workers.concat([@network_worker, @render_worker, @page_worker, @export_worker, @category_worker])
-        @download_queue = Downloads.new(store: @store, downloader: @downloader) { |download| notify_download(download) }
+        @download_queue = Downloads.new(store: @store, downloader: @downloader,
+          on_error: ->(error, context) { report_error(error, operation: context.fetch(:operation, :download), context:) },
+          on_activity: ->(status) { @analytics&.breadcrumb(:download, status:) }) { |download| notify_download(download) }
         @downloaded_ids = @store.downloaded_ids
         @categories, @libraries = @store.preference("categories", []), @store.preference("libraries", [])
       end
@@ -28,6 +31,7 @@ module Aljam3
         %i[download_queue pdf reading store].each do |name|
           instance_variable_get("@#{name}")&.close
         rescue StandardError => error
+          report_error(error, operation: :shutdown)
           errors << error
           warn "Closing library #{name}: #{error.message}"
         ensure
@@ -44,14 +48,23 @@ module Aljam3
         @library_transfer&.cancel
         @storage_worker.close
         save_reader_position if @store && @screen == :reader
+      rescue StandardError => error
+        report_error(error, operation: :shutdown)
+        raise
       ensure
-        finish_analytics
-        close_library_services
-        @update_worker&.close
-        @library_transfer&.release
-        @previous_library_instance&.close
-        @library_instance&.close
-        @instance.close
+        begin
+          close_library_services
+          @update_worker&.close
+          @library_transfer&.release
+          @previous_library_instance&.close
+          @library_instance&.close
+          @instance.close
+        rescue StandardError => error
+          report_error(error, operation: :shutdown)
+          raise
+        ensure
+          finish_analytics
+        end
       end
 
       def open_settings
@@ -99,7 +112,7 @@ module Aljam3
         para @settings_message, top: 164, size: 14, stroke: primary, live: "polite" if @settings_message
         separator(top: 168 + extra, width: 1.0)
         para "إحصاءات الاستخدام", top: 184 + extra, size: 19, font: HEADING_FONT
-        para "تُرسل إلى PostHog إحصاءات عن مدة القراءة واستخدام الميزات.", top: 216 + extra, size: 14, stroke: muted
+        para "تُرسل إلى PostHog إحصاءات الاستخدام وتقارير تقنية عن الأخطاء.", top: 216 + extra, size: 14, stroke: muted
         para "بمعرّف تثبيت عشوائي، دون عناوين الكتب أو نصوص البحث.", top: 240 + extra, size: 14, stroke: muted
         separator(top: 264 + extra, width: 1.0)
         para "تحديثات التطبيق", top: 280 + extra, size: 19, font: HEADING_FONT
@@ -256,6 +269,7 @@ module Aljam3
       end
 
       def storage_error_message(error)
+        report_error(error, operation: :storage)
         case error
         when Storage::Error then error.message
         when Errno::EACCES, Errno::EROFS then "لا يمكن الكتابة في هذا المجلد. اختر مجلدًا تملك صلاحية الكتابة فيه."

@@ -8,6 +8,7 @@ module Aljam3
       end
 
       def open_dialog(type, nested: false, **data)
+        @analytics&.breadcrumb(:dialog, dialog: type)
         @editing_field = nil
         @dialog[:scroll] = @dialog_results.scroll_top if @dialog && @dialog_results
         @dialog_stack ||= []

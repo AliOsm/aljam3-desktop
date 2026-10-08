@@ -7,15 +7,16 @@ module Aljam3
   Result = Data.define(:data, :source, :notice)
 
   class Library
-    def initialize(api:, store:)
-      @api, @store = api, store
+    def initialize(api:, store:, on_error: nil)
+      @api, @store, @on_error = api, store, on_error
     end
 
     def categories
       categories = @api.categories
       @store.save_preference("categories", categories)
       categories
-    rescue ConnectionError, ResponseError
+    rescue ConnectionError, ResponseError => error
+      @on_error&.call(error) if error.is_a?(ResponseError)
       @store.preference("categories", [])
     end
 
@@ -23,7 +24,8 @@ module Aljam3
       libraries = @api.libraries
       @store.save_preference("libraries", libraries)
       libraries
-    rescue ConnectionError, ResponseError
+    rescue ConnectionError, ResponseError => error
+      @on_error&.call(error) if error.is_a?(ResponseError)
       @store.preference("libraries", [])
     end
 
@@ -36,6 +38,7 @@ module Aljam3
     rescue ConnectionError
       Result.new(@store.authors(query:, page:), :offline, :connection)
     rescue ResponseError => error
+      @on_error&.call(error)
       Result.new(@store.authors(query:, page:), :local, error.status)
     end
 
@@ -49,6 +52,7 @@ module Aljam3
     rescue ConnectionError
       Result.new(@store.catalog(**options, downloaded: !query.strip.empty?), :offline, :connection)
     rescue ResponseError => error
+      @on_error&.call(error)
       Result.new(@store.catalog(**options, downloaded: !query.strip.empty?), :local, error.status)
     end
 
@@ -80,6 +84,7 @@ module Aljam3
     rescue ConnectionError
       Result.new(@store.search(query, **options, order:, pool_size:, generation:), :offline, :connection)
     rescue ResponseError => error
+      @on_error&.call(error)
       Result.new(@store.search(query, **options, order:, pool_size:, generation:), :local, error.status)
     end
   end

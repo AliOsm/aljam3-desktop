@@ -303,4 +303,87 @@ class AnalyticsTest < Minitest::Test
     assert @analytics.available?
     refute_empty queued
   end
+
+  def test_diagnostics_survive_offline_restart_with_session_and_event_time
+    @result = :retry
+    @time = 7
+    error = Aljam3::ResponseError.new(503)
+    error.set_backtrace([File.expand_path("../lib/aljam3/downloader.rb", __dir__) + ":42:in 'call'"])
+    Aljam3::Diagnostics.annotate(error, stage: :pdf, request_host: "archive.org", book_id: 12)
+    @analytics.breadcrumb(:navigation, screen: :downloads)
+    @analytics.capture_error(error, operation: :download, context: { attempt: 2 })
+    saved = queued.find { |row| row["event"] == "$exception" }
+    assert_equal (@epoch + 7).iso8601(3), saved.fetch("timestamp")
+    properties = saved.fetch("properties")
+    assert_equal 503, properties.fetch("http_status")
+    assert_equal "pdf", properties.fetch("stage")
+    assert_equal Aljam3::VERSION, properties.fetch("app_version")
+    assert_equal true, properties.fetch("$geoip_disable")
+    assert_nil properties.fetch("$ip")
+    assert_match Aljam3::Analytics::UUID, properties.fetch("$session_id")
+    @analytics.close
+    events
+    @result = :sent
+    @time += 100
+    start
+    settle
+    assert_includes events, saved
+    refute queued.any? { |row| row["event"] == "$exception" }
+  end
+
+  def test_concurrent_background_reports_use_the_durable_queue_on_the_ui_thread
+    @result = :retry
+    callers = 8.times.map do
+      Thread.new do
+        8.times { @analytics.capture_error(Aljam3::ResponseError.new(500), operation: :download) }
+      end
+    end
+    callers.each(&:join)
+    assert_empty queued.select { |row| row["event"] == "$exception" }
+    @analytics.tick
+    exceptions = queued.select { |row| row["event"] == "$exception" }
+    assert_equal Aljam3::Diagnostics::PER_ERROR, exceptions.length
+    @analytics.close
+    usage = queued.find { |row| row["event"] == "app_usage" }.fetch("properties")
+    assert_equal 64 - Aljam3::Diagnostics::PER_ERROR, usage.fetch("diagnostic_reports_suppressed")
+    assert_equal 0, usage.fetch("downloads_failed")
+  end
+
+  def test_diagnostic_storage_is_bounded_independently_of_usage_metrics
+    @result = :retry
+    db = @analytics.instance_variable_get(:@db)
+    db.transaction do
+      (Aljam3::Analytics::MAX_DIAGNOSTICS + 20).times do |index|
+        db.execute("INSERT INTO events VALUES (?, ?, ?)", ["error-#{index}", @epoch.to_i, '{"event":"$exception","properties":{}}'])
+      end
+    end
+    @analytics.send(:checkpoint)
+    assert_equal Aljam3::Analytics::MAX_DIAGNOSTICS, queued.count { |row| row["event"] == "$exception" }
+    assert_equal 1, queued.count { |row| row["event"] == "app_session_started" }
+  end
+
+  def test_development_diagnostics_cannot_leak_into_the_production_queue
+    @result = :retry
+    @analytics.close
+    before = queued
+    start(environment: "development")
+    @analytics.capture_error(RuntimeError.new("private query"), operation: :ui)
+    @analytics.close
+    assert_equal before, queued
+  end
+
+  def test_pre_diagnostics_sessions_are_recovered_when_upgrading
+    @result = :retry
+    @analytics.count(:downloads_completed)
+    @analytics.send(:checkpoint)
+    db = @analytics.instance_variable_get(:@db)
+    session = JSON.parse(db.get_first_value("SELECT value FROM preferences WHERE key = 'session'"))
+    session.fetch("counts").delete("diagnostic_reports_suppressed")
+    db.execute("UPDATE preferences SET value = ? WHERE key = 'session'", [JSON.generate(session)])
+    @analytics.instance_variable_get(:@worker).close
+    db.close
+    @analytics = nil
+    start
+    assert_equal 1, queued.find { |row| row["event"] == "app_usage" }.dig("properties", "downloads_completed")
+  end
 end
