@@ -72,8 +72,13 @@ class CategoriesVerification
     shot("confirmation-compact-dark")
 
     @server.hold_file = file_id(4)
+    @server.connection_failures[file_id(4)] = 1
     click(:start_category_download)
+    wait { queue.current&.dig(:message)&.include?("إعادة المحاولة") }
+    check("A dropped connection displays automatic retry without failing the category", group[:failed].zero?)
+    shot("retrying-compact-dark")
     wait { get(:screen) == :downloads && queue.current&.dig(:book, "id") == book_id(4) && queue.current[:bytes] }
+    check("The automatic retry restarts the interrupted PDF request", @server.requests.count { |path| path == "/pdf/#{file_id(4)}" } == 2)
     check("One category group owns only the fifteen new books", group[:total] == 15 && @store.downloads(ungrouped: true).length == 3)
     check("The group starts after the independent queued book", @store.downloaded?(book_id(3)))
     get(:notifications).dismiss(:download_done)
@@ -98,9 +103,11 @@ class CategoriesVerification
     results.scroll_top = 0
     @automation.wait_frames
     click([:category_details, @id])
+    pause_started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     click([:pause_category, @id])
-    @server.hold_file = nil
     wait { group[:paused] == 15 }
+    check("Pause interrupts a stalled PDF body without waiting for the network timeout", Process.clock_gettime(Process::CLOCK_MONOTONIC) - pause_started < 3)
+    @server.hold_file = nil
     shot("paused-light")
     queue.close
     queue = Aljam3::Downloads.new(store: @store, downloader:) { |entry| @app.notify_download(entry) }
@@ -131,6 +138,11 @@ class CategoriesVerification
     wait { group[:cancelled] == 13 && get(:action_views).key?([:resume_category, @id]) }
     check("Cancellation keeps completed category books and independent downloads", @store.downloaded_ids.length == 5 && @store.downloaded?(book_id(3)))
     shot("cancelled-light")
+    @server.connection_failures[file_id(6)] = 3
+    click([:resume_category, @id])
+    wait { group[:failed] == 1 && group[:paused] == 12 && !queue.current }
+    check("A persistent outage pauses the remaining category instead of failing every book", group[:queued].zero? && group[:done] == 2)
+    shot("network-paused-light")
     click([:resume_category, @id])
     wait { group[:done] == 15 && !queue.current }
     check("Resuming a cancelled category completes the missing books", @store.downloaded_ids.length == 18)

@@ -17,7 +17,7 @@ module Aljam3
       return @store.book(book_id) if @store.downloaded?(book_id)
 
       check.call
-      book = @api.book(book_id)
+      book = @api.book(book_id, check:)
       files = book.fetch("files")
       raise "This book has no downloadable files." if files.empty?
 
@@ -47,7 +47,7 @@ module Aljam3
         count = @store.page_count(file.fetch("id"))
         stage = :text
         if count < file.fetch("pages_count")
-          @api.each_page_batch(file.fetch("id"), start: count / 500 + 1) do |pages|
+          @api.each_page_batch(file.fetch("id"), start: count / 500 + 1, check:) do |pages|
             check.call
             @store.add_pages(file.fetch("id"), pages)
             count = @store.page_count(file.fetch("id"))

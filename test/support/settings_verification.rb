@@ -54,6 +54,7 @@ class SettingsVerification
     badge_and_updates
     cancelled_folder_picker
     nonempty_destination
+    destination_validation_reporting
     export_guard
     relocation
     cancelled_relocation
@@ -175,6 +176,24 @@ class SettingsVerification
     shot("folder-error")
   end
 
+  def destination_validation_reporting
+    errors = []
+    report = @app.method(:report_error)
+    @app.define_singleton_method(:report_error) { |error, **| errors << error }
+    activate(action(:move_library))
+    check("Choosing a nonempty folder does not create an application error report", errors.empty? && get(:settings_message).include?("فارغًا"))
+    storage = get(:storage)
+    prepare = storage.method(:prepare)
+    storage.define_singleton_method(:prepare) { |*, **| raise Errno::EACCES }
+    activate(action(:move_library))
+    check("An unwritable destination explains permissions without reporting an app defect", errors.empty? && get(:settings_message).include?("صلاحية"))
+    @app.storage_error_message(Errno::EACCES.new)
+    check("Permission errors during a real library operation still reach diagnostics", errors.length == 1)
+  ensure
+    @app.define_singleton_method(:report_error, report) if report
+    storage&.define_singleton_method(:prepare, prepare) if prepare
+  end
+
   def export_guard
     set(file_operations: { test: { status: :saving } })
     picker(nil)
@@ -263,8 +282,8 @@ class SettingsVerification
     started, gate = Queue.new, Queue.new
     attempts = 0
     api = get(:api)
-    api.define_singleton_method(:book) { |_id| book }
-    api.define_singleton_method(:each_page_batch) do |_id, start:, &block|
+    api.define_singleton_method(:book) { |_id, **| book }
+    api.define_singleton_method(:each_page_batch) do |_id, start:, **, &block|
       attempts += 1
       if attempts == 1
         started << true

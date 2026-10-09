@@ -28,7 +28,7 @@ module Aljam3
 
       def toggle_bookmark(book_id, file_id:, number:, excerpt:)
         @lock.synchronize do
-          @db.transaction do
+          @db.transaction(:immediate) do
             keys = [book_id, file_id, number]
             exists = @db.get_first_value("SELECT 1 FROM bookmarks WHERE book_id = ? AND file_id = ? AND number = ?", keys)
             if exists

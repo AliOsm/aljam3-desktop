@@ -17,7 +17,7 @@ module Aljam3
 
     def categories = get("categories").fetch("categories")
     def libraries = get("libraries").fetch("libraries")
-    def book(id) = get("books/#{Integer(id)}", "expand[]" => "files")
+    def book(id, check: nil) = get("books/#{Integer(id)}", { "expand[]" => "files" }, check:)
 
     def authors(query: "", page: 1)
       get("authors", "q" => query, "page" => page, "limit" => 20)
@@ -53,12 +53,12 @@ module Aljam3
       get("files/#{Integer(file_id)}", "expand[]" => "pages", "limit" => 1, "page" => Integer(number)).fetch("pages").first
     end
 
-    def each_page_batch(file_id, start: 1)
-      return enum_for(__method__, file_id, start:) unless block_given?
+    def each_page_batch(file_id, start: 1, check: nil)
+      return enum_for(__method__, file_id, start:, check:) unless block_given?
 
       page = start
       while page
-        response = get("files/#{Integer(file_id)}", "expand[]" => "pages", "limit" => 500, "page" => page)
+        response = get("files/#{Integer(file_id)}", { "expand[]" => "pages", "limit" => 500, "page" => page }, check:)
         yield response.fetch("pages")
         page = response.fetch("pagination").fetch("next_page")
       end
@@ -70,7 +70,7 @@ module Aljam3
       page = 1
       while page
         check.call
-        data = get("categories/#{Integer(category_id)}", "expand[]" => "books", "limit" => 500, "page" => page)
+        data = get("categories/#{Integer(category_id)}", { "expand[]" => "books", "limit" => 500, "page" => page }, check:)
         check.call
         raise ResponseError.new(502), "Unexpected category response." unless data.fetch("id") == category_id
 
@@ -87,14 +87,21 @@ module Aljam3
 
     private
 
-    def get(path, parameters = {})
+    def get(path, parameters = {}, check: nil, **keywords)
+      parameters = parameters.merge(keywords)
       @lock.synchronize do
         now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-        sleep(@next_request - now) if @next_request > now
+        while @next_request > now
+          check&.call
+          sleep([@next_request - now, 0.05].min)
+          now = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+        end
         @next_request = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @interval
       end
+      check&.call
       query = URI.encode_www_form(parameters.compact)
-      data = JSON.parse(@http.get("#{@base_url}/api/v1/#{path}?#{query}"))
+      url = "#{@base_url}/api/v1/#{path}?#{query}"
+      data = JSON.parse(check ? @http.get(url, check:) : @http.get(url))
       @connection = :online
       data
     rescue ConnectionError

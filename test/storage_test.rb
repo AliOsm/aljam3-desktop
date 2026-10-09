@@ -189,7 +189,7 @@ class StorageTest < Minitest::Test
 
   def test_nonempty_target_is_never_overwritten
     File.write(File.join(@destination, "my-file"), "keep")
-    assert_raises(Aljam3::Storage::Error) { transfer }
+    assert_raises(Aljam3::Storage::InvalidDestination) { transfer }
     assert_equal ["my-file"], Dir.children(@destination)
     assert_equal "keep", File.read(File.join(@destination, "my-file"))
   end

@@ -2,7 +2,8 @@
 
 require "json"
 require_relative "categories_verification"
-load File.expand_path("../../app.rb", __dir__)
+app_root = ENV["ALJAM3_BUNDLE_ROOT"] ? File.join(ENV.fetch("ALJAM3_BUNDLE_ROOT"), "app") : File.expand_path("../..", __dir__)
+load File.join(app_root, "app.rb")
 app = Shoes.APPS.first
 app.timer(0.5) do
   output = ENV.fetch("ALJAM3_VERIFY_OUTPUT")

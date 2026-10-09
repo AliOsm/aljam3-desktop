@@ -7,7 +7,7 @@ class CategoryDownloadsTest < StoreTestCase
   CATEGORY = { "id" => 2, "name" => "علوم" }.freeze
 
   class Transfer
-    attr_accessor :failures, :cancel_error
+    attr_accessor :failures, :cancel_error, :network_error
     attr_reader :started, :cancelled
 
     def initialize(store)
@@ -19,7 +19,8 @@ class CategoryDownloadsTest < StoreTestCase
       yield 0.4, "PDF", 40, 100
       loop do
         check.call
-        raise Aljam3::ConnectionError, "fixture failure" if @failures.include?(id)
+        raise @network_error if @network_error
+        raise Aljam3::ResponseError.new(404) if @failures.include?(id)
         break unless @permits.empty?
 
         sleep 0.001
@@ -42,7 +43,7 @@ class CategoryDownloadsTest < StoreTestCase
     @books = (1..8).map { |id| book(id) }
     @store.cache_books(@books)
     @transfer = Transfer.new(@store)
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer)
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer)
   end
 
   def teardown
@@ -65,7 +66,7 @@ class CategoryDownloadsTest < StoreTestCase
 
   def restart
     @queue.close
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer)
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer)
   end
 
   def test_preview_and_enqueue_skip_completed_and_independently_queued_books
@@ -94,6 +95,35 @@ class CategoryDownloadsTest < StoreTestCase
     assert_equal 8, @store.category_download_preview(3, (1..8).to_a)[:existing]
   end
 
+  def test_category_start_cannot_upgrade_a_snapshot_invalidated_by_the_indexer
+    database = @store.instance_variable_get(:@db)
+    writer = SQLite3::Database.new(File.join(@directory, "library.sqlite3"))
+    execute = database.method(:execute)
+    competed = false
+    database.define_singleton_method(:execute) do |sql, *args, &block|
+      result = execute.call(sql, *args, &block)
+      if sql.include?("SELECT DISTINCT b.id FROM")
+        competed = true
+        begin
+          writer.execute("UPDATE books SET download_bytes = 123 WHERE id = 1")
+        rescue SQLite3::BusyException
+          # An immediate transaction makes the competing writer wait instead
+          # of invalidating the category's snapshot between its read and write.
+        end
+      end
+      result
+    end
+
+    assert_equal 8, @queue.enqueue_category(CATEGORY, (1..8).to_a)
+    assert competed
+    writer.execute("UPDATE books SET download_bytes = 123 WHERE id = 1")
+    assert_equal 8, group[:queued]
+    assert_equal 0, @queue.enqueue_category(CATEGORY, (1..8).to_a)
+  ensure
+    database.singleton_class.remove_method(:execute) if execute
+    writer&.close
+  end
+
   def test_download_filters_include_matching_books_inside_a_partly_finished_category
     @queue.enqueue_category(CATEGORY, [1, 2, 3])
     @queue.pause_category(2)
@@ -102,6 +132,28 @@ class CategoryDownloadsTest < StoreTestCase
     assert_equal [2], @store.category_downloads(filter: :active).map { |item| item[:category_id] }
     assert_equal [1], @store.downloads(category_id: 2, filter: :done).keys
     assert_equal [2, 3], @store.downloads(category_id: 2, filter: :active).keys
+  end
+
+  def test_network_outage_pauses_the_category_without_failing_every_book
+    @queue.enqueue(book(8))
+    @queue.pause(8)
+    @queue.enqueue_category(CATEGORY, (1..7).to_a)
+    @transfer.network_error = Aljam3::ConnectionError.new("offline")
+    pump_until { group[:failed] == 1 }
+    assert_equal 6, group[:paused]
+    assert_equal 0, group[:queued]
+    assert_equal [1, 1, 1], @transfer.started
+    assert_equal :paused, @queue.entry(8)[:status]
+    restart
+    assert_nil @queue.current
+    assert_equal 6, group[:paused]
+    @transfer.network_error = nil
+    @queue.resume_category(CATEGORY)
+    @transfer.finish(7)
+    pump_until { group[:done] == 7 }
+    assert_equal 4, @transfer.started.count(1)
+    assert_equal (2..7).to_a, @transfer.started.drop(4)
+    assert_equal :paused, @queue.entry(8)[:status]
   end
 
   def test_pause_restart_resume_and_failure_only_retry_preserve_successful_books
@@ -245,7 +297,7 @@ class CategoryDownloadsTest < StoreTestCase
     end
     @store = Aljam3::Store.new(path)
     @transfer = Transfer.new(@store)
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer)
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer)
     assert @store.downloaded?(1)
     assert_equal 2, @store.recent_books.first.fetch("number")
     assert_equal :paused, @queue.entry(2)[:status]

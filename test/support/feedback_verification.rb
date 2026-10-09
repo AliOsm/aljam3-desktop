@@ -82,8 +82,8 @@ class FeedbackVerification
     @automation.snapshot(File.join(@output, "#{name}.png"), scale: 1.5)
   end
 
-  def pump_until
-    Timeout.timeout(5) do
+  def pump_until(timeout: 5)
+    Timeout.timeout(timeout) do
       loop do
         @app.tick
         @automation.wait_frames
@@ -214,7 +214,7 @@ class FeedbackVerification
     @automation.key("control_a")
     @automation.type("12")
     @transfer.error = Aljam3::ConnectionError.new("test offline")
-    pump_until { @queue.entry(@book.fetch("id"))[:status] == :failed }
+    pump_until(timeout: 15) { @queue.entry(@book.fetch("id"))[:status] == :failed }
     check("download failure preserves editing and refreshes footer counts", get(:page_field).equal?(field) && field.text == "12" &&
       @automation.focused == field.linkable_id && get(:activity_button).text.include?("تنزيل يحتاج") && @notices.current[:error])
     advance(100)

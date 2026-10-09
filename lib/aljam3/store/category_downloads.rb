@@ -24,7 +24,9 @@ module Aljam3
       # their original owner, so category controls never stop independent work.
       def queue_category_download(category, book_ids)
         @lock.synchronize do
-          @db.transaction do
+          # Reserve the writer before reading: the background indexer can commit
+          # between the SELECT and INSERT, making a deferred WAL snapshot stale.
+          @db.transaction(:immediate) do
             ids = @db.execute(<<~SQL, [JSON.generate(book_ids), category.fetch("id")]).map { |row| row.fetch("id") }
               SELECT DISTINCT b.id FROM json_each(?1) j JOIN books b ON b.id = j.value
               LEFT JOIN downloads d ON d.book_id = b.id

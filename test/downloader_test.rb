@@ -5,16 +5,19 @@ require "timeout"
 
 class DownloaderTest < StoreTestCase
   class API
-    attr_accessor :fail_after_first_batch, :data, :content, :batch_size
+    attr_accessor :fail_after_first_batch, :failures_remaining, :data, :content, :batch_size
     attr_reader :starts
 
-    def book(_id) = data
+    def book(_id, check: nil) = data
 
-    def each_page_batch(_id, start: 1)
+    def each_page_batch(_id, start: 1, check: nil)
       (@starts ||= []) << start
       content.each_slice(batch_size || 1).drop(start - 1).each do |batch|
         yield batch
-        raise Aljam3::ConnectionError, "Disconnected" if fail_after_first_batch
+        if fail_after_first_batch || failures_remaining.to_i.positive?
+          @failures_remaining -= 1 if failures_remaining.to_i.positive?
+          raise Aljam3::ConnectionError, "Disconnected"
+        end
       end
     end
   end
@@ -100,6 +103,30 @@ class DownloaderTest < StoreTestCase
     assert_equal [1, 2], @api.starts
     assert_equal 501, @store.page_count(10)
     assert_equal 1, @http.calls
+  end
+
+  def test_automatic_retry_keeps_the_pdf_and_resumes_indexing_after_the_saved_batch
+    @api.batch_size = 500
+    @api.data["files"].first["pages_count"] = 501
+    @api.content = 501.times.map { |i| { "id" => 100 + i, "number" => i + 1, "content" => "العلم" } }
+    @api.failures_remaining = 1
+    finished = []
+    queue = Aljam3::Downloads.new(store: @store, downloader: @downloader, retry_delays: [0, 0]) { |entry| finished << entry[:status] }
+    queue.enqueue(book)
+    Timeout.timeout(5) do
+      until finished.any?
+        queue.tick
+        sleep 0.001
+      end
+    end
+    assert_equal [:done], finished
+    assert_equal [1, 2], @api.starts
+    assert_equal 1, @http.calls
+    assert_equal 501, @store.page_count(10)
+    assert @store.downloaded?(1)
+    assert File.file?(@downloader.pdf_path(1, 10))
+  ensure
+    queue&.close
   end
 
   def test_recovers_a_crash_after_renaming_the_completed_directory

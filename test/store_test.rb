@@ -135,6 +135,35 @@ class StoreTest < StoreTestCase
     assert_empty @store.bookmarks(1)
   end
 
+  def test_bookmark_toggle_cannot_upgrade_a_snapshot_invalidated_by_a_download
+    @store.cache_books([book])
+    database = @store.instance_variable_get(:@db)
+    writer = SQLite3::Database.new(File.join(@directory, "library.sqlite3"))
+    read = database.method(:get_first_value)
+    competed = false
+    database.define_singleton_method(:get_first_value) do |sql, *args|
+      result = read.call(sql, *args)
+      if sql.include?("SELECT 1 FROM bookmarks")
+        competed = true
+        begin
+          writer.execute("UPDATE books SET download_bytes = 123 WHERE id = 1")
+        rescue SQLite3::BusyException
+          # Wait for the reserved bookmark transaction, as the indexer does.
+        end
+      end
+      result
+    end
+    assert @store.toggle_bookmark(1, file_id: 10, number: 2, excerpt: "العلم")
+    assert competed
+    writer.execute("UPDATE books SET download_bytes = 123 WHERE id = 1")
+    assert_equal 1, @store.bookmarks(1).length
+    refute @store.toggle_bookmark(1, file_id: 10, number: 2, excerpt: "")
+    assert_empty @store.bookmarks(1)
+  ensure
+    database.singleton_class.remove_method(:get_first_value) if read
+    writer&.close
+  end
+
   def test_resuming_a_partially_indexed_batch_does_not_duplicate_pages
     @store.prepare_download(book)
     @store.add_pages(10, pages.first(1))

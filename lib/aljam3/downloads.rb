@@ -5,10 +5,11 @@ require_relative "worker"
 module Aljam3
   # SQLite owns the queue. Only the current transfer lives in memory.
   class Downloads
-    def initialize(store:, downloader:, on_error: nil, on_activity: nil, &on_finish)
+    def initialize(store:, downloader:, on_error: nil, on_activity: nil, retry_delays: [2, 5], &on_finish)
       @store, @downloader = store, downloader
       @on_finish = on_finish
       @on_error, @on_activity = on_error, on_activity
+      @retry_delays = retry_delays
       @worker, @cleanup, @progress = Worker.new, Worker.new, Queue.new
       @store.recover_downloads
       repair_sizes
@@ -177,15 +178,19 @@ module Aljam3
       @on_activity&.call(:started)
       @changed = true
       check = -> { raise DownloadStopped if @stop }
-      @worker.submit(-> { @downloader.call(id, check:) { |*progress| @progress << [id, *progress] } }) do |_book, error|
+      initial = @entry.values_at(:fraction, :message, :bytes, :total)
+      @worker.submit(-> { transfer(id, check:, progress: initial) }) do |_book, error|
         if @store.downloaded?(id)
           @entry.merge!(status: :done, fraction: 1, message: "اكتمل · متاح دون اتصال")
           persist
         elsif @stop
           finish_stop(id, @stop)
         else
+          # A lost connection must not turn every remaining book in a category
+          # into a failure. Keep its queue durable until the user resumes it.
+          @store.pause_category_download(@entry[:category_id]) if @entry[:category_id] && retryable?(error)
           message = case error
-                    when ConnectionError then "انقطع الاتصال. أعد المحاولة لمتابعة التنزيل."
+                    when ConnectionError then "تعذّر الاتصال. أعد المحاولة لمتابعة التنزيل."
                     when Errno::ENOSPC then "المساحة غير كافية. حرّر مساحة ثم تابع التنزيل."
                     else "تعذّر إكمال التنزيل. أعد المحاولة أو ألغِ التنزيل للبدء من جديد."
                     end
@@ -200,6 +205,36 @@ module Aljam3
         @active = @entry = nil
         @progress_dirty = false
         @changed = true
+      end
+    end
+
+    def retryable?(error)
+      error.is_a?(ConnectionError) && error.instance_variable_get(:@aljam3_diagnostics)&.fetch("stage", nil) != "validate"
+    end
+
+    def transfer(id, check:, progress:)
+      retries = 0
+      begin
+        check.call
+        @downloader.call(id, check:) do |*values|
+          progress = values
+          @progress << [id, *values]
+        end
+      rescue ConnectionError => error
+        Diagnostics.annotate(error, retry_count: retries)
+        raise unless retryable?(error) && retries < @retry_delays.length
+
+        deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + @retry_delays.fetch(retries)
+        retries += 1
+        @progress << [id, progress[0], "انقطع الاتصال. جارٍ إعادة المحاولة…", progress[2], progress[3]]
+        loop do
+          check.call
+          remaining = deadline - Process.clock_gettime(Process::CLOCK_MONOTONIC)
+          break if remaining <= 0
+
+          sleep([remaining, 0.05].min)
+        end
+        retry
       end
     end
 

@@ -6,7 +6,7 @@ require "timeout"
 class DownloadsTest < StoreTestCase
   class Transfer
     attr_reader :started, :cancelled
-    attr_accessor :error, :cancel_error, :progresses
+    attr_accessor :error, :cancel_error, :progresses, :errors
 
     def initialize(store)
       @store = store
@@ -20,6 +20,7 @@ class DownloadsTest < StoreTestCase
       @progresses.each { |progress| yield(*progress) }
       loop do
         check.call
+        raise @errors.shift if @errors&.any?
         raise @error if @error
         break unless @finish.empty?
 
@@ -44,7 +45,7 @@ class DownloadsTest < StoreTestCase
     super
     @transfer = Transfer.new(@store)
     @finished = []
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer) { |download| @finished << download }
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer) { |download| @finished << download }
   end
 
   def teardown
@@ -65,7 +66,7 @@ class DownloadsTest < StoreTestCase
 
   def restart
     @queue.close
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer) { |download| @finished << download }
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer) { |download| @finished << download }
   end
 
   def test_pause_survives_restart_and_resume_completes
@@ -164,6 +165,67 @@ class DownloadsTest < StoreTestCase
     assert_empty @store.downloads
   end
 
+  def test_transient_connection_failures_retry_and_announce_only_the_completed_book
+    @transfer.errors = [Aljam3::ConnectionError.new("connection reset"), Aljam3::ConnectionError.new("timeout")]
+    @queue.enqueue(book)
+    @transfer.finish
+    pump_until { @finished.any? }
+    assert_equal [:done], @finished.map { |entry| entry[:status] }
+    assert_equal 3, @transfer.started.size
+    assert @store.downloaded?(1)
+  end
+
+  def test_exhausted_network_retries_report_once_with_the_retry_count
+    errors = []
+    @queue.close
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer,
+      on_error: ->(error, context) { errors << [error, context] })
+    @transfer.error = Aljam3::ConnectionError.new("timeout")
+    @queue.enqueue(book)
+    pump_until { @queue.entry(1)[:status] == :failed }
+    assert_equal 3, @transfer.started.size
+    assert_equal 1, errors.size
+    assert_equal 2, errors.first.first.instance_variable_get(:@aljam3_diagnostics).fetch("retry_count")
+    assert_equal 40, @queue.entry(1)[:bytes]
+  end
+
+  def test_pause_and_cancel_interrupt_the_retry_delay_without_another_request
+    [:pause, :cancel].each do |action|
+      @queue.close
+      @queue = Aljam3::Downloads.new(retry_delays: [30], store: @store, downloader: @transfer)
+      @transfer.error = Aljam3::ConnectionError.new("timeout")
+      @queue.enqueue(book)
+      pump_until { @queue.current&.dig(:message)&.include?("إعادة المحاولة") }
+      starts = @transfer.started.size
+      @queue.public_send(action, 1)
+      pump_until { action == :cancel ? @queue.entry(1).nil? : @queue.entry(1)[:status] == :paused }
+      assert_equal starts, @transfer.started.size
+      assert_empty @finished
+    end
+  end
+
+  def test_shutdown_during_a_retry_preserves_partial_progress_and_resumes_on_restart
+    @queue.close
+    @queue = Aljam3::Downloads.new(retry_delays: [30], store: @store, downloader: @transfer)
+    @transfer.error = Aljam3::ConnectionError.new("timeout")
+    @queue.enqueue(book)
+    pump_until { @queue.current&.dig(:message)&.include?("إعادة المحاولة") }
+    restart
+    assert_equal :queued, @queue.entry(1)[:status]
+    assert_equal 40, @queue.entry(1)[:bytes]
+    @transfer.error = nil
+    @transfer.finish
+    pump_until { @store.downloaded?(1) }
+    assert_equal [:done], @finished.map { |entry| entry[:status] }
+  end
+
+  def test_validation_failures_are_not_retried_as_network_outages
+    @transfer.error = Aljam3::Diagnostics.annotate(Aljam3::ConnectionError.new("changed page count"), stage: :validate)
+    @queue.enqueue(book)
+    pump_until { @queue.entry(1)[:status] == :failed }
+    assert_equal 1, @transfer.started.size
+  end
+
   def test_a_completed_book_announces_once_and_does_not_replay_after_restart
     assert @queue.enqueue(book)
     refute @queue.enqueue(book)
@@ -197,7 +259,7 @@ class DownloadsTest < StoreTestCase
   def test_failure_reports_preserve_the_exception_attempt_and_progress_but_not_the_book
     @queue.close
     errors = []
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer,
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer,
       on_error: ->(error, context) { errors << [error, context] })
     @transfer.error = Aljam3::ResponseError.new(503)
     @queue.enqueue(book)
@@ -221,7 +283,7 @@ class DownloadsTest < StoreTestCase
   def test_cancel_failures_reach_diagnostics_and_broken_reporting_cannot_break_downloads
     @queue.close
     failures = []
-    @queue = Aljam3::Downloads.new(store: @store, downloader: @transfer,
+    @queue = Aljam3::Downloads.new(retry_delays: [0, 0], store: @store, downloader: @transfer,
       on_error: ->(error, context) { failures << [error, context]; raise "reporter failure" })
     @transfer.cancel_error = Errno::EACCES.new("private path")
     @queue.enqueue(book)

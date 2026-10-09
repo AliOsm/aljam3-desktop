@@ -7,12 +7,13 @@ require_relative "range_pdf"
 
 class CategoryServer
   attr_accessor :hold_file, :hold_scan_page, :scan_error
-  attr_reader :category, :books, :requests, :failed_files
+  attr_reader :category, :books, :requests, :failed_files, :connection_failures
 
   def initialize
     @server = TCPServer.new("127.0.0.1", 0)
     @category = { "id" => 71, "name" => "أصول الفقه والقواعد الفقهية", "books_count" => 18 }
     @requests, @connections, @failed_files = [], [], []
+    @connection_failures = Hash.new(0)
     names = ["الورقات في أصول الفقه", "الموافقات", "روضة الناظر", "إرشاد الفحول", "البحر المحيط", "الإحكام في أصول الأحكام"]
     @books = (1..18).map do |number|
       id = 970_000 + number
@@ -34,6 +35,11 @@ class CategoryServer
             while (header = client.gets) && header != "\r\n"; end
             @requests << target
             uri = URI(target)
+            file_id = uri.path[%r{\A/pdf/(\d+)\z}, 1]&.to_i
+            if file_id && @connection_failures[file_id].positive?
+              @connection_failures[file_id] -= 1
+              next # Close before responding, like a dropped TLS/TCP connection.
+            end
             params = URI.decode_www_form(uri.query.to_s).to_h
             body, status = response(uri.path, params)
             client.write("HTTP/1.1 #{status}\r\nContent-Length: #{body.bytesize}\r\nConnection: close\r\n\r\n")

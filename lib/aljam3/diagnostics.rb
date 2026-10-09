@@ -16,7 +16,7 @@ module Aljam3
     CANCELLED = %w[Aljam3::DownloadStopped Aljam3::PDF::Cancelled Aljam3::Store::Worker::Cancelled
       Aljam3::Storage::Cancelled Aljam3::ArchiveExport::Cancelled].freeze
     NUMBERS = %w[book_id file_id category_id page_number expected_pages saved_pages bytes total_bytes
-      attempt http_status redirects duration_ms errno].freeze
+      attempt retry_count http_status redirects duration_ms errno].freeze
     LABELS = {
       "operation" => %w[startup shutdown process_exit ui network catalog_fallback pdf text export category
         storage update download download_cancel download_cleanup download_repair open_folder cache],

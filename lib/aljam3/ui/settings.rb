@@ -136,7 +136,7 @@ module Aljam3
         transfer.release
         open_dialog(:move_library, nested: true, destination: transfer.destination)
       rescue StandardError => error
-        @settings_message = storage_error_message(error)
+        @settings_message = storage_error_message(error, selecting: true)
         refresh_dialog
       end
 
@@ -268,8 +268,9 @@ module Aljam3
         show_library_recovery(failure)
       end
 
-      def storage_error_message(error)
-        report_error(error, operation: :storage)
+      def storage_error_message(error, selecting: false)
+        expected = selecting && [Storage::InvalidDestination, Errno::EACCES, Errno::EROFS].any? { |type| error.is_a?(type) }
+        report_error(error, operation: :storage) unless expected
         case error
         when Storage::Error then error.message
         when Errno::EACCES, Errno::EROFS then "لا يمكن الكتابة في هذا المجلد. اختر مجلدًا تملك صلاحية الكتابة فيه."

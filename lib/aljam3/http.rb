@@ -25,16 +25,25 @@ module Aljam3
       Errno::ECONNREFUSED, Errno::ECONNRESET, Errno::ECONNABORTED, Errno::EHOSTUNREACH,
       Errno::ENETUNREACH, Errno::ENETDOWN, Errno::ETIMEDOUT, Errno::EPIPE].freeze
 
-    def get(url)
-      request(url, headers: { "Accept" => "application/json" }) { |response| response.body }
+    def get(url, check: nil)
+      retried ||= false
+      request(url, headers: { "Accept" => "application/json" }, check:,
+        timeout: check ? 30 : 8, open_timeout: check ? 10 : 3) { |response| response.body }
+    rescue ConnectionError
+      # Background downloads have their own backoff and resume policy.
+      raise if check || retried
+
+      retried = true
+      retry
     end
 
     def read_range(url, offset:, length:, validator: nil, check: -> {})
+      retried ||= false
       raise ArgumentError, "Invalid byte range." unless offset >= 0 && length.positive?
 
       headers = { "Range" => "bytes=#{offset}-#{offset + length - 1}", "Accept-Encoding" => "identity" }
       headers["If-Range"] = validator if validator
-      request(url, headers:, persistent: true) do |response|
+      request(url, headers:, persistent: true, check:) do |response|
         check.call
         if response.code == "200"
           raise RemoteFileChangedError, "The PDF changed. Please retry." if validator
@@ -63,10 +72,20 @@ module Aljam3
 
         Range.new(bytes, range[3].to_i, current, response.uri.to_s)
       end
+    rescue ConnectionError
+      # A server can drop an idle keep-alive/TLS connection while a page remains
+      # open. Retry the same validated range once using a fresh connection.
+      close
+      raise if retried
+
+      retried = true
+      check.call
+      retry
     end
 
     def close
       @range_http.finish if @range_http&.started?
+    ensure
       @range_http = @range_origin = nil
     end
 
@@ -109,7 +128,7 @@ module Aljam3
       workers&.each { |worker| worker.kill.join if worker.alive? }
     end
 
-    def download(url, destination, validate_pdf: true, resume: false, check: -> {}, &progress)
+    def download(url, destination, validate_pdf: true, resume: false, check: -> {}, retries: resume ? 0 : 1, &progress)
       received, expected = 0, nil
       FileUtils.mkdir_p(File.dirname(destination))
       temporary = "#{destination}.part"
@@ -119,7 +138,7 @@ module Aljam3
       headers = { "Accept-Encoding" => "identity" }
       headers.merge!("Range" => "bytes=#{offset}-", "If-Range" => saved.fetch("validator")) if offset.positive?
       check.call
-      request(url, headers:, timeout: 8) do |response|
+      request(url, headers:, timeout: 30, open_timeout: 10, check:) do |response|
         partial = response.code == "206"
         expected = response["content-length"] && Integer(response["content-length"])
         validator = response["etag"] unless response["etag"]&.start_with?("W/")
@@ -166,10 +185,14 @@ module Aljam3
     rescue StandardError => error
       if error.is_a?(ResponseError) && error.status == 416 && offset&.positive?
         FileUtils.rm_f([temporary, metadata])
-        return download(url, destination, validate_pdf:, resume:, check:, &progress)
+        return download(url, destination, validate_pdf:, resume:, check:, retries:, &progress)
       end
       details = Diagnostics.request_context(url).merge(error.instance_variable_get(:@aljam3_diagnostics) || {})
       Diagnostics.annotate(error, **details, resumed: !!offset&.positive?, bytes: received, total_bytes: expected)
+      if error.is_a?(ConnectionError) && retries.positive?
+        check.call
+        return download(url, destination, validate_pdf:, resume:, check:, retries: retries - 1, &progress)
+      end
       raise
     ensure
       FileUtils.rm_f([temporary, metadata].compact) unless resume
@@ -184,12 +207,38 @@ module Aljam3
       nil
     end
 
-    def request(url, headers: {}, timeout: 8, redirects: 5, persistent: false, &block)
+    # Only network I/O and temporary-file writes run here. Poll cancellation
+    # without shortening the timeout needed by slow connections and large text
+    # batches. The child is always joined before its caller can clean up files.
+    def request(url, headers: {}, timeout: 8, open_timeout: 3, redirects: 5, persistent: false, check: nil, &block)
+      work = -> { perform_request(url, headers:, timeout:, open_timeout:, redirects:, persistent:, &block) }
+      return work.call unless check
+
+      check.call
+      result = error = nil
+      thread = Thread.new do
+        result = work.call
+      rescue Exception => failure
+        error = failure
+      end
+      check.call until thread.join(0.05)
+      check.call
+      raise error if error
+
+      result
+    ensure
+      if thread&.alive?
+        thread.kill.join
+        close if persistent
+      end
+    end
+
+    def perform_request(url, headers:, timeout:, open_timeout:, redirects:, persistent:, &block)
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       uri = URI(url)
       raise ArgumentError, "Expected an HTTP(S) URL." unless %w[http https].include?(uri.scheme)
 
-      http = connection(uri, timeout:, persistent:)
+      http = connection(uri, timeout:, open_timeout:, persistent:)
       request = Net::HTTP::Get.new(uri, { "User-Agent" => "Aljam3Desktop/0.1", **headers })
       result = redirect = nil
       http.request(request) do |response|
@@ -202,10 +251,11 @@ module Aljam3
         else raise ResponseError, response.code
         end
       end
-      return request(redirect, headers:, timeout:, redirects: redirects - 1, persistent:, &block) if redirect
+      return perform_request(redirect, headers:, timeout:, open_timeout:, redirects: redirects - 1, persistent:, &block) if redirect
 
       result
     rescue *NETWORK_ERRORS => error
+      close if persistent
       failure = ConnectionError.new(error.message)
       Diagnostics.annotate(failure, **Diagnostics.request_context(url), redirects: 5 - redirects,
         duration_ms: ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started) * 1000).round)
@@ -219,14 +269,14 @@ module Aljam3
       raise
     end
 
-    def connection(uri, timeout:, persistent:)
+    def connection(uri, timeout:, open_timeout:, persistent:)
       origin = [uri.scheme, uri.host, uri.port]
       return @range_http if persistent && @range_origin == origin && @range_http&.started?
 
       close if persistent
       http = Net::HTTP.new(uri.host, uri.port)
       http.use_ssl = uri.scheme == "https"
-      http.open_timeout = 3
+      http.open_timeout = open_timeout
       http.read_timeout = http.write_timeout = timeout
       http.max_retries = 0
       if persistent

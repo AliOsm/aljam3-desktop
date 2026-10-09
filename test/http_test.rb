@@ -2,6 +2,7 @@
 
 require_relative "test_helper"
 require "socket"
+require "timeout"
 
 class HTTPTest < Minitest::Test
   include Fixtures
@@ -53,7 +54,8 @@ class HTTPTest < Minitest::Test
   def test_truncated_download_is_not_published
     Dir.mktmpdir do |directory|
       target = File.join(directory, "book.pdf")
-      with_server(response("%PDF-truncated", headers: { "Content-Length" => 1000 })) do |url|
+      truncated = response("%PDF-truncated", headers: { "Content-Length" => 1000 })
+      with_server(truncated, truncated) do |url|
         assert_raises(Aljam3::ConnectionError) { Aljam3::HTTP.new.download(url, target) }
       end
       refute File.exist?(target)
@@ -75,6 +77,104 @@ class HTTPTest < Minitest::Test
     with_server(response("Busy", status: "503 Unavailable")) do |url|
       error = assert_raises(Aljam3::ResponseError) { Aljam3::HTTP.new.get(url) }
       assert_equal 503, error.status
+    end
+  end
+
+  def test_slow_download_and_metadata_requests_survive_the_old_eight_second_deadline
+    [true, false].map do |pdf|
+      Thread.new do
+        body = pdf ? "%PDF-1.7\nslow book" : '{"id":1,"files":[]}'
+        with_server(->(_) { sleep 8.5; response(body) }) do |url|
+          if pdf
+            Dir.mktmpdir do |directory|
+              target = File.join(directory, "book.pdf")
+              Aljam3::HTTP.new.download(url, target)
+              assert_equal body, File.binread(target)
+            end
+          else
+            api = Aljam3::API.new(base_url: url, interval: 0)
+            assert_equal 1, api.book(1, check: -> {})["id"]
+          end
+        end
+      end
+    end.each(&:value)
+  end
+
+  def test_cancellation_interrupts_stalled_metadata_and_pdf_requests
+    [:metadata, :pdf].each do |kind|
+      entered, gate = Queue.new, Queue.new
+      cancelled = false
+      check = -> { raise Aljam3::DownloadStopped if cancelled }
+      with_server(->(_) { entered << true; gate.pop; response("unused") }) do |url|
+        Dir.mktmpdir do |directory|
+          target = File.join(directory, "book.pdf")
+          worker = Thread.new do
+            if kind == :pdf
+              Aljam3::HTTP.new.download(url, target, check:)
+            else
+              Aljam3::API.new(base_url: url, interval: 0).book(1, check:)
+            end
+          rescue Aljam3::DownloadStopped
+            :cancelled
+          end
+          Timeout.timeout(3) { entered.pop }
+          cancelled = true
+          assert_equal :cancelled, Timeout.timeout(2) { worker.value }
+          refute File.exist?(target)
+          refute File.exist?("#{target}.part")
+        ensure
+          worker&.kill&.join
+        end
+      end
+    end
+  end
+
+  def test_cancelled_metadata_request_never_opens_a_connection
+    http = Aljam3::HTTP.new
+    http.define_singleton_method(:connection) { |*args, **options| raise "Unexpected connection" }
+    assert_raises(Aljam3::DownloadStopped) { http.get("https://aljam3.com/api/v1/books/1", check: -> { raise Aljam3::DownloadStopped }) }
+  end
+
+  def test_an_interrupted_online_text_request_is_retried_once
+    with_server("", response('{"pages":[{"number":1,"content":"العلم"}]}')) do |url|
+      api = Aljam3::API.new(base_url: url, interval: 0)
+      assert_equal "العلم", api.page(1, 1).fetch("content")
+    end
+    with_server("", "") do |url|
+      assert_raises(Aljam3::ConnectionError) { Aljam3::HTTP.new.get(url) }
+    end
+  end
+
+  def test_an_interrupted_export_restarts_atomically_without_appending_duplicate_bytes
+    Dir.mktmpdir do |directory|
+      target = File.join(directory, "book.pdf")
+      File.binwrite(target, "existing file")
+      pdf = "%PDF-1.7\ncomplete exported book"
+      partial = response(pdf[0, 12], headers: { "Content-Length" => pdf.bytesize })
+      complete = ->(_) do
+        assert_equal "existing file", File.binread(target)
+        response(pdf)
+      end
+      with_server(partial, complete) { |url| Aljam3::HTTP.new.download(url, target) }
+      assert_equal pdf, File.binread(target)
+      refute File.exist?("#{target}.part")
+    end
+  end
+
+  def test_interrupted_pdf_range_is_retried_on_a_fresh_connection
+    requests = []
+    interrupted = response("x", status: "206 Partial Content", headers: { "Content-Length" => 4, "Content-Range" => "bytes 0-3/8", "ETag" => '"v1"' })
+    complete = ->(request) do
+      requests << request
+      response("head", status: "206 Partial Content", headers: { "Content-Range" => "bytes 0-3/8", "ETag" => '"v1"' })
+    end
+    with_server(interrupted, complete) do |url|
+      http = Aljam3::HTTP.new
+      assert_equal "head", http.read_range(url, offset: 0, length: 4, validator: '"v1"').bytes
+      assert_match(/Range: bytes=0-3/i, requests.first)
+      assert_match(/If-Range: "v1"/i, requests.first)
+    ensure
+      http&.close
     end
   end
 
@@ -324,7 +424,8 @@ class HTTPTest < Minitest::Test
         assert_raises(Aljam3::ResponseError) { Aljam3::HTTP.new.read_range(url, offset: 0, length: 4) }
       end
     end
-    with_server(response("ab", status: "206 Partial Content", headers: { "Content-Range" => "bytes 0-3/10", "Content-Length" => 4 })) do |url|
+    truncated = response("ab", status: "206 Partial Content", headers: { "Content-Range" => "bytes 0-3/10", "Content-Length" => 4 })
+    with_server(truncated, truncated) do |url|
       assert_raises(Aljam3::ConnectionError) { Aljam3::HTTP.new.read_range(url, offset: 0, length: 4) }
     end
   end

@@ -17,6 +17,7 @@ module Aljam3
     MARKER = ".aljam3-library.json"
     CONTENTS = %w[library.sqlite3 library.sqlite3-wal library.sqlite3-shm books renders].freeze
     class Error < StandardError; end
+    class InvalidDestination < Error; end
     class Unavailable < Error; end
     class Cancelled < Error; end
 
@@ -138,13 +139,13 @@ module Aljam3
         @destination = File.realpath(destination)
         # realpath also catches aliases/symlinks, and case aliases on Windows/macOS.
         if File.identical?(@source, @destination) || within?(@destination, @source) || within?(@source, @destination)
-          raise Error, "اختر مجلدًا آخر خارج مجلد المكتبة الحالي."
+          raise InvalidDestination, "اختر مجلدًا آخر خارج مجلد المكتبة الحالي."
         end
         validate_destination!
         shared_lock = app_lock if File.identical?(@destination, storage.app_directory)
         @owns_lock = !shared_lock
         @lock = shared_lock || Instance.acquire(@destination, create: false)
-        raise Error, "المجلد مستخدم في نافذة أخرى. اختر مجلدًا آخر." unless @lock
+        raise InvalidDestination, "المجلد مستخدم في نافذة أخرى. اختر مجلدًا آخر." unless @lock
 
         validate_destination!
         @installed = []
@@ -231,7 +232,7 @@ module Aljam3
       def validate_destination!
         allowed = %w[app.lock .DS_Store desktop.ini Thumbs.db]
         allowed += [CONFIG, "updates", "analytics", "launcher.log"] if File.identical?(@destination, @storage.app_directory)
-        raise Error, "اختر مجلدًا فارغًا لحفظ المكتبة؛ لن ندمجها مع ملفات أخرى." unless (Dir.children(@destination) - allowed).empty?
+        raise InvalidDestination, "اختر مجلدًا فارغًا لحفظ المكتبة؛ لن ندمجها مع ملفات أخرى." unless (Dir.children(@destination) - allowed).empty?
       end
 
       def entries_to_copy
