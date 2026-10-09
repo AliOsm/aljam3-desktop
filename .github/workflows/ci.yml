@@ -57,6 +57,8 @@ jobs:
       - name: Native behavior
         run: cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test clipboard --test text_input --test golden --test protocol --test a11y --test damage --test images
       - name: Inspect native UI invariants
+        env:
+          ALJAM3_UI_TIMEOUT: ${{ runner.os == 'Windows' && '300' || '120' }}
         run: bundle exec ruby bin/verify-ui audit
       - uses: actions/upload-artifact@v4
         if: always()

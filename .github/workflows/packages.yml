@@ -71,7 +71,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ieasybooks/aljam3-product
-          ref: 102e3dccd60397c87a81c216cc058d4721c30f22
+          ref: 6ee660975875e1e4c53439486bf08379028aa5b1
           token: ${{ secrets.ALJAM3_PRODUCT_READ_TOKEN }}
           persist-credentials: false
       - name: Validate current release permit
@@ -144,6 +144,8 @@ jobs:
       - name: Native layout, input, clipboard, and rendering tests
         run: cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test clipboard --test text_input --test golden --test protocol --test a11y --test damage --test images
       - name: Native motion interactions and feedback
+        env:
+          ALJAM3_UI_TIMEOUT: ${{ runner.os == 'Windows' && '300' || '120' }}
         run: |
           bundle exec ruby bin/verify-ui motion
           bundle exec ruby bin/verify-ui feedback
@@ -304,7 +306,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ieasybooks/aljam3-product
-          ref: 102e3dccd60397c87a81c216cc058d4721c30f22
+          ref: 6ee660975875e1e4c53439486bf08379028aa5b1
           token: ${{ secrets.ALJAM3_PRODUCT_READ_TOKEN }}
           persist-credentials: false
       - name: Revalidate approval immediately before publication
