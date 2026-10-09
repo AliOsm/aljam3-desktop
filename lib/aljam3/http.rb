@@ -43,7 +43,10 @@ module Aljam3
 
       headers = { "Range" => "bytes=#{offset}-#{offset + length - 1}", "Accept-Encoding" => "identity" }
       headers["If-Range"] = validator if validator
-      request(url, headers:, persistent: true, check:) do |response|
+      # PDF reads already run on dedicated workers (eight for scattered ranges).
+      # Keep each small range on its worker; per-request threads add scheduling
+      # overhead to fast scrolling. The response chunks still check cancellation.
+      request(url, headers:, persistent: true) do |response|
         check.call
         if response.code == "200"
           raise RemoteFileChangedError, "The PDF changed. Please retry." if validator
