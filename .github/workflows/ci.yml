@@ -1,0 +1,79 @@
+name: CI
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  native:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: macos-arm64
+          - runner: windows-2022
+            target: windows-x64
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    env:
+      MACOSX_DEPLOYMENT_TARGET: '13.0'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with:
+          arch: x64
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: '3.4.7'
+          bundler: '4.0.16'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: '1.98.1'
+      - name: Configure the Windows linker
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "RUSTFLAGS=-C target-feature=+crt-static" >> $env:GITHUB_ENV
+          "CARGO_TARGET_X86_64_PC_WINDOWS_MSVC_LINKER=$($env:VCToolsInstallDir)bin\Hostx64\x64\link.exe" >> $env:GITHUB_ENV
+      - run: ruby bin/setup --prepare
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: vendor/scarpe/native
+      - uses: actions/cache@v4
+        with:
+          path: vendor/pdfium
+          key: pdfium-${{ matrix.target }}-${{ hashFiles('bin/build-pdfium', 'packaging/pdfium/*.patch') }}
+      - run: ruby bin/setup
+      - name: Application behavior
+        run: bundle exec rake test
+      - name: Native behavior
+        run: cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test clipboard --test text_input --test golden --test protocol --test a11y --test damage --test images
+      - name: Inspect native UI invariants
+        env:
+          ALJAM3_UI_TIMEOUT: ${{ runner.os == 'Windows' && '300' || '120' }}
+        run: bundle exec ruby bin/verify-ui audit
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: QA-${{ matrix.target }}
+          path: .cache/preview/
+          if-no-files-found: ignore
+          retention-days: 30
+  required:
+    name: Aljam3 / CI
+    if: always()
+    needs: [native]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require both supported platforms
+        env:
+          RESULT: ${{ needs.native.result }}
+        run: test "$RESULT" = success

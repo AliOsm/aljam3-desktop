@@ -6,3 +6,5 @@
 /bench/results/
 *.sqlite3*
 *.log
+
+__pycache__/

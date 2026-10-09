@@ -12,6 +12,8 @@ root = File.expand_path("..", __dir__)
 probe = ARGV.empty? ? "ui" : ARGV.shift
 abort "Usage: bin/verify-ui [feedback|motion|motion_benchmark|interaction|audit|categories|pdf|scroll|updates|settings|settings_startup|analytics]" unless %w[ui feedback motion motion_benchmark interaction audit categories pdf scroll updates settings settings_startup analytics].include?(probe) && ARGV.empty?
 output = ENV.fetch("ALJAM3_VERIFY_OUTPUT") { File.join(root, ".cache/preview/#{probe == 'ui' ? 'parity' : probe}") }
+timeout = Integer(ENV.fetch("ALJAM3_UI_TIMEOUT", "120"))
+abort "ALJAM3_UI_TIMEOUT must be positive" unless timeout.positive?
 FileUtils.mkdir_p(output)
 %w[passed.json failed.txt].each { |name| FileUtils.rm_f(File.join(output, name)) }
 Dir.mktmpdir("aljam3-ui-") do |scratch|
@@ -26,7 +28,7 @@ Dir.mktmpdir("aljam3-ui-") do |scratch|
     "SCARPE_NATIVE_STATS" => probe == "motion_benchmark" ? output : nil,
     "SPEC_TRAP_FILE" => File.join(scratch, "trapped.txt"), "SPEC_CLIPBOARD_FILE" => File.join(scratch, "clipboard.txt")
   }
-  text, status = Timeout.timeout(120) do
+  text, status = Timeout.timeout(timeout) do
     Open3.capture2e(env, RbConfig.ruby, "-I#{root}/vendor/scarpe/lib", File.join(root, "vendor/scarpe/exe/scarpe"),
       "--native", File.join(root, "test/support/#{probe}_probe.rb"))
   end

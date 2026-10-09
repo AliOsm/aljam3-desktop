@@ -9,6 +9,11 @@ directory = File.expand_path(ARGV.shift || "dist")
 versions = ARGV.empty? ? [Aljam3::VERSION] : ARGV
 draft = ENV["ALJAM3_RELEASE_DRAFT"] == "true"
 versions.each do |version|
+  notes_path = File.expand_path("../docs/releases/#{version}.md", __dir__)
+  versioned_notes = File.file?(notes_path) ? File.read(notes_path) : nil
+  if ENV["ALJAM3_REQUIRE_RELEASE_NOTES"] == "true" && versioned_notes.to_s.strip.empty?
+    abort "Versioned release notes are required: #{notes_path}"
+  end
   names = ["Aljam3-#{version}-macos-arm64.dmg", "Aljam3-#{version}-windows-x64-setup.exe"]
   files = names.flat_map { |name| [File.join(directory, name), File.join(directory, "#{name}.sha256")] }
   abort "Both platform packages and checksums are required" unless files.all? { |file| File.file?(file) }
@@ -35,6 +40,11 @@ versions.each do |version|
     notes.write("- **ماك بمعالج Apple silicon، إصدار macOS 13 فأحدث:** افتح ملف `Aljam3-#{version}-macos-arm64.dmg`، واسحب التطبيق إلى مجلد التطبيقات، ثم افتحه من هناك.\n\n")
     notes.write("قد يظهر تنبيه أمني لأن التطبيقات غير موقّعة بشهادة مطوّر وغير موثّقة لدى Apple. في ماك، يمكنك السماح بالتشغيل من «إعدادات النظام ← الخصوصية والأمان ← فتح على أي حال».\n\n")
     notes.write("للتحديث من نسخة سابقة، افتح تحديثات التطبيق واختر «إعادة التشغيل والتحديث». تبقى مكتبتك وبيانات القراءة محفوظة.\n")
+    if versioned_notes
+      notes.rewind
+      notes.truncate(0)
+      notes.write(versioned_notes)
+    end
     notes.flush
     revision = ENV.fetch("GITHUB_SHA") { IO.popen(["git", "rev-parse", "HEAD"], &:read).strip }
     tag = "refs/tags/v#{version}"

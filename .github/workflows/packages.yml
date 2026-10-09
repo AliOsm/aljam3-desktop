@@ -1,8 +1,23 @@
 name: Build packages
+run-name: ${{ inputs.delivery == 'agent' && format('Aljam3 delivery {0}', inputs.delivery_id) || 'Manual desktop packages' }}
 
 on:
   workflow_dispatch:
     inputs:
+      delivery:
+        description: Human owner or governed product delivery
+        type: choice
+        options: [manual, agent]
+        default: manual
+      product_issue:
+        description: Product issue for agent delivery
+        type: string
+      release_sha:
+        description: Exact approved commit for agent delivery
+        type: string
+      delivery_id:
+        description: Unique permit issued by the product gate
+        type: string
       test_pair:
         description: Build and verify the temporary 0.0.1 to 0.0.2 update
         type: boolean
@@ -20,8 +35,57 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: desktop-packages
+  cancel-in-progress: false
+
 jobs:
+  authorize:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment: aljam3-read-policy
+    outputs:
+      sha: ${{ steps.validate.outputs.sha }}
+    steps:
+      - name: Validate dispatch identity and revision
+        id: validate
+        env:
+          DELIVERY: ${{ inputs.delivery }}
+          ACTOR_ID: ${{ github.actor_id }}
+          SHA: ${{ inputs.release_sha || github.sha }}
+          DISPATCH_SHA: ${{ github.sha }}
+          RELEASE: ${{ inputs.release }}
+          TEST_PAIR: ${{ inputs.test_pair }}
+        run: |
+          [[ "$SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          test "$SHA" = "$DISPATCH_SHA"
+          case "$RELEASE" in none|draft|publish) ;; *) exit 1 ;; esac
+          case "$DELIVERY" in
+            manual) test "$ACTOR_ID" = 7662492 ;;
+            agent) test "$SHA" = "$DISPATCH_SHA" && test "$RELEASE" = publish && test "$TEST_PAIR" = false ;;
+            *) exit 1 ;;
+          esac
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+      - name: Read trusted product gate
+        if: inputs.delivery == 'agent'
+        uses: actions/checkout@v4
+        with:
+          repository: ieasybooks/aljam3-product
+          ref: 6ee660975875e1e4c53439486bf08379028aa5b1
+          token: ${{ secrets.ALJAM3_PRODUCT_READ_TOKEN }}
+          persist-credentials: false
+      - name: Validate current release permit
+        if: inputs.delivery == 'agent'
+        env:
+          GH_TOKEN: ${{ secrets.ALJAM3_PRODUCT_READ_TOKEN }}
+          ISSUE: ${{ inputs.product_issue }}
+          SHA: ${{ steps.validate.outputs.sha }}
+          DELIVERY_ID: ${{ inputs.delivery_id }}
+        run: python3 bin/productctl authorize-release --issue "$ISSUE" --repository ieasybooks/aljam3-desktop --sha "$SHA" --delivery-id "$DELIVERY_ID"
+
   package:
+    needs: authorize
+    environment: ${{ inputs.test_pair && 'aljam3-production' || 'aljam3-build' }}
     strategy:
       fail-fast: false
       matrix:
@@ -37,6 +101,9 @@ jobs:
       ALJAM3_TEST_PAIR: ${{ inputs.test_pair }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+          persist-credentials: false
       - uses: ilammy/msvc-dev-cmd@v1
         if: runner.os == 'Windows'
         with:
@@ -77,6 +144,8 @@ jobs:
       - name: Native layout, input, clipboard, and rendering tests
         run: cargo test --release --locked --manifest-path vendor/scarpe/native/Cargo.toml --lib --test clipboard --test text_input --test golden --test protocol --test a11y --test damage --test images
       - name: Native motion interactions and feedback
+        env:
+          ALJAM3_UI_TIMEOUT: ${{ runner.os == 'Windows' && '300' || '120' }}
         run: |
           bundle exec ruby bin/verify-ui motion
           bundle exec ruby bin/verify-ui feedback
@@ -131,7 +200,7 @@ jobs:
             dist/update-verification/
             dist/dmg-verification/
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 30
 
   macos-26:
     name: Verify the same Mac package on macOS 26
@@ -140,6 +209,9 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+          persist-credentials: false
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4.7'
@@ -151,7 +223,8 @@ jobs:
         run: |
           test "$(uname -m)" = arm64
           sw_vers
-          ruby bin/verify-dmg "$(ls input/Aljam3-*.dmg | sort -V | tail -1)" dist/Aljam3.app
+          package=$(ruby -e 'puts Dir["input/Aljam3-*.dmg"].sort_by { |path| path.scan(/\d+/).map(&:to_i) }.last')
+          ruby bin/verify-dmg "$package" dist/Aljam3.app
       - name: Prepare headless verification helpers
         run: ruby bin/setup --prepare
       - name: Exercise bundled PDF cancellation and rapid navigation
@@ -168,7 +241,7 @@ jobs:
             dist/verification/pdf/
             dist/update-verification/
           if-no-files-found: warn
-          retention-days: 1
+          retention-days: 30
 
   windows-arm:
     name: Verify installer and update on Windows 11 ARM
@@ -179,6 +252,9 @@ jobs:
       ALJAM3_VERIFY_TIMEOUT: '600'
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+          persist-credentials: false
       - uses: actions/download-artifact@v4
         with:
           name: Aljam3-windows-x64
@@ -217,16 +293,48 @@ jobs:
           path: |
             dist/installer-verification/
             dist/update-verification/
-          retention-days: 1
+          retention-days: 30
+
+  release-authorize:
+    if: inputs.release != 'none'
+    needs: [authorize, package, macos-26, windows-arm]
+    runs-on: ubuntu-latest
+    environment: aljam3-read-policy
+    steps:
+      - name: Read the pinned gate after packaging completes
+        if: inputs.delivery == 'agent'
+        uses: actions/checkout@v4
+        with:
+          repository: ieasybooks/aljam3-product
+          ref: 6ee660975875e1e4c53439486bf08379028aa5b1
+          token: ${{ secrets.ALJAM3_PRODUCT_READ_TOKEN }}
+          persist-credentials: false
+      - name: Revalidate approval immediately before publication
+        if: inputs.delivery == 'agent'
+        env:
+          GH_TOKEN: ${{ secrets.ALJAM3_PRODUCT_READ_TOKEN }}
+          ISSUE: ${{ inputs.product_issue }}
+          SHA: ${{ needs.authorize.outputs.sha }}
+          DELIVERY_ID: ${{ inputs.delivery_id }}
+        run: python3 bin/productctl authorize-release --issue "$ISSUE" --repository ieasybooks/aljam3-desktop --sha "$SHA" --delivery-id "$DELIVERY_ID"
+      - name: Confirm manual owner publication
+        if: inputs.delivery == 'manual'
+        env:
+          ACTOR_ID: ${{ github.actor_id }}
+        run: test "$ACTOR_ID" = 7662492
 
   release:
     if: inputs.release != 'none'
-    needs: [package, macos-26, windows-arm]
+    needs: [authorize, package, macos-26, windows-arm, release-authorize]
+    environment: aljam3-production
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.release_sha || github.sha }}
+          persist-credentials: false
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: '3.4.7'
@@ -240,6 +348,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           UPDATE_PRIVATE_KEY: ${{ secrets.UPDATE_PRIVATE_KEY }}
           TEST_PAIR: ${{ inputs.test_pair }}
+          ALJAM3_REQUIRE_RELEASE_NOTES: ${{ inputs.delivery == 'agent' }}
           ALJAM3_RELEASE_DRAFT: ${{ inputs.release == 'draft' }}
         run: |
           if [ "$TEST_PAIR" = true ]; then
@@ -247,3 +356,18 @@ jobs:
           else
             ruby bin/publish-release dist
           fi
+      - name: Verify the published release and expected assets
+        if: inputs.release == 'publish'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_PAIR: ${{ inputs.test_pair }}
+        run: |
+          if [ "$TEST_PAIR" = true ]; then
+            versions='0.0.1 0.0.2'
+          else
+            versions=$(ruby -r ./lib/aljam3/version -e 'puts Aljam3::VERSION')
+          fi
+          for version in $versions; do
+            gh release view "v$version" --json isDraft,assets --jq '{draft: .isDraft, names: [.assets[].name]}' > /tmp/release.json
+            VERSION="$version" python3 -c 'import json,os; r=json.load(open("/tmp/release.json")); v=os.environ["VERSION"]; expected={f"Aljam3-{v}-macos-arm64.dmg", f"Aljam3-{v}-macos-arm64.dmg.sha256", f"Aljam3-{v}-windows-x64-setup.exe", f"Aljam3-{v}-windows-x64-setup.exe.sha256", "update.json"}; assert not r["draft"] and expected <= set(r["names"])'
+          done
