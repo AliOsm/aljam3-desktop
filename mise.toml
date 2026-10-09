@@ -9,6 +9,10 @@ SQLITE_TOKENIZER_AR_EXTENSION = "{{ config_root }}/vendor/tokenizer/sqlite_token
 description = "Install the pinned desktop runtime and Ruby dependencies"
 run = "ruby bin/setup"
 
+[tasks."agent:setup"]
+description = "Prepare pinned dependencies and disposable agent data"
+run = "python3 bin/agent-workspace setup"
+
 [tasks.start]
 description = "Open Aljam3 Desktop"
 run = "bundle exec ruby bin/aljam3"

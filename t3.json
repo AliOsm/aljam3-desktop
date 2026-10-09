@@ -1,0 +1,10 @@
+{
+  "$schema": "https://t3.codes/schema/t3.json",
+  "defaultThreadEnvMode": "worktree",
+  "scripts": [
+    {"name": "Prepare isolated agent workspace", "command": "mise run agent:setup", "icon": "configure", "runOnWorktreeCreate": true, "async": false},
+    {"name": "Application tests", "command": "mise run test", "icon": "test"},
+    {"name": "Inspect the native experience", "command": "python3 bin/agent-workspace run bundle exec ruby bin/peek", "icon": "play"},
+    {"name": "Report retained workspace evidence", "command": "python3 bin/agent-workspace status", "icon": "configure", "runOnSettle": true}
+  ]
+}
